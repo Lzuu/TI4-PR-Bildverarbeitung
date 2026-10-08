@@ -38,6 +38,13 @@ Wir entwickeln eine Bildverarbeitungsanwendung, die einen Stift über eine USB-K
 - **Echtzeit:** Die Verzögerung zwischen Stiftbewegung und Reaktion im Spiel muss so gering sein, dass sich das Spiel direkt steuern lässt.
 - **Robustheit:** Die Erkennung soll unter normalen Raumbedingungen ohne aufwendige Kalibrierung funktionieren.
 - **Visualisierung:** Die Schnittspur des Stifts wird im Spiel angezeigt. Für die Entwicklung soll sich zusätzlich ein Debug-Fenster mit Kamerabild und erkannter Stiftposition einblenden lassen.
+- Es soll ein Testcase basiertes Programmieren sein. Das heißt beim Programmieren sollen auch Testcases erstellt werden. Die Es sollen bei änderungen neue Test-Cases erstellt werden. Nur wenn alle Test-Cases erfolgreich durchlaufen ist es Erflogreich
+- Nach erstellung des Programms sollen alle Tescases ausgeführt werden
+- Alle Testcases sollen ebenfalls auf Github sein
+- Es soll ein inkrementell iterativer ansatz sein
+- Iterationen sollen über github abgebildet werden
+- Architekturentscheidungen sollen in Architektur.md festgeahlten werden.
+- Logfiles sollen zum Debuggen geschrieben werden
 
 ## Ergebnis
 
