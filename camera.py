@@ -13,16 +13,16 @@ CAMERA_INDEX = 2
 WIDTH, HEIGHT, FPS = 1920, 1080, 30
 
 
-def open_camera(index):
+def open_camera(index, width=WIDTH, height=HEIGHT, fps=FPS):
     # MSMF statt DirectShow: Unter DSHOW greift MJPG nicht und die ELP liefert
     # bei 1080p (YUY2) nur 5 fps, mit MSMF sind es volle 30 fps.
     cap = cv2.VideoCapture(index, cv2.CAP_MSMF)
     if not cap.isOpened():
         raise RuntimeError(f"Kamera {index} konnte nicht geoeffnet werden")
     cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
-    cap.set(cv2.CAP_PROP_FPS, FPS)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    cap.set(cv2.CAP_PROP_FPS, fps)
     return cap
 
 
