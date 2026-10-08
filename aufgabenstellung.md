@@ -2,7 +2,7 @@
 
 ## Ziel
 
-Wir entwickeln eine Bildverarbeitungsanwendung, die einen Stift über eine USB-Kamera in Echtzeit erkennt und verfolgt. Der Stift ersetzt dabei Maus und Touchscreen: Seine Bewegungen steuern das Spiel **Fruit Ninja**. Wer mit dem Stift vor der Kamera durch die Luft wischt, zerschneidet im Spiel die Früchte.
+Wir entwickeln eine Bildverarbeitungsanwendung, die einen Stift über eine USB-Kamera in Echtzeit erkennt und verfolgt. Der Stift ersetzt dabei Maus und Touchscreen: Seine Bewegungen steuern das Spiel **Fruit Ninja**. Wer mit dem Stift vor der Kamera durch die Luft wischt, zerschneidet im Spiel die Früchte. Man soll mit einer zweiten Kamera in einem lokalen Netzwerk gegeneinander Spielen können.
 
 ## Teilaufgaben
 
@@ -29,6 +29,9 @@ Wir entwickeln eine Bildverarbeitungsanwendung, die einen Stift über eine USB-K
 - Kamerakoordinaten auf das Spielfeld übertragen
 - Prüfen, ob die Schnittbahn eine Frucht trifft
 - Punkte zählen, optional Bomben und Leben ergänzen
+
+### 6. Netzwerk
+- In einem Netzwerk soll gegen einen zweiten Spieler gespielt werden können.
 
 ## Anforderungen
 
