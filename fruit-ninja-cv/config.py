@@ -15,6 +15,10 @@ WIDTH = 960               # Render/display width  (overridden by screen size at 
 HEIGHT = 540              # Render/display height (overridden by screen size at runtime)
 REF_HEIGHT = 540          # Reference height the gameplay constants were tuned for
 SCALE = 1.0               # = HEIGHT / REF_HEIGHT, set at runtime
+# Laptop screens (MacBook) expose a ~16:10 usable fullscreen area. We render to
+# this aspect and crop the 16:9 webcam to it, so the window fills the screen
+# (no grey bar) without distorting the video.
+ASPECT = 16 / 10
 FULLSCREEN = True         # Open the window in fullscreen
 MIRROR = True             # Flip horizontally so moving right moves the hand right
 WINDOW_NAME = "Fruit Ninja CV"

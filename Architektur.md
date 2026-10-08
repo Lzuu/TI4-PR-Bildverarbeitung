@@ -62,10 +62,13 @@ Kamera ─► main (Loop, States, Input)
   das Henne-Ei-Problem (einen andersfarbigen Stift könnte man nicht per Dwell
   wählen, solange er nicht getrackt wird) — Tracking bleibt einfarbig und robust.
 - **Fullscreen & auflösungs-responsive.** Beim Start wird die Bildschirmgröße
-  ermittelt (`tkinter`) und als Render-Canvas gesetzt; das Fenster läuft im Vollbild
-  (kein grauer Rand). Ein globaler Faktor `config.SCALE = HEIGHT / REF_HEIGHT`
+  crash-frei über `system_profiler` ermittelt (nicht `tkinter` — das bricht mit
+  OpenCVs Cocoa-Fenster ab). Gerendert wird auf ein festes **16:10**-Format
+  (`config.ASPECT`), das der nutzbaren MacBook-Vollbildfläche entspricht → **kein
+  grauer Rand**. Die 16:9-Webcam wird auf 16:10 **zugeschnitten** (nicht gestaucht)
+  → keine Verzerrung. Ein globaler Faktor `config.SCALE = HEIGHT / REF_HEIGHT`
   skaliert UI (`utils.draw_text`, Kreise) **und Physik** (Radius, Wurf, Gravitation
-  in `fruit.py`). Radius und Geschwindigkeit/Gravitation werden gemeinsam skaliert,
+  in `fruit.py`); Radius und Geschwindigkeit/Gravitation werden gemeinsam skaliert,
   sodass die Flugbahn proportional bleibt und die Airtime (in Frames) gleich.
 - **Herz als Sprite statt Primitive.** Das Herz wird aus der parametrischen
   Herzkurve mit Farbverlauf, Glanz und Kontur in ein gecachtes BGRA-Sprite gerendert

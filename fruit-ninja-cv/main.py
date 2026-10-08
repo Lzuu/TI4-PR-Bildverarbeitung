@@ -16,6 +16,8 @@ Keys: q quit | d mask (debug)
 """
 
 import logging
+import re
+import subprocess
 import sys
 
 import cv2
@@ -41,17 +43,25 @@ STATE_GAME_OVER = "game_over"
 
 
 def detect_screen_size():
-    """Return (w, h) of the primary screen, or a sane default."""
+    """Logical screen size (points) via system_profiler -- no GUI toolkit.
+
+    Avoids tkinter (which aborts with 'Tcl_FindHashEntry on deleted table' when
+    mixed with OpenCV's Cocoa window on macOS).
+    """
     try:
-        import tkinter as tk
-        root = tk.Tk()
-        root.withdraw()
-        w, h = root.winfo_screenwidth(), root.winfo_screenheight()
-        root.destroy()
-        if w > 100 and h > 100:
-            return int(w), int(h)
+        out = subprocess.run(["system_profiler", "SPDisplaysDataType"],
+                             capture_output=True, text=True, timeout=6).stdout
+        m = re.search(r"UI Looks like:\s*(\d+)\s*x\s*(\d+)", out)
+        if m:
+            return int(m.group(1)), int(m.group(2))
+        m = re.search(r"Resolution:\s*(\d+)\s*x\s*(\d+)", out)
+        if m:
+            w, h = int(m.group(1)), int(m.group(2))
+            if w >= 2560:                 # Retina physical -> approximate points
+                w, h = w // 2, h // 2
+            return w, h
     except Exception:
-        logger.warning("Could not detect screen size; using default", exc_info=True)
+        logger.warning("Screen-size detection failed; using default", exc_info=True)
     return 1280, 720
 
 
@@ -83,6 +93,18 @@ def _s(px):
     return int(round(px * config.SCALE))
 
 
+def crop_to_aspect(img, aspect):
+    """Centre-crop an image to the given width/height aspect (no distortion)."""
+    h, w = img.shape[:2]
+    if w / h > aspect:                       # too wide -> crop the sides
+        nw = int(round(h * aspect))
+        x0 = (w - nw) // 2
+        return img[:, x0:x0 + nw]
+    nh = int(round(w / aspect))              # too tall -> crop top/bottom
+    y0 = (h - nh) // 2
+    return img[y0:y0 + nh, :]
+
+
 def row_targets(w, h, n, y_frac=0.46, r=None):
     """n evenly spread circles in a horizontal row: list of (cx, cy, r)."""
     r = _s(config.SELECT_RADIUS if r is None else r)
@@ -91,7 +113,7 @@ def row_targets(w, h, n, y_frac=0.46, r=None):
 
 
 def quit_target(w, h):
-    return (int(w * 0.5), int(h * 0.86), _s(40))
+    return (int(w * 0.5), int(h * 0.80), _s(40))
 
 
 def menu_start_target(w, h):
@@ -248,9 +270,12 @@ def main():
     logger.info("Starting Fruit Ninja CV (logfile: %s)", log_path)
 
     sw, sh = detect_screen_size()
-    config.WIDTH, config.HEIGHT = sw, sh
+    # Render to a fixed 16:10 aspect (laptop fullscreen area), height from screen.
+    config.HEIGHT = sh
+    config.WIDTH = int(round(sh * config.ASPECT))
     config.SCALE = sh / config.REF_HEIGHT
-    logger.info("Screen %dx%d, scale %.2f", sw, sh, config.SCALE)
+    logger.info("Screen %dx%d -> canvas %dx%d, scale %.2f", sw, sh,
+                config.WIDTH, config.HEIGHT, config.SCALE)
 
     cap = None
     try:
@@ -292,6 +317,11 @@ def _run_game_loop(cap, sounds):
     if config.FULLSCREEN:
         cv2.setWindowProperty(config.WINDOW_NAME, cv2.WND_PROP_FULLSCREEN,
                               cv2.WINDOW_FULLSCREEN)
+        try:
+            cv2.setWindowProperty(config.WINDOW_NAME, cv2.WND_PROP_ASPECT_RATIO,
+                                  cv2.WINDOW_FREERATIO)
+        except Exception:
+            logger.warning("WND_PROP_ASPECT_RATIO not supported", exc_info=True)
     cv2.setMouseCallback(config.WINDOW_NAME, on_mouse)
 
     while True:
@@ -307,6 +337,7 @@ def _run_game_loop(cap, sounds):
             continue
         frame_failures = 0
 
+        frame = crop_to_aspect(frame, config.WIDTH / config.HEIGHT)
         frame = cv2.resize(frame, (config.WIDTH, config.HEIGHT))
         if config.MIRROR:
             frame = cv2.flip(frame, 1)
