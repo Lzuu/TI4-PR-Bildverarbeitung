@@ -3,23 +3,8 @@
 import math
 
 import cv2
-import numpy as np
 
 import config
-
-
-def draw_heart(frame, center, r, color=(70, 70, 235)):
-    """Draw a filled heart icon (two lobes + a downward triangle).
-
-    ``r`` is the lobe radius; the heart is roughly 4*r wide and tall.
-    """
-    cx, cy = int(center[0]), int(center[1])
-    r = max(2, int(r))
-    cv2.circle(frame, (cx - r, cy - r), r, color, -1, cv2.LINE_AA)
-    cv2.circle(frame, (cx + r, cy - r), r, color, -1, cv2.LINE_AA)
-    pts = np.array([[cx - 2 * r, cy - r], [cx + 2 * r, cy - r], [cx, cy + 2 * r]],
-                   np.int32)
-    cv2.fillPoly(frame, [pts], color, cv2.LINE_AA)
 
 
 def point_segment_distance(p, a, b):
@@ -46,9 +31,15 @@ def point_segment_distance(p, a, b):
 
 
 def draw_text(frame, text, org, scale=0.8, color=None, thickness=2, center=False):
-    """Draw text with a dark shadow for readability over the camera feed."""
+    """Draw text with a dark shadow for readability over the camera feed.
+
+    ``scale`` and ``thickness`` are multiplied by ``config.SCALE`` so text grows
+    with the render resolution (responsive layout).
+    """
     if color is None:
         color = config.HUD_COLOR
+    scale = scale * config.SCALE
+    thickness = max(1, int(round(thickness * config.SCALE)))
     font = cv2.FONT_HERSHEY_SIMPLEX
     if center:
         (tw, th), _ = cv2.getTextSize(text, font, scale, thickness)

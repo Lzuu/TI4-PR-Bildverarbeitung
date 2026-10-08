@@ -19,16 +19,19 @@ from difficulty import DEFAULT
 class Fruit:
     def __init__(self, width, height, diff=None):
         diff = diff or DEFAULT
-        self.gravity = diff.gravity
-        self.radius = random.randint(*config.FRUIT_RADIUS)
+        scale = config.SCALE
+        # Scaling radius + velocity + gravity by the same factor keeps the arc
+        # proportional to the resolution while the airtime (in frames) stays equal.
+        self.gravity = diff.gravity * scale
+        self.radius = int(random.randint(*config.FRUIT_RADIUS) * scale)
         # Launch from just below the bottom edge at a random horizontal position
         margin = int(0.12 * width)
         self.x = float(random.randint(margin, width - margin))
         self.y = float(height + self.radius)
         # Arc inward (toward the centre) so fruits stay on screen; throw upward
         direction = 1.0 if self.x < width / 2.0 else -1.0
-        self.vx = direction * random.uniform(*diff.drift_vx)
-        self.vy = random.uniform(*diff.launch_vy)           # negative => upward
+        self.vx = direction * random.uniform(*diff.drift_vx) * scale
+        self.vy = random.uniform(*diff.launch_vy) * scale   # negative => upward
 
         self.is_bomb = random.random() < diff.bomb_probability
         if self.is_bomb:

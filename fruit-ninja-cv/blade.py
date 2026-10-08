@@ -58,17 +58,19 @@ class Blade:
         pts = list(self.points)
         if len(pts) < 2:
             return
+        s = config.SCALE
         # Glow pass on a copy, then blend for a soft halo
         overlay = frame.copy()
         for i in range(1, len(pts)):
-            thick = int(2 + (i / len(pts)) * config.BLADE_MAX_THICKNESS)
+            thick = int((2 + (i / len(pts)) * config.BLADE_MAX_THICKNESS) * s)
             cv2.line(overlay, pts[i - 1], pts[i], config.BLADE_GLOW_COLOR,
-                     thick + 8, cv2.LINE_AA)
+                     thick + int(8 * s), cv2.LINE_AA)
         cv2.addWeighted(overlay, 0.35, frame, 0.65, 0, frame)
         # Sharp bright core
         for i in range(1, len(pts)):
-            thick = int(2 + (i / len(pts)) * config.BLADE_MAX_THICKNESS)
+            thick = max(1, int((2 + (i / len(pts)) * config.BLADE_MAX_THICKNESS) * s))
             cv2.line(frame, pts[i - 1], pts[i], config.BLADE_COLOR,
                      thick, cv2.LINE_AA)
         # Tip marker
-        cv2.circle(frame, pts[-1], 6, config.BLADE_COLOR, -1, cv2.LINE_AA)
+        cv2.circle(frame, pts[-1], max(3, int(6 * s)), config.BLADE_COLOR, -1,
+                   cv2.LINE_AA)

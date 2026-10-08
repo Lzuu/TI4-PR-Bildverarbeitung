@@ -32,6 +32,7 @@ Kamera ─► main (Loop, States, Input)
 | `blade.py` | Kurzer Trail der letzten Marker-Punkte; aktuelles Segment & Geschwindigkeit |
 | `fruit.py` | Frucht-/Bomben-Entität: Projektil-Physik + prozedurale Darstellung |
 | `game.py` | Spielzustand: Spawning (Bursts), Kollision, Punkte, Leben, Kombos |
+| `heart.py` | Herz-Sprite (parametrische Herzkurve, Verlauf+Glanz) für die Leben |
 | `highscore.py` | Top-3-Highscore **je Schwierigkeit** (JSON-Persistenz) |
 | `sound.py` | Soundeffekte (synthetisiert, non-blocking via afplay) |
 | `utils.py` | Wiederverwendbare Helfer: Linie-Kreis-Abstand, Text mit Schatten |
@@ -55,10 +56,21 @@ Kamera ─► main (Loop, States, Input)
   Mindestwert gegen Haut/heller Wand). Kein fehleranfälliges Live-Kalibrieren mehr.
   **Standard ist Pink, und es wird immer nur die EINE aktive Farbe getrackt**
   (keine Union) → keine Fehldetektion durch andere farbige Objekte.
-- **Stiftfarbe als Startmenü-Einstellung (Maus).** Die Farbe wechselt man nur, wenn
-  man will: per **Maus-Klick** auf eine Farb-Kachel im Startmenü. Das umgeht das
-  Henne-Ei-Problem (einen andersfarbigen Stift könnte man nicht per Dwell wählen,
-  solange er nicht getrackt wird) und hält das Tracking einfarbig und robust.
+- **Stiftfarbe als versteckte Einstellung (Maus).** Die Farbe wechselt man nur, wenn
+  man will: Sie liegt hinter einem **„Stiftfarbe"-Button** im Menü; erst ein
+  **Maus-Klick** öffnet die Farb-Kacheln. Das hält das Menü aufgeräumt und umgeht
+  das Henne-Ei-Problem (einen andersfarbigen Stift könnte man nicht per Dwell
+  wählen, solange er nicht getrackt wird) — Tracking bleibt einfarbig und robust.
+- **Fullscreen & auflösungs-responsive.** Beim Start wird die Bildschirmgröße
+  ermittelt (`tkinter`) und als Render-Canvas gesetzt; das Fenster läuft im Vollbild
+  (kein grauer Rand). Ein globaler Faktor `config.SCALE = HEIGHT / REF_HEIGHT`
+  skaliert UI (`utils.draw_text`, Kreise) **und Physik** (Radius, Wurf, Gravitation
+  in `fruit.py`). Radius und Geschwindigkeit/Gravitation werden gemeinsam skaliert,
+  sodass die Flugbahn proportional bleibt und die Airtime (in Frames) gleich.
+- **Herz als Sprite statt Primitive.** Das Herz wird aus der parametrischen
+  Herzkurve mit Farbverlauf, Glanz und Kontur in ein gecachtes BGRA-Sprite gerendert
+  (`heart.py`) und per Alpha-Blending gezeichnet → sieht wie ein echtes Spiel-Asset
+  aus, ohne externe Bilddatei.
 - **VR-Dwell-Auswahl.** Start, Schwierigkeit und die Game-Over-Felder (Neustart/
   Startmenü/Quit) werden ausgewählt, indem der Stift einige Sekunden in einem Kreis
   gehalten wird (Ladering). Entkoppelt in `dwell.py` (zeitbasiert, framerate-

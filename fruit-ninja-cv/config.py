@@ -8,8 +8,14 @@ tweaked without touching the logic modules.
 # Camera / window
 # ---------------------------------------------------------------------------
 CAMERA_INDEX = 1          # 1 = MacBook FaceTime HD. (0 = iPhone Continuity on this Mac.)
-WIDTH = 960               # Processing/display width  (frame is resized to this)
-HEIGHT = 540              # Processing/display height
+# WIDTH/HEIGHT are the render canvas size. They default to 960x540 but are set to
+# the actual screen resolution at startup (fullscreen, responsive layout). SCALE is
+# derived from HEIGHT so physics and UI scale with the resolution.
+WIDTH = 960               # Render/display width  (overridden by screen size at runtime)
+HEIGHT = 540              # Render/display height (overridden by screen size at runtime)
+REF_HEIGHT = 540          # Reference height the gameplay constants were tuned for
+SCALE = 1.0               # = HEIGHT / REF_HEIGHT, set at runtime
+FULLSCREEN = True         # Open the window in fullscreen
 MIRROR = True             # Flip horizontally so moving right moves the hand right
 WINDOW_NAME = "Fruit Ninja CV"
 MAX_FRAME_FAILURES = 60   # Abort only after this many *consecutive* failed reads

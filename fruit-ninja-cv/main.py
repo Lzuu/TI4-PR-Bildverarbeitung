@@ -1,13 +1,13 @@
 """Fruit Ninja CV -- entry point and game loop.
 
-The app opens in a start menu with the PINK pen active by default (only pink is
-tracked -- no false positives). You start the game by holding the pen on the
-"Start" circle (VR-style dwell). The pen colour is only changed if you want to:
-click one of the colour swatches with the MOUSE. Everything else in-game is
-pen-driven.
+The window opens in fullscreen and the whole layout + physics scale to the
+screen resolution (responsive). The app starts in a menu with the PINK pen
+active by default (only pink is tracked). You start by holding the pen on the
+"Start" circle (VR-style dwell). The pen colour is a *setting*: it is hidden
+behind a "Stiftfarbe" button and only shown when you open it (mouse click).
 
 States:
-  MENU       Start (pen dwell) + Quit (pen dwell); pen colour via MOUSE click.
+  MENU       Start / Quit (pen dwell); pen colour setting via mouse button.
   DIFFICULTY Pick the difficulty (Einfach / Mittel / Schwer) by dwelling.
   PLAY       Slice thrown fruits with the pen (touch is enough), avoid bombs.
   GAME_OVER  Score + Top-3 leaderboard; dwell on Neustart / Startmenue / Quit.
@@ -40,6 +40,21 @@ STATE_PLAY = "play"
 STATE_GAME_OVER = "game_over"
 
 
+def detect_screen_size():
+    """Return (w, h) of the primary screen, or a sane default."""
+    try:
+        import tkinter as tk
+        root = tk.Tk()
+        root.withdraw()
+        w, h = root.winfo_screenwidth(), root.winfo_screenheight()
+        root.destroy()
+        if w > 100 and h > 100:
+            return int(w), int(h)
+    except Exception:
+        logger.warning("Could not detect screen size; using default", exc_info=True)
+    return 1280, 720
+
+
 def open_camera():
     """Open the configured camera, falling back to index 0."""
     cap = cv2.VideoCapture(config.CAMERA_INDEX)
@@ -56,39 +71,53 @@ def open_camera():
                      config.CAMERA_INDEX)
         print("ERROR: Could not open any camera.", file=sys.stderr)
         sys.exit(1)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.HEIGHT)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
     return cap
 
 
 # --------------------------------------------------------------------------- #
-# Layout helpers
+# Scaling + layout helpers
 # --------------------------------------------------------------------------- #
-def row_targets(w, h, n, y_frac=0.46, r=config.SELECT_RADIUS):
+def _s(px):
+    return int(round(px * config.SCALE))
+
+
+def row_targets(w, h, n, y_frac=0.46, r=None):
     """n evenly spread circles in a horizontal row: list of (cx, cy, r)."""
+    r = _s(config.SELECT_RADIUS if r is None else r)
     y = int(h * y_frac)
     return [(int(w * (i + 1) / (n + 1)), y, r) for i in range(n)]
 
 
 def quit_target(w, h):
-    return (int(w * 0.5), int(h * 0.86), 40)
+    return (int(w * 0.5), int(h * 0.86), _s(40))
 
 
 def menu_start_target(w, h):
-    return (int(w * 0.5), int(h * 0.38), config.CONFIRM_RADIUS)
+    return (int(w * 0.5), int(h * 0.38), _s(config.CONFIRM_RADIUS))
 
 
 def color_swatches(w, h):
-    y = int(h * 0.64)
-    r = 26
-    xs = [int(w * 0.42), int(w * 0.5), int(w * 0.58)]
+    y = int(h * 0.52)
+    r = _s(34)
+    xs = [int(w * 0.40), int(w * 0.5), int(w * 0.60)]
     return [(xs[i], y, r) for i in range(len(COLORS))]
+
+
+def settings_button(w, h):
+    return (_s(20), h - _s(70), _s(260), _s(48))
 
 
 def _hit(point, target):
     px, py = point
     cx, cy, r = target
     return (px - cx) ** 2 + (py - cy) ** 2 <= r * r
+
+
+def _in_rect(point, rect):
+    x, y, bw, bh = rect
+    return x <= point[0] <= x + bw and y <= point[1] <= y + bh
 
 
 # --------------------------------------------------------------------------- #
@@ -102,26 +131,39 @@ def _dim(frame, alpha=0.5):
 
 def _draw_ring(frame, center, r, progress, color):
     if progress > 0:
-        cv2.ellipse(frame, center, (r, r), -90, 0, int(360 * progress), color, 8,
-                    cv2.LINE_AA)
+        cv2.ellipse(frame, center, (r, r), -90, 0, int(360 * progress), color,
+                    max(3, _s(8)), cv2.LINE_AA)
 
 
 def _draw_circle_option(frame, target, color, label, active, progress):
     cx, cy, r = target
-    cv2.circle(frame, (cx, cy), r, color, 3, cv2.LINE_AA)
+    cv2.circle(frame, (cx, cy), r, color, max(2, _s(3)), cv2.LINE_AA)
     if active:
         _draw_ring(frame, (cx, cy), r, progress, color)
-    draw_text(frame, label, (cx, cy + r + 26), scale=0.75, color=color, center=True)
+    draw_text(frame, label, (cx, cy + r + _s(26)), scale=0.75, color=color,
+              center=True)
 
 
 def _draw_pen_marker(frame, point):
     if point is not None:
-        cv2.circle(frame, point, 10, (255, 255, 255), 2, cv2.LINE_AA)
-        cv2.circle(frame, point, 3, (255, 255, 255), -1, cv2.LINE_AA)
+        cv2.circle(frame, point, _s(10), (255, 255, 255), max(1, _s(2)), cv2.LINE_AA)
+        cv2.circle(frame, point, _s(3), (255, 255, 255), -1, cv2.LINE_AA)
     return point is not None
 
 
-def draw_menu(frame, start_t, quit_t, swatches, pen_color, active, progress, point):
+def _draw_settings_button(frame, rect, pen_color, is_open):
+    x, y, bw, bh = rect
+    bg = (90, 90, 90) if is_open else (55, 55, 55)
+    cv2.rectangle(frame, (x, y), (x + bw, y + bh), bg, -1, cv2.LINE_AA)
+    cv2.rectangle(frame, (x, y), (x + bw, y + bh), (200, 200, 200), 1, cv2.LINE_AA)
+    cv2.circle(frame, (x + _s(20), y + bh // 2), _s(11), pen_color.display, -1,
+               cv2.LINE_AA)
+    draw_text(frame, f"Stiftfarbe: {pen_color.name}",
+              (x + _s(40), y + bh // 2 + _s(7)), scale=0.6)
+
+
+def draw_menu(frame, start_t, quit_t, sbtn, swatches, pen_color, settings_open,
+              active, progress, point):
     _dim(frame)
     h, w = frame.shape[:2]
     draw_text(frame, "FRUIT NINJA CV", (w // 2, int(h * 0.16)), scale=1.4,
@@ -130,14 +172,19 @@ def draw_menu(frame, start_t, quit_t, swatches, pen_color, active, progress, poi
                         progress)
     _draw_circle_option(frame, quit_t, (200, 200, 200), "Quit", active == 1,
                         progress)
-    # Colour setting (mouse-clickable swatches)
-    draw_text(frame, "Stiftfarbe (Maus-Klick):", (w // 2, int(h * 0.56)),
-              scale=0.6, center=True)
-    for i, (cx, cy, r) in enumerate(swatches):
-        cv2.circle(frame, (cx, cy), r, COLORS[i].display, -1, cv2.LINE_AA)
-        if COLORS[i] is pen_color:          # highlight the active colour
-            cv2.circle(frame, (cx, cy), r + 5, (255, 255, 255), 2, cv2.LINE_AA)
-    if not _draw_pen_marker(frame, point):
+    _draw_settings_button(frame, sbtn, pen_color, settings_open)
+    if settings_open:
+        _dim(frame, 0.45)
+        draw_text(frame, "Stiftfarbe waehlen (Maus-Klick)", (w // 2, int(h * 0.36)),
+                  scale=0.9, center=True)
+        for i, (cx, cy, r) in enumerate(swatches):
+            cv2.circle(frame, (cx, cy), r, COLORS[i].display, -1, cv2.LINE_AA)
+            if COLORS[i] is pen_color:
+                cv2.circle(frame, (cx, cy), r + _s(6), (255, 255, 255),
+                           max(1, _s(2)), cv2.LINE_AA)
+            draw_text(frame, COLORS[i].name, (cx, cy + r + _s(28)), scale=0.7,
+                      color=COLORS[i].display, center=True)
+    if not _draw_pen_marker(frame, point) and not settings_open:
         draw_text(frame, "Stift nicht erkannt", (w // 2, int(h * 0.74)),
                   scale=0.6, color=(80, 80, 255), center=True)
 
@@ -158,13 +205,13 @@ def draw_difficulty_screen(frame, d_targets, q_target, active, progress, point,
 
 
 def draw_mask_inset(frame, mask):
-    iw, ih = 192, 108
+    iw, ih = _s(192), _s(108)
     small = cv2.cvtColor(cv2.resize(mask, (iw, ih)), cv2.COLOR_GRAY2BGR)
     h, w = frame.shape[:2]
-    x0, y0 = w - iw - 10, 10
+    x0, y0 = w - iw - _s(10), _s(10)
     frame[y0:y0 + ih, x0:x0 + iw] = small
     cv2.rectangle(frame, (x0, y0), (x0 + iw, y0 + ih), (255, 255, 255), 1)
-    draw_text(frame, "Maske", (x0 + 4, y0 + ih - 8), scale=0.5)
+    draw_text(frame, "Maske", (x0 + _s(4), y0 + ih - _s(8)), scale=0.5)
 
 
 GAME_OVER_LABELS = ["Neustart", "Startmenue", "Quit"]
@@ -185,7 +232,7 @@ def draw_game_over(frame, game, scores, rank, targets, active, progress, point,
               (w // 2, int(h * 0.42)), scale=0.7, center=True)
     for i in range(3):
         value = scores[i] if i < len(scores) else "-"
-        draw_text(frame, f"{i + 1}.  {value}", (w // 2, int(h * 0.47) + i * 26),
+        draw_text(frame, f"{i + 1}.  {value}", (w // 2, int(h * 0.47) + _s(26) * i),
                   scale=0.65, center=True)
     for i, t in enumerate(targets):
         _draw_circle_option(frame, t, color, GAME_OVER_LABELS[i], active == i,
@@ -199,6 +246,11 @@ def draw_game_over(frame, game, scores, rank, targets, active, progress, point,
 def main():
     log_path = setup_logging()
     logger.info("Starting Fruit Ninja CV (logfile: %s)", log_path)
+
+    sw, sh = detect_screen_size()
+    config.WIDTH, config.HEIGHT = sw, sh
+    config.SCALE = sh / config.REF_HEIGHT
+    logger.info("Screen %dx%d, scale %.2f", sw, sh, config.SCALE)
 
     cap = None
     try:
@@ -227,15 +279,19 @@ def _run_game_loop(cap, sounds):
     tracker.set_color(pen_color)
     scores, rank = [], None
     show_mask = False
+    settings_open = False
     frame_failures = 0
-    click = [None]                   # mouse clicks (colour setting in the menu)
+    click = [None]
 
     def on_mouse(event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
             click[0] = (x, y)
 
     state = STATE_MENU
-    cv2.namedWindow(config.WINDOW_NAME)
+    cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
+    if config.FULLSCREEN:
+        cv2.setWindowProperty(config.WINDOW_NAME, cv2.WND_PROP_FULLSCREEN,
+                              cv2.WINDOW_FULLSCREEN)
     cv2.setMouseCallback(config.WINDOW_NAME, on_mouse)
 
     while True:
@@ -261,22 +317,32 @@ def _run_game_loop(cap, sounds):
         if state == STATE_MENU:
             start_t = menu_start_target(config.WIDTH, config.HEIGHT)
             quit_t = quit_target(config.WIDTH, config.HEIGHT)
+            sbtn = settings_button(config.WIDTH, config.HEIGHT)
             swatches = color_swatches(config.WIDTH, config.HEIGHT)
-            # Mouse click changes the pen colour (the only mouse interaction)
+
             if click[0] is not None:
-                for i, sw in enumerate(swatches):
-                    if _hit(click[0], sw):
-                        pen_color = COLORS[i]
-                        tracker.set_color(pen_color)
-                        dwell.reset()
-                        logger.info("Pen colour set to %s (mouse)", pen_color.name)
-                        break
+                if _in_rect(click[0], sbtn):
+                    settings_open = not settings_open
+                    dwell.reset()
+                elif settings_open:
+                    picked = False
+                    for i, sw_t in enumerate(swatches):
+                        if _hit(click[0], sw_t):
+                            pen_color = COLORS[i]
+                            tracker.set_color(pen_color)
+                            logger.info("Pen colour set to %s (mouse)", pen_color.name)
+                            picked = True
+                            break
+                    settings_open = False   # any click in the panel closes it
                 click[0] = None
 
             point = tracker.track(clean)
-            active, progress, confirmed = dwell.update(point, [start_t, quit_t])
-            draw_menu(frame, start_t, quit_t, swatches, pen_color, active,
-                      progress, point)
+            if settings_open:
+                active, progress, confirmed = None, 0.0, None
+            else:
+                active, progress, confirmed = dwell.update(point, [start_t, quit_t])
+            draw_menu(frame, start_t, quit_t, sbtn, swatches, pen_color,
+                      settings_open, active, progress, point)
             if confirmed == 0:              # Start
                 logger.info("Start (colour %s)", pen_color.name)
                 dwell.reset()
@@ -322,7 +388,7 @@ def _run_game_loop(cap, sounds):
 
         elif state == STATE_GAME_OVER:
             point = tracker.track(clean)
-            targets = row_targets(config.WIDTH, config.HEIGHT, 3, y_frac=0.80, r=46)
+            targets = row_targets(config.WIDTH, config.HEIGHT, 3, y_frac=0.80, r=50)
             active, progress, confirmed = dwell.update(point, targets)
             game.draw(frame)
             game.draw_hud(frame)

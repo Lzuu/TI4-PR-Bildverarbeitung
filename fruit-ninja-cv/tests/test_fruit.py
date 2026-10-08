@@ -56,6 +56,23 @@ def test_missed_only_while_descending():
     assert missed, "fruit should eventually fall back out and count as missed"
 
 
+def test_physics_scales_with_config_scale():
+    """Radius and launch velocity grow with the render resolution (SCALE)."""
+    old = config.SCALE
+    try:
+        config.SCALE = 1.0
+        random.seed(0)
+        small = Fruit(W, H)
+        config.SCALE = 2.0
+        random.seed(0)
+        big = Fruit(W, H)
+    finally:
+        config.SCALE = old
+    assert big.radius > small.radius + 5
+    assert abs(big.vy) > abs(small.vy) + 1
+    assert big.gravity > small.gravity
+
+
 def test_slice_marks_state_and_stops_scoring_twice():
     f = _make_fruit()
     f.slice(0.0)

@@ -7,7 +7,8 @@ import config
 from fruit import Fruit
 from difficulty import DEFAULT
 from sound import NullSound
-from utils import point_segment_distance, draw_text, draw_heart
+from utils import point_segment_distance, draw_text
+from heart import draw_heart
 
 logger = logging.getLogger(__name__)
 
@@ -138,12 +139,16 @@ class Game:
             fruit.draw(frame)
 
     def draw_hud(self, frame):
-        draw_text(frame, f"Score: {self.score}", (16, 36), scale=0.9)
-        draw_text(frame, "Leben", (16, 78), scale=0.75)
+        s = config.SCALE
+        draw_text(frame, f"Score: {self.score}", (int(16 * s), int(38 * s)),
+                  scale=0.9)
+        draw_text(frame, "Leben", (int(16 * s), int(84 * s)), scale=0.75)
+        hsize = int(30 * s)
+        hx = int(135 * s)
         for i in range(self.lives):
-            draw_heart(frame, (120 + i * 32, 70), 9)
-        draw_text(frame, self.difficulty.name, (16, 112), scale=0.6,
-                  color=(200, 200, 200))
+            draw_heart(frame, (hx + i * int(40 * s), int(78 * s)), hsize)
+        draw_text(frame, self.difficulty.name, (int(16 * s), int(120 * s)),
+                  scale=0.6, color=(200, 200, 200))
 
     def draw_combo(self, frame):
         if self.combo_banner_frames > 0 and self.combo_text:

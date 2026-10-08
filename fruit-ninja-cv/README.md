@@ -12,11 +12,15 @@ Entwickelt **inkrementell-iterativ** und **test-case-basiert**.
 - 🎯 **Farb-Tracking** mit festen Bereichen (keine Kalibrierung nötig).
 - 🏠 **Startmenü:** standardmäßig **Pink** aktiv (nur Pink wird getrackt). Spiel per
   Stift (**Dwell**) starten; Quit ebenfalls per Stift.
-- 🖱️ **Stiftfarbe als Einstellung:** per **Maus-Klick** auf eine Farb-Kachel
-  (Pink/Gelb/Grün) wechselbar — nur nötig, wenn man die Farbe wirklich ändern will.
+- 🖥️ **Fullscreen & responsive:** startet im Vollbild; Layout **und Physik**
+  skalieren mit der Bildschirmauflösung (kein grauer Rand).
+- 🖱️ **Stiftfarbe als Einstellung:** hinter einem **„Stiftfarbe"-Button** im Menü —
+  erst per **Maus-Klick** öffnen, dann Farbe (Pink/Gelb/Grün) wählen. Nur nötig,
+  wenn man die Farbe wirklich ändern will.
 - 🕹️ **VR-Auswahl per Dwell:** Stift 3 s in einen Kreis halten → Ladering füllt
   sich → bestätigt (Start, Schwierigkeit, Game-Over-Felder – ohne Tastatur).
-- ❤️ **Echte Herz-Icons** als Lebensanzeige.
+- ❤️ **Herz-Icon (Sprite)** als Lebensanzeige – gerenderte Herzkurve mit Verlauf
+  und Glanz.
 - 🍉 **Wurf-Physik:** Früchte fliegen von unten im Bogen herein.
 - ✂️ **Schneiden durch Berührung** (keine Mindestgeschwindigkeit).
 - 🎚️ **Drei Schwierigkeitsgrade** – schnellere Früchte = schwerer (immer **3 Leben**).
@@ -44,9 +48,10 @@ Kamera: Standard `CAMERA_INDEX = 1` (MacBook FaceTime HD). Andere Kamera in
 `config.py` einstellen (z. B. 0 = iPhone/Continuity).
 
 ## Ablauf & Steuerung
-1. **Startmenü:** Pink ist standardmäßig aktiv. **Start** auswählen, indem du den
-   Stift **3 Sekunden** in den Start-Kreis hältst (Ladering bestätigt). Eine andere
-   Stiftfarbe nur bei Bedarf per **Maus-Klick** auf die Farb-Kachel setzen.
+1. **Startmenü (Vollbild):** Pink ist standardmäßig aktiv. **Start** auswählen,
+   indem du den Stift **3 Sekunden** in den Start-Kreis hältst (Ladering bestätigt).
+   Andere Stiftfarbe nur bei Bedarf: unten links auf **„Stiftfarbe"** klicken
+   (Maus) → Farb-Kachel wählen.
 2. **Schwierigkeit wählen:** Stift **3 Sekunden** in den gewünschten Kreis
    (Einfach/Mittel/Schwer) halten.
 3. **Spielen:** Stift über die Früchte führen (**Berührung reicht**). Mehrere
@@ -96,6 +101,7 @@ Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.p
 | `blade.py` | Klingen-Trail + Geschwindigkeit |
 | `fruit.py` | Frucht-/Bomben-Projektil-Physik + Zeichnung |
 | `game.py` | Spawning, Kollision, Score, Leben, Kombos |
+| `heart.py` | Herz-Sprite (parametrische Herzkurve) für die Lebensanzeige |
 | `highscore.py` | Top-3 je Schwierigkeit (JSON-Persistenz) |
 | `sound.py` | Soundeffekte (synthetisiert, afplay) |
 | `logging_config.py` | Logfiles (rotierend, `logs/`) |
