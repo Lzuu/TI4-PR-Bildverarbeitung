@@ -3,8 +3,23 @@
 import math
 
 import cv2
+import numpy as np
 
 import config
+
+
+def draw_heart(frame, center, r, color=(70, 70, 235)):
+    """Draw a filled heart icon (two lobes + a downward triangle).
+
+    ``r`` is the lobe radius; the heart is roughly 4*r wide and tall.
+    """
+    cx, cy = int(center[0]), int(center[1])
+    r = max(2, int(r))
+    cv2.circle(frame, (cx - r, cy - r), r, color, -1, cv2.LINE_AA)
+    cv2.circle(frame, (cx + r, cy - r), r, color, -1, cv2.LINE_AA)
+    pts = np.array([[cx - 2 * r, cy - r], [cx + 2 * r, cy - r], [cx, cy + 2 * r]],
+                   np.int32)
+    cv2.fillPoly(frame, [pts], color, cv2.LINE_AA)
 
 
 def point_segment_distance(p, a, b):

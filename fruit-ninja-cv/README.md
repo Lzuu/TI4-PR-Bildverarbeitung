@@ -10,9 +10,13 @@ Entwickelt **inkrementell-iterativ** und **test-case-basiert**.
 
 ## Features
 - 🎯 **Farb-Tracking** mit festen Bereichen (keine Kalibrierung nötig).
-- 🖍️ **Drei Stiftfarben** wählbar: **Pink**, **Gelb**, **Grün**.
+- 🏠 **Startmenü:** standardmäßig **Pink** aktiv (nur Pink wird getrackt). Spiel per
+  Stift (**Dwell**) starten; Quit ebenfalls per Stift.
+- 🖱️ **Stiftfarbe als Einstellung:** per **Maus-Klick** auf eine Farb-Kachel
+  (Pink/Gelb/Grün) wechselbar — nur nötig, wenn man die Farbe wirklich ändern will.
 - 🕹️ **VR-Auswahl per Dwell:** Stift 3 s in einen Kreis halten → Ladering füllt
-  sich → bestätigt (für Farbe **und** Schwierigkeit, ganz ohne Tastatur).
+  sich → bestätigt (Start, Schwierigkeit, Game-Over-Felder – ohne Tastatur).
+- ❤️ **Echte Herz-Icons** als Lebensanzeige.
 - 🍉 **Wurf-Physik:** Früchte fliegen von unten im Bogen herein.
 - ✂️ **Schneiden durch Berührung** (keine Mindestgeschwindigkeit).
 - 🎚️ **Drei Schwierigkeitsgrade** – schnellere Früchte = schwerer (immer **3 Leben**).
@@ -40,22 +44,18 @@ Kamera: Standard `CAMERA_INDEX = 1` (MacBook FaceTime HD). Andere Kamera in
 `config.py` einstellen (z. B. 0 = iPhone/Continuity).
 
 ## Ablauf & Steuerung
-1. **Farbe wählen:** Den Stift **3 Sekunden** in den Kreis deiner Stiftfarbe
-   (Pink/Gelb/Grün) halten — der Ladering bestätigt die Auswahl.
-2. **Schwierigkeit wählen:** Ebenso **3 Sekunden** in den gewünschten Kreis
+1. **Startmenü:** Pink ist standardmäßig aktiv. **Start** auswählen, indem du den
+   Stift **3 Sekunden** in den Start-Kreis hältst (Ladering bestätigt). Eine andere
+   Stiftfarbe nur bei Bedarf per **Maus-Klick** auf die Farb-Kachel setzen.
+2. **Schwierigkeit wählen:** Stift **3 Sekunden** in den gewünschten Kreis
    (Einfach/Mittel/Schwer) halten.
 3. **Spielen:** Stift über die Früchte führen (**Berührung reicht**). Mehrere
    Früchte in einem Swipe geben einen **Kombo-Bonus**. Verpasste Früchte kosten
    ein Leben, Bomben = sofort vorbei.
+4. **Game Over:** **Neustart**, **Startmenü** oder **Quit** per Stift-Dwell wählen.
 
-| Taste | Funktion |
-|-------|----------|
-| `r` | Neustart (gleiche Schwierigkeit) |
-| `m` | Zurück zur Auswahl (Farbe/Schwierigkeit) |
-| `d` | Masken-Debugfenster an/aus |
-| `q` | Beenden |
-
-> Die Auswahl läuft komplett über den Stift (Dwell), nicht über die Tastatur.
+> Alle In-Game-Auswahlen laufen über den Stift (Dwell). Nur die **Stiftfarbe** im
+> Startmenü wird per **Maus** gesetzt. Tastatur-Fallback: `q` Beenden, `d` Maske.
 
 ## Tests (test-case-basiert)
 ```bash

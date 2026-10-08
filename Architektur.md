@@ -23,7 +23,7 @@ Kamera ─► main (Loop, States, Input)
 ## Module & Verantwortlichkeiten
 | Modul | Verantwortung |
 |-------|---------------|
-| `main.py` | Game-Loop, State-Machine (Color/Difficulty/Play/GameOver), Kamera-Capture, Dwell-Auswahl, Rendering, Logging-Setup, Fehlerbehandlung |
+| `main.py` | Game-Loop, State-Machine (Menu/Difficulty/Play/GameOver), Kamera-Capture, Dwell-Auswahl, Maus-Farbeinstellung, Rendering, Logging-Setup, Fehlerbehandlung |
 | `config.py` | Gemeinsame Konstanten (Kamera, Marker, Dwell, Kombos, Highscore, HUD) |
 | `colors.py` | Feste Stiftfarben Pink/Gelb/Grün (HSV-Bereich + UI-Farbe) |
 | `difficulty.py` | Schwierigkeitsgrade (Tempo; immer 3 Leben) als Presets |
@@ -53,11 +53,16 @@ Kamera ─► main (Loop, States, Input)
 - **Feste Farbbereiche statt Selbst-Kalibrierung.** Pink/Gelb/Grün sind in
   `colors.py` als feste HSV-Bereiche hinterlegt (Hue als Hauptkriterium, S/V mit
   Mindestwert gegen Haut/heller Wand). Kein fehleranfälliges Live-Kalibrieren mehr.
-  Auf dem Auswahl-Screen trackt der `MarkerTracker` die **Vereinigung** aller
-  Farben, damit ein Stift beliebiger Farbe erkannt wird.
-- **VR-Dwell-Auswahl.** Farbe und Schwierigkeit werden ausgewählt, indem der Stift
-  einige Sekunden in einem Kreis gehalten wird (Ladering). Entkoppelt in `dwell.py`
-  (zeitbasiert, framerate-unabhängig, mit injizierbarer Uhr → gut testbar).
+  **Standard ist Pink, und es wird immer nur die EINE aktive Farbe getrackt**
+  (keine Union) → keine Fehldetektion durch andere farbige Objekte.
+- **Stiftfarbe als Startmenü-Einstellung (Maus).** Die Farbe wechselt man nur, wenn
+  man will: per **Maus-Klick** auf eine Farb-Kachel im Startmenü. Das umgeht das
+  Henne-Ei-Problem (einen andersfarbigen Stift könnte man nicht per Dwell wählen,
+  solange er nicht getrackt wird) und hält das Tracking einfarbig und robust.
+- **VR-Dwell-Auswahl.** Start, Schwierigkeit und die Game-Over-Felder (Neustart/
+  Startmenü/Quit) werden ausgewählt, indem der Stift einige Sekunden in einem Kreis
+  gehalten wird (Ladering). Entkoppelt in `dwell.py` (zeitbasiert, framerate-
+  unabhängig, mit injizierbarer Uhr → gut testbar).
 - **Farbige Marker statt Hautfarbe.** Gesättigte Pen-Farben liegen weit vom Hautton
   entfernt → keine Verwechslung mit der Hand.
 - **Projektil-Physik.** Früchte starten unter dem unteren Rand mit Aufwärts-

@@ -7,7 +7,7 @@ import config
 from fruit import Fruit
 from difficulty import DEFAULT
 from sound import NullSound
-from utils import point_segment_distance, draw_text
+from utils import point_segment_distance, draw_text, draw_heart
 
 logger = logging.getLogger(__name__)
 
@@ -139,10 +139,10 @@ class Game:
 
     def draw_hud(self, frame):
         draw_text(frame, f"Score: {self.score}", (16, 36), scale=0.9)
-        hearts = "<3 " * self.lives
-        draw_text(frame, f"Lives: {hearts.strip()}", (16, 72), scale=0.9,
-                  color=(80, 80, 255))
-        draw_text(frame, self.difficulty.name, (16, 104), scale=0.6,
+        draw_text(frame, "Leben", (16, 78), scale=0.75)
+        for i in range(self.lives):
+            draw_heart(frame, (120 + i * 32, 70), 9)
+        draw_text(frame, self.difficulty.name, (16, 112), scale=0.6,
                   color=(200, 200, 200))
 
     def draw_combo(self, frame):

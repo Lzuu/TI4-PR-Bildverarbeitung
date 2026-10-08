@@ -12,18 +12,20 @@ WIDTH = 960               # Processing/display width  (frame is resized to this)
 HEIGHT = 540              # Processing/display height
 MIRROR = True             # Flip horizontally so moving right moves the hand right
 WINDOW_NAME = "Fruit Ninja CV"
+MAX_FRAME_FAILURES = 60   # Abort only after this many *consecutive* failed reads
 
 # ---------------------------------------------------------------------------
 # Marker tracking (fixed colour ranges -- no self-calibration; see colors.py)
 # ---------------------------------------------------------------------------
-MIN_MARKER_AREA = 200            # Ignore contours smaller than this (noise)
+MIN_MARKER_AREA = 300            # Ignore contours smaller than this (noise/false blobs)
 MORPH_KERNEL = 5                 # Kernel size for open/close morphology
 
 # ---------------------------------------------------------------------------
 # Selection (VR-style dwell: hold the pen in a circle to confirm)
 # ---------------------------------------------------------------------------
 DWELL_SECONDS = 3.0              # How long to hold on a target to select it
-SELECT_RADIUS = 72               # Radius of the selection circles (px)
+SELECT_RADIUS = 72               # Radius of the difficulty-selection circles (px)
+CONFIRM_RADIUS = 95              # Radius of the central "hold here to start" circle
 
 # ---------------------------------------------------------------------------
 # Blade / slicing
