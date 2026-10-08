@@ -23,14 +23,16 @@ Kamera ─► main (Loop, States, Input)
 ## Module & Verantwortlichkeiten
 | Modul | Verantwortung |
 |-------|---------------|
-| `main.py` | Game-Loop, State-Machine (Menu/Calibrate/Play/GameOver), Kamera-Capture, Tastatur/Maus, Rendering-Orchestrierung, Logging-Setup, Fehlerbehandlung |
-| `config.py` | Gemeinsame Konstanten (Kamera, HSV, Kombos, Highscore, HUD) |
-| `difficulty.py` | Schwierigkeitsgrade (Einfach/Mittel/Schwer) als Presets |
-| `marker_tracker.py` | HSV-Farb-Segmentierung + Kalibrierung + Positionsbestimmung |
+| `main.py` | Game-Loop, State-Machine (Color/Difficulty/Play/GameOver), Kamera-Capture, Dwell-Auswahl, Rendering, Logging-Setup, Fehlerbehandlung |
+| `config.py` | Gemeinsame Konstanten (Kamera, Marker, Dwell, Kombos, Highscore, HUD) |
+| `colors.py` | Feste Stiftfarben Pink/Gelb/Grün (HSV-Bereich + UI-Farbe) |
+| `difficulty.py` | Schwierigkeitsgrade (Tempo; immer 3 Leben) als Presets |
+| `dwell.py` | VR-Dwell-Auswahl (Stift n Sekunden auf einem Ziel = Bestätigung) |
+| `marker_tracker.py` | HSV-Farb-Segmentierung (eine oder mehrere Farben) + Positionsbestimmung |
 | `blade.py` | Kurzer Trail der letzten Marker-Punkte; aktuelles Segment & Geschwindigkeit |
 | `fruit.py` | Frucht-/Bomben-Entität: Projektil-Physik + prozedurale Darstellung |
 | `game.py` | Spielzustand: Spawning (Bursts), Kollision, Punkte, Leben, Kombos |
-| `highscore.py` | Top-3-Highscore (JSON-Persistenz) |
+| `highscore.py` | Top-3-Highscore **je Schwierigkeit** (JSON-Persistenz) |
 | `sound.py` | Soundeffekte (synthetisiert, non-blocking via afplay) |
 | `utils.py` | Wiederverwendbare Helfer: Linie-Kreis-Abstand, Text mit Schatten |
 | `logging_config.py` | Zentrales Logging (rotierendes Logfile + Konsole) |
@@ -48,12 +50,16 @@ Kamera ─► main (Loop, States, Input)
 - **Klassische Bildverarbeitung statt ML.** Farb-Segmentierung (HSV) + Konturen
   statt MediaPipe o. Ä. → passt zur Kursintention, transparente Pipeline, kein
   Modell-Overhead.
-- **HUE-basierte Marker-Erkennung.** Der Farbton ist das Hauptkriterium; Sättigung
-  und Helligkeit haben nur einen Mindestwert (`S_FLOOR`/`V_FLOOR`). Robust gegen
-  Lichtschwankungen und gegen den hellen Hintergrund (weiße Wand). Kalibrierung per
-  Klick nimmt den Median-Hue eines kleinen Flecks (präziser als Box-Mittelwert).
-- **Pinker Marker.** Farbton liegt weit vom Hautton entfernt → keine Verwechslung
-  mit der Hand.
+- **Feste Farbbereiche statt Selbst-Kalibrierung.** Pink/Gelb/Grün sind in
+  `colors.py` als feste HSV-Bereiche hinterlegt (Hue als Hauptkriterium, S/V mit
+  Mindestwert gegen Haut/heller Wand). Kein fehleranfälliges Live-Kalibrieren mehr.
+  Auf dem Auswahl-Screen trackt der `MarkerTracker` die **Vereinigung** aller
+  Farben, damit ein Stift beliebiger Farbe erkannt wird.
+- **VR-Dwell-Auswahl.** Farbe und Schwierigkeit werden ausgewählt, indem der Stift
+  einige Sekunden in einem Kreis gehalten wird (Ladering). Entkoppelt in `dwell.py`
+  (zeitbasiert, framerate-unabhängig, mit injizierbarer Uhr → gut testbar).
+- **Farbige Marker statt Hautfarbe.** Gesättigte Pen-Farben liegen weit vom Hautton
+  entfernt → keine Verwechslung mit der Hand.
 - **Projektil-Physik.** Früchte starten unter dem unteren Rand mit Aufwärts-
   Geschwindigkeit; Schwerkraft erzeugt die Parabel. Launch-Parameter sind so
   gewählt, dass der Scheitel **im Bild** bleibt (nicht oben abgeschnitten).
@@ -65,9 +71,11 @@ Kamera ─► main (Loop, States, Input)
   Loop übersichtlich.
 - **Zentrale Konfiguration.** Alle Stellschrauben in `config.py` → einfaches Tuning,
   keine Magic Numbers im Code.
-- **Schwierigkeitsgrade als Presets.** `difficulty.py` bündelt alle variierenden
-  Werte je Stufe (Gravitation, Wurf, Spawn, Bomben, Leben). `Game`/`Fruit` bekommen
-  die gewählte Stufe injiziert → keine global verstreuten Magic Numbers.
+- **Schwierigkeitsgrade als Presets.** `difficulty.py` bündelt die variierenden
+  Werte je Stufe. Die Schwierigkeit steckt bewusst im **Tempo** der Früchte
+  (höhere Gravitation + Wurfgeschwindigkeit + schnelleres Spawnen); **Leben bleiben
+  immer 3**. `Game`/`Fruit` bekommen die gewählte Stufe injiziert → keine global
+  verstreuten Magic Numbers. Jede Stufe hat ein **eigenes Leaderboard**.
 - **Kombos über ein Zeitfenster.** Mehrere Treffer innerhalb `COMBO_WINDOW_FRAMES`
   zählen als ein Swipe; ab `COMBO_MIN` Früchten gibt es Bonuspunkte.
 - **Highscore als JSON.** `highscore.py` kapselt Laden/Schreiben der Top-3 und ist

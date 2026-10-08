@@ -1,4 +1,8 @@
-"""Persistent Top-N highscore list stored as JSON."""
+"""Persistent Top-N highscores, kept separately per difficulty.
+
+Stored as a single JSON object mapping a difficulty name to its sorted score
+list, e.g. ``{"Einfach": [80, 50, 20], "Schwer": [30]}``.
+"""
 
 import json
 import logging
@@ -8,34 +12,42 @@ logger = logging.getLogger(__name__)
 TOP_N = 3
 
 
-def load(path, top=TOP_N):
-    """Return the stored scores, sorted high to low (empty list on any error)."""
+def _load_all(path):
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-        scores = sorted((int(s) for s in data), reverse=True)
-        return scores[:top]
+        if isinstance(data, dict):
+            return {k: sorted((int(s) for s in v), reverse=True)
+                    for k, v in data.items()}
     except (FileNotFoundError, ValueError, TypeError, json.JSONDecodeError):
-        return []
+        pass
+    return {}
 
 
-def add(path, score, top=TOP_N):
-    """Insert ``score`` and persist the Top-N.
+def load(path, key, top=TOP_N):
+    """Return the Top-N scores for one difficulty (empty list on any error)."""
+    return _load_all(path).get(key, [])[:top]
 
-    Returns ``(scores, rank)`` where ``scores`` is the new Top-N and ``rank`` is
-    the 1-based position of the new score if it made the list, else ``None``.
+
+def add(path, key, score, top=TOP_N):
+    """Insert ``score`` for difficulty ``key`` and persist.
+
+    Returns ``(scores, rank)`` -- the new Top-N for that difficulty and the
+    1-based rank of the new score (or ``None`` if it did not make the list).
     """
     score = int(score)
-    scores = load(path, top=10_000)      # load all, then re-trim
-    scores.append(score)
-    scores.sort(reverse=True)
-    scores = scores[:top]
+    all_scores = _load_all(path)
+    board = all_scores.get(key, [])
+    board.append(score)
+    board.sort(reverse=True)
+    board = board[:top]
+    all_scores[key] = board
 
     try:
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(scores, f)
+            json.dump(all_scores, f)
     except OSError:
         logger.warning("Could not write highscore file: %s", path)
 
-    rank = scores.index(score) + 1 if score in scores else None
-    return scores, rank
+    rank = board.index(score) + 1 if score in board else None
+    return board, rank

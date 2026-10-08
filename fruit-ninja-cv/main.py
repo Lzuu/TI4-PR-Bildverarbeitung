@@ -1,13 +1,15 @@
 """Fruit Ninja CV -- entry point and game loop.
 
-States:
-  MENU       Choose a difficulty (1 Einfach / 2 Mittel / 3 Schwer).
-  CALIBRATE  Click the pink pen (best), or hold it in the box + SPACE; ENTER
-             starts with the default pink range.
-  PLAY       Slice thrown fruits with the pink pen (touch is enough), avoid bombs.
-  GAME_OVER  Shows the final score and the Top-3 highscores.
+Selection is VR-style: hold the pen inside a circle for a few seconds and a
+ring fills up to confirm -- no keyboard needed and no colour self-calibration.
 
-Keys: q quit | 1/2/3 difficulty | r restart | m menu | c re-calibrate | d mask
+States:
+  COLOR      Pick the pen colour (Pink / Gelb / Gruen) by dwelling in a circle.
+  DIFFICULTY Pick the difficulty (Einfach / Mittel / Schwer) by dwelling.
+  PLAY       Slice thrown fruits with the pen (touch is enough), avoid bombs.
+  GAME_OVER  Shows the final score and the Top-3 leaderboard for that difficulty.
+
+Keys: q quit | r restart | m back to selection | d mask (debug)
 """
 
 import logging
@@ -22,13 +24,15 @@ from game import Game
 from utils import draw_text
 from logging_config import setup_logging
 from difficulty import LEVELS
+from colors import COLORS
+from dwell import DwellTracker
 from sound import SoundPlayer
 import highscore
 
 logger = logging.getLogger(__name__)
 
-STATE_MENU = "menu"
-STATE_CALIBRATE = "calibrate"
+STATE_COLOR = "color"
+STATE_DIFFICULTY = "difficulty"
 STATE_PLAY = "play"
 STATE_GAME_OVER = "game_over"
 
@@ -54,78 +58,86 @@ def open_camera():
     return cap
 
 
-def _dim(frame, alpha=0.55):
+# --------------------------------------------------------------------------- #
+# Drawing helpers
+# --------------------------------------------------------------------------- #
+def _dim(frame, alpha=0.5):
     overlay = frame.copy()
     cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
     cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
 
 
-def draw_menu(frame):
-    h, w = frame.shape[:2]
+def selection_targets(w, h, n=3):
+    """Centres + radius of the n selection circles (evenly spread)."""
+    y = int(h * 0.52)
+    r = config.SELECT_RADIUS
+    xs = [int(w * (i + 1) / (n + 1)) for i in range(n)]
+    return [(x, y, r) for x in xs]
+
+
+def _draw_ring(frame, center, r, progress, color):
+    """A circular progress ring (fills clockwise from the top)."""
+    if progress > 0:
+        cv2.ellipse(frame, center, (r, r), -90, 0, int(360 * progress), color, 8,
+                    cv2.LINE_AA)
+
+
+def draw_selection(frame, title, labels, ring_colors, targets, active, progress,
+                   point):
     _dim(frame)
-    draw_text(frame, "FRUIT NINJA CV", (w // 2, int(h * 0.22)), scale=1.6,
-              color=(180, 0, 255), thickness=3, center=True)
-    draw_text(frame, "Schwierigkeit waehlen:", (w // 2, int(h * 0.40)),
-              scale=0.9, center=True)
-    for i, lvl in enumerate(LEVELS):
-        draw_text(frame, f"{i + 1} - {lvl.name}  ({lvl.lives} Leben)",
-                  (w // 2, int(h * 0.52) + i * 36), scale=0.85, center=True)
-    draw_text(frame, "q - Quit", (w // 2, int(h * 0.86)), scale=0.7, center=True)
+    h, w = frame.shape[:2]
+    draw_text(frame, title, (w // 2, int(h * 0.22)), scale=1.1, center=True)
+    draw_text(frame, f"Stift {int(config.DWELL_SECONDS)}s in einen Kreis halten",
+              (w // 2, int(h * 0.30)), scale=0.7, center=True)
+    for i, (cx, cy, r) in enumerate(targets):
+        col = ring_colors[i]
+        cv2.circle(frame, (cx, cy), r, col, 3, cv2.LINE_AA)
+        if active == i:
+            _draw_ring(frame, (cx, cy), r, progress, col)
+        draw_text(frame, labels[i], (cx, cy + r + 30), scale=0.8,
+                  color=col, center=True)
+    if point is not None:
+        cv2.circle(frame, point, 10, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.circle(frame, point, 3, (255, 255, 255), -1, cv2.LINE_AA)
+    else:
+        draw_text(frame, "Stift nicht erkannt", (w // 2, int(h * 0.88)),
+                  scale=0.65, color=(80, 80, 255), center=True)
+    draw_text(frame, "q - Quit", (w // 2, int(h * 0.94)), scale=0.6, center=True)
 
 
 def draw_mask_inset(frame, mask):
-    """Show a small live preview of the detection mask in the top-right corner."""
     iw, ih = 192, 108
     small = cv2.cvtColor(cv2.resize(mask, (iw, ih)), cv2.COLOR_GRAY2BGR)
     h, w = frame.shape[:2]
     x0, y0 = w - iw - 10, 10
     frame[y0:y0 + ih, x0:x0 + iw] = small
-    cv2.rectangle(frame, (x0, y0), (x0 + iw, y0 + ih), (180, 0, 255), 1)
+    cv2.rectangle(frame, (x0, y0), (x0 + iw, y0 + ih), (255, 255, 255), 1)
     draw_text(frame, "Maske", (x0 + 4, y0 + ih - 8), scale=0.5)
 
 
-def draw_calibration_overlay(frame, tracker, point):
+def draw_game_over(frame, game, scores, rank):
+    _dim(frame, 0.55)
     h, w = frame.shape[:2]
-    x, y, bw, bh = tracker.calib_box_px(w, h)
-    cv2.rectangle(frame, (x, y), (x + bw, y + bh), (180, 0, 255), 2)
-    top = int(h * 0.12)
-    draw_text(frame, "Auf den pinken Stift KLICKEN zum Kalibrieren",
-              (w // 2, top), scale=0.8, center=True)
-    draw_text(frame, "oder Stift in die Box + SPACE", (w // 2, top + 34),
-              scale=0.7, center=True)
-    draw_text(frame, "ENTER = Standard-Pink   |   q = Quit",
-              (w // 2, top + 64), scale=0.65, center=True)
-    if point is not None:
-        cv2.circle(frame, point, 12, (0, 255, 0), 2)
-        draw_text(frame, "erkannt", (point[0] + 14, point[1]),
-                  scale=0.6, color=(0, 255, 0))
-    else:
-        draw_text(frame, "nichts erkannt - klick auf den Stift",
-                  (w // 2, int(h * 0.9)), scale=0.65,
-                  color=(80, 80, 255), center=True)
-
-
-def draw_game_over_overlay(frame, game, highscores, rank):
-    h, w = frame.shape[:2]
-    _dim(frame)
-    draw_text(frame, "GAME OVER", (w // 2, int(h * 0.22)), scale=1.8,
+    draw_text(frame, "GAME OVER", (w // 2, int(h * 0.20)), scale=1.8,
               color=(80, 80, 255), thickness=3, center=True)
-    draw_text(frame, f"Score: {game.score}", (w // 2, int(h * 0.33)),
+    draw_text(frame, f"Score: {game.score}", (w // 2, int(h * 0.31)),
               scale=1.1, center=True)
     if rank is not None:
-        draw_text(frame, f"NEUER HIGHSCORE  (#{rank})!", (w // 2, int(h * 0.41)),
+        draw_text(frame, f"NEUER HIGHSCORE  (#{rank})!", (w // 2, int(h * 0.39)),
                   scale=0.8, color=(0, 215, 255), center=True)
-
-    draw_text(frame, "Top 3", (w // 2, int(h * 0.52)), scale=0.8, center=True)
+    draw_text(frame, f"Leaderboard - {game.difficulty.name}",
+              (w // 2, int(h * 0.50)), scale=0.8, center=True)
     for i in range(3):
-        value = highscores[i] if i < len(highscores) else "-"
-        draw_text(frame, f"{i + 1}.  {value}", (w // 2, int(h * 0.58) + i * 32),
-                  scale=0.75, center=True)
+        value = scores[i] if i < len(scores) else "-"
+        draw_text(frame, f"{i + 1}.  {value}", (w // 2, int(h * 0.56) + i * 30),
+                  scale=0.72, center=True)
+    draw_text(frame, "r = Neustart    m = Auswahl    q = Quit",
+              (w // 2, int(h * 0.88)), scale=0.72, center=True)
 
-    draw_text(frame, "r = Neustart    m = Menue    q = Quit",
-              (w // 2, int(h * 0.88)), scale=0.75, center=True)
 
-
+# --------------------------------------------------------------------------- #
+# Main loop
+# --------------------------------------------------------------------------- #
 def main():
     log_path = setup_logging()
     logger.info("Starting Fruit Ninja CV (logfile: %s)", log_path)
@@ -134,8 +146,7 @@ def main():
     try:
         cap = open_camera()
         sounds = SoundPlayer()
-        highscores = highscore.load(config.HIGHSCORE_FILE)
-        _run_game_loop(cap, sounds, highscores)
+        _run_game_loop(cap, sounds)
     except SystemExit:
         raise
     except Exception:
@@ -148,22 +159,20 @@ def main():
         logger.info("Shut down cleanly")
 
 
-def _run_game_loop(cap, sounds, highscores):
+def _run_game_loop(cap, sounds):
     tracker = MarkerTracker()
     blade = Blade()
+    dwell = DwellTracker(config.DWELL_SECONDS)
     game = None
+    pen_color = None
     difficulty = None
-    rank = None                 # highscore rank of the last finished run
-    state = STATE_MENU
+    scores, rank = [], None
     show_mask = False
-    click = [None]              # mutable holder so the mouse callback can post a click
 
-    def on_mouse(event, x, y, flags, param):
-        if event == cv2.EVENT_LBUTTONDOWN:
-            click[0] = (x, y)
+    state = STATE_COLOR
+    tracker.set_colors(COLORS)          # colour screen: detect any pen colour
 
     cv2.namedWindow(config.WINDOW_NAME)
-    cv2.setMouseCallback(config.WINDOW_NAME, on_mouse)
 
     while True:
         ok, frame = cap.read()
@@ -175,25 +184,39 @@ def _run_game_loop(cap, sounds, highscores):
         frame = cv2.resize(frame, (config.WIDTH, config.HEIGHT))
         if config.MIRROR:
             frame = cv2.flip(frame, 1)
-        clean = frame.copy()    # overlay-free copy used for colour sampling
+        clean = frame.copy()
 
-        # A click on the pen while calibrating is the most precise calibration
-        if click[0] is not None:
-            if state == STATE_CALIBRATE:
-                hue = tracker.calibrate_from_point(clean, click[0][0], click[0][1])
-                logger.info("Calibrated by click at %s -> hue %.0f", click[0], hue)
+        if state == STATE_COLOR:
+            point = tracker.track(clean)
+            targets = selection_targets(config.WIDTH, config.HEIGHT, len(COLORS))
+            active, progress, confirmed = dwell.update(point, targets)
+            draw_selection(frame, "Stiftfarbe waehlen",
+                           [c.name for c in COLORS], [c.display for c in COLORS],
+                           targets, active, progress, point)
+            if confirmed is not None:
+                pen_color = COLORS[confirmed]
+                tracker.set_color(pen_color)
+                sounds.play("combo")
+                logger.info("Pen colour selected: %s", pen_color.name)
+                dwell.reset()
+                state = STATE_DIFFICULTY
+
+        elif state == STATE_DIFFICULTY:
+            point = tracker.track(clean)
+            targets = selection_targets(config.WIDTH, config.HEIGHT, len(LEVELS))
+            active, progress, confirmed = dwell.update(point, targets)
+            ring = [pen_color.display] * len(LEVELS)
+            draw_selection(frame, "Schwierigkeit waehlen",
+                           [lvl.name for lvl in LEVELS], ring,
+                           targets, active, progress, point)
+            if confirmed is not None:
+                difficulty = LEVELS[confirmed]
+                game = Game(config.WIDTH, config.HEIGHT, difficulty, sounds)
+                sounds.play("combo")
+                logger.info("Difficulty selected: %s", difficulty.name)
                 blade.reset()
+                dwell.reset()
                 state = STATE_PLAY
-            click[0] = None
-
-        if state == STATE_MENU:
-            draw_menu(frame)
-
-        elif state == STATE_CALIBRATE:
-            point = tracker.track(clean)          # live detection for feedback
-            draw_calibration_overlay(frame, tracker, point)
-            if tracker.last_mask is not None:
-                draw_mask_inset(frame, tracker.last_mask)
 
         elif state == STATE_PLAY:
             point = tracker.track(clean)
@@ -203,23 +226,22 @@ def _run_game_loop(cap, sounds, highscores):
             blade.draw(frame)
             game.draw_hud(frame)
             game.draw_combo(frame)
-            draw_text(frame, "c = neu kalibrieren", (16, config.HEIGHT - 16),
-                      scale=0.6)
             if game.game_over:
-                highscores, rank = highscore.add(config.HIGHSCORE_FILE, game.score)
+                scores, rank = highscore.add(config.HIGHSCORE_FILE,
+                                             game.difficulty.name, game.score)
                 sounds.play("over")
-                logger.info("Game over -- final score %d (highscore rank: %s)",
-                            game.score, rank)
+                logger.info("Game over -- %s, score %d (rank: %s)",
+                            game.difficulty.name, game.score, rank)
                 state = STATE_GAME_OVER
 
         elif state == STATE_GAME_OVER:
             game.draw(frame)
             game.draw_hud(frame)
-            draw_game_over_overlay(frame, game, highscores, rank)
+            draw_game_over(frame, game, scores, rank)
 
         if show_mask and tracker.last_mask is not None:
-            mask_bgr = cv2.cvtColor(tracker.last_mask, cv2.COLOR_GRAY2BGR)
-            cv2.imshow("mask (debug)", mask_bgr)
+            cv2.imshow("mask (debug)",
+                       cv2.cvtColor(tracker.last_mask, cv2.COLOR_GRAY2BGR))
 
         cv2.imshow(config.WINDOW_NAME, frame)
         key = cv2.waitKey(1) & 0xFF
@@ -232,25 +254,6 @@ def _run_game_loop(cap, sounds, highscores):
             logger.info("Debug mask %s", "on" if show_mask else "off")
             if not show_mask:
                 cv2.destroyWindow("mask (debug)")
-        elif state == STATE_MENU and key in (ord("1"), ord("2"), ord("3")):
-            difficulty = LEVELS[key - ord("1")]
-            game = Game(config.WIDTH, config.HEIGHT, difficulty, sounds)
-            blade.reset()
-            logger.info("Difficulty selected: %s", difficulty.name)
-            state = STATE_CALIBRATE
-        elif key == ord("c") and game is not None:
-            logger.info("Re-calibration requested")
-            state = STATE_CALIBRATE
-            blade.reset()
-        elif key == ord(" ") and state == STATE_CALIBRATE:
-            hue = tracker.calibrate(frame)   # sample the pink pen from the box
-            logger.info("Calibrated from box -> hue %.0f", hue)
-            blade.reset()
-            state = STATE_PLAY
-        elif key in (13, 10) and state == STATE_CALIBRATE:
-            logger.info("Starting with default pink range")
-            blade.reset()                    # start with the default pink range
-            state = STATE_PLAY
         elif key == ord("r") and state == STATE_GAME_OVER:
             logger.info("Restart requested (%s)", game.difficulty.name)
             game.reset()
@@ -258,9 +261,11 @@ def _run_game_loop(cap, sounds, highscores):
             rank = None
             state = STATE_PLAY
         elif key == ord("m") and state == STATE_GAME_OVER:
-            logger.info("Back to menu")
+            logger.info("Back to colour selection")
+            tracker.set_colors(COLORS)
+            dwell.reset()
             rank = None
-            state = STATE_MENU
+            state = STATE_COLOR
 
 
 if __name__ == "__main__":

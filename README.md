@@ -6,16 +6,18 @@ Projekt im Modul **Bildverarbeitung** (TI, Semester 4 – HS Albstadt-Sigmaringe
 > parallel an seinem eigenen Programm.
 
 ## Projektbeschreibung
-Ein **Fruit-Ninja-Klon**, der mit einem **pinken Stift als Schwert** vor einer
-Webcam gesteuert wird – ohne Maus, Tastatur oder Touch. Früchte werden von unten
-ins Bild geworfen (Wurf-Physik) und fliegen im Bogen auf; der/die Spieler:in
-zerschneidet sie, indem der Stift die Frucht **berührt**. Der Stift wird live per
-**OpenCV** anhand seiner Farbe aus dem Kamerabild erkannt und verfolgt.
+Ein **Fruit-Ninja-Klon**, der mit einem **farbigen Stift als Schwert** (Pink/Gelb/
+Grün) vor einer Webcam gesteuert wird – ohne Maus, Tastatur oder Touch. Früchte
+werden von unten ins Bild geworfen (Wurf-Physik) und fliegen im Bogen auf; der/die
+Spieler:in zerschneidet sie, indem der Stift die Frucht **berührt**. Der Stift wird
+live per **OpenCV** anhand seiner Farbe aus dem Kamerabild erkannt und verfolgt.
 
 ## Unsere Idee
 Statt klassischer Eingabegeräte nutzen wir das **Kamerabild als Controller**:
-- Der **pinke Stift** wird über seine **Farbe (HSV)** vom Hintergrund getrennt
+- Der **farbige Stift** wird über seine **Farbe (HSV)** vom Hintergrund getrennt
   (ideal vor einer weißen Wand) und seine Position in Echtzeit getrackt.
+- Auswahl (Farbe & Schwierigkeit) **VR-artig per Dwell**: Stift 3 s in einen Kreis
+  halten, ein Ladering bestätigt.
 - Die Position bildet eine **Klinge**; berührt sie eine Frucht, wird diese geschnitten.
 - **Bomben** dürfen nicht getroffen werden – das sorgt für Spannung.
 

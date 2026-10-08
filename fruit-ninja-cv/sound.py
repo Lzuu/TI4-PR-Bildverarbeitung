@@ -44,6 +44,23 @@ def _noise(dur, decay=8.0):
     return np.random.uniform(-1, 1, n) * _envelope(n, decay)
 
 
+def _swoosh(dur=0.16):
+    """A blade-slash: softened noise with a fast attack + a descending whoosh."""
+    n = int(SAMPLE_RATE * dur)
+    # Low-pass the noise a little (moving average) so it is airy, not harsh
+    noise = np.random.uniform(-1, 1, n)
+    k = 12
+    noise = np.convolve(noise, np.ones(k) / k, mode="same")
+    t = np.linspace(0, 1, n)
+    attack = np.clip(t / 0.04, 0, 1)         # ~4% quick attack
+    decay = np.exp(-6.0 * t)                  # fast decay
+    env = attack * decay
+    # A descending tone gives the "slash" its pitch movement
+    freq = np.linspace(1700, 260, n)
+    tone = 0.25 * np.sin(2 * np.pi * np.cumsum(freq) / SAMPLE_RATE) * np.exp(-9.0 * t)
+    return 0.9 * noise * env + tone
+
+
 def _write_wav(path, samples):
     samples = np.clip(samples, -1.0, 1.0)
     data = (samples * 32767).astype("<i2").tobytes()
@@ -57,7 +74,7 @@ def _write_wav(path, samples):
 def _build_sounds():
     """Return a dict name -> samples for every effect."""
     return {
-        "slice": 0.7 * _chirp(700, 1500, 0.12, decay=10) + 0.2 * _noise(0.12, 20),
+        "slice": _swoosh(0.16),
         "bomb": 0.9 * _sine(70, 0.5, decay=4) + 0.5 * _noise(0.5, 6),
         "miss": 0.6 * _sine(200, 0.18, decay=8),
         "combo": np.concatenate([_sine(523, 0.08, 6), _sine(659, 0.08, 6),
@@ -68,13 +85,10 @@ def _build_sounds():
 
 
 def ensure_sounds(sound_dir=SOUND_DIR):
-    """Generate any missing WAV files. Returns the directory."""
+    """(Re)generate all WAV files so sound tweaks always take effect. Returns dir."""
     os.makedirs(sound_dir, exist_ok=True)
-    sounds = _build_sounds()
-    for name, samples in sounds.items():
-        path = os.path.join(sound_dir, name + ".wav")
-        if not os.path.exists(path):
-            _write_wav(path, samples)
+    for name, samples in _build_sounds().items():
+        _write_wav(os.path.join(sound_dir, name + ".wav"), samples)
     return sound_dir
 
 

@@ -1,88 +1,63 @@
 # Fruit Ninja CV
 
-Ein Fruit-Ninja-Klon, gesteuert mit einem **pinken Stift als Schwert** vor einer
+Ein Fruit-Ninja-Klon, gesteuert mit einem **farbigen Stift als Schwert** vor einer
 Webcam — reines **OpenCV + Python**. Früchte werden von unten ins Bild geworfen und
 fliegen im Bogen auf; du zerschneidest sie, indem du den Stift über sie führst
 (**Berührung reicht**). Bomben darfst du **nicht** treffen.
 
 Projekt im Modul **Bildverarbeitung** (TI, Semester 4 – HS Albstadt-Sigmaringen).
-Entwickelt **inkrementell-iterativ** und **test-case-basiert** (siehe unten).
+Entwickelt **inkrementell-iterativ** und **test-case-basiert**.
 
 ## Features
-- 🎯 **Pink-Stift-Tracking** (HSV) mit Klick-/Box-Kalibrierung.
-- 🍉 **Wurf-Physik**: Früchte fliegen von unten im Bogen herein.
+- 🎯 **Farb-Tracking** mit festen Bereichen (keine Kalibrierung nötig).
+- 🖍️ **Drei Stiftfarben** wählbar: **Pink**, **Gelb**, **Grün**.
+- 🕹️ **VR-Auswahl per Dwell:** Stift 3 s in einen Kreis halten → Ladering füllt
+  sich → bestätigt (für Farbe **und** Schwierigkeit, ganz ohne Tastatur).
+- 🍉 **Wurf-Physik:** Früchte fliegen von unten im Bogen herein.
 - ✂️ **Schneiden durch Berührung** (keine Mindestgeschwindigkeit).
-- 🎚️ **Drei Schwierigkeitsgrade** (Einfach / Mittel / Schwer).
+- 🎚️ **Drei Schwierigkeitsgrade** – schnellere Früchte = schwerer (immer **3 Leben**).
+- 🏆 **Leaderboard je Schwierigkeit** (Top-3, persistent).
 - 🔥 **Kombos** à la Fruit Ninja: mehrere Früchte in einem Swipe → Bonuspunkte.
-- 🏆 **Highscore Top-3** (persistent gespeichert).
-- 🔊 **Soundeffekte** (synthetisiert, non-blocking).
+- 🔊 **Soundeffekte** (synthetisiert), inkl. realistischem Schnitt-Swoosh.
 - 🧾 **Logfiles** fürs Debugging, **pytest**-Tests für die Logik.
-
-## Aufgabenstellung
-Entwicklung einer interaktiven Anwendung, die mit einer **Webcam** und
-**OpenCV (Python)** ein Live-Kamerabild auswertet und daraus eine Steuerung ableitet.
-Umgesetzt als Spiel: Erkennung und Verfolgung eines farbigen Markers (pinker Stift),
-Ableiten von Bewegungen, Spiel-Physik und Rückmeldung in Echtzeit.
-
-### Anforderungen
-- Live-Bild der Webcam erfassen und anzeigen.
-- Den pinken Stift farbbasiert erkennen und seine Position verfolgen.
-- Berührung des Stifts mit einer Frucht erkennt den Schnitt.
-- Früchte mit Wurf-Physik von unten einwerfen, im Bogen fliegen lassen, zerschneiden.
-- Punkte-, Leben-, Kombo- und Game-Over-Logik; Highscore.
-- Auswahl zwischen drei Schwierigkeitsgraden.
-- Echtzeitfähig; test-case-basiert entwickelt; Logfiles fürs Debugging.
 
 ## Bildverarbeitungs-Pipeline (das Lehrreiche daran)
 1. **Capture & Preprocessing** — Frame holen, auf feste Größe skalieren, spiegeln.
-2. **Farb-Segmentierung** — BGR → HSV, `cv2.inRange` mit dem Pink-Bereich des
-   Stifts, Morphologie (Open/Close) gegen Rauschen.
+2. **Farb-Segmentierung** — BGR → HSV, `cv2.inRange` mit festen Farbbereichen
+   (Pink/Gelb/Grün, siehe `colors.py`), Morphologie (Open/Close) gegen Rauschen.
 3. **Tracking** — größte Kontur (`findContours`), Schwerpunkt via `cv2.moments`.
 4. **Physik** — Früchte als Projektile (Wurf von unten, Schwerkraft, Parabel).
 5. **Kollision** — Abstand Frucht-Mittelpunkt ↔ Klingen-Segment (Linie-Kreis).
-6. **Rendering** — prozedurale Früchte, Klingen-Trail, HUD-Overlay.
+6. **Rendering** — prozedurale Früchte, Klingen-Trail, HUD, Dwell-Ladekreise.
 
-## Installation
+## Installation & Start
 ```bash
 cd fruit-ninja-cv
-python3 -m venv .venv && source .venv/bin/activate   # optional
 pip install -r requirements.txt
-```
-
-## Starten
-```bash
 python main.py
 ```
-
-Kamera: Standard ist `CAMERA_INDEX = 1` (MacBook FaceTime HD). Für eine andere
-Kamera (z. B. iPhone/Continuity = 0, USB-Cam) den Index in `config.py` ändern.
+Kamera: Standard `CAMERA_INDEX = 1` (MacBook FaceTime HD). Andere Kamera in
+`config.py` einstellen (z. B. 0 = iPhone/Continuity).
 
 ## Ablauf & Steuerung
-1. **Menü:** Schwierigkeit mit **1 / 2 / 3** wählen (Einfach / Mittel / Schwer).
-2. **Kalibrierung:** Am besten **direkt auf den pinken Stift klicken** — damit
-   wird exakt seine Farbe gelernt und das Spiel startet. Alternativ **ENTER**
-   (Standard-Pink) oder Stift in die Box + **SPACE**. Oben rechts zeigt die
-   **Masken-Vorschau**, ob der Stift sauber erkannt wird (nur er sollte weiß sein).
-3. **Spielen:** Stift über die Früchte führen (**Berührung reicht**) → Punkte.
-   Mehrere Früchte in einem Swipe geben einen **Kombo-Bonus**. Verpasste Früchte
-   kosten ein Leben. Bomben berühren = sofort vorbei.
+1. **Farbe wählen:** Den Stift **3 Sekunden** in den Kreis deiner Stiftfarbe
+   (Pink/Gelb/Grün) halten — der Ladering bestätigt die Auswahl.
+2. **Schwierigkeit wählen:** Ebenso **3 Sekunden** in den gewünschten Kreis
+   (Einfach/Mittel/Schwer) halten.
+3. **Spielen:** Stift über die Früchte führen (**Berührung reicht**). Mehrere
+   Früchte in einem Swipe geben einen **Kombo-Bonus**. Verpasste Früchte kosten
+   ein Leben, Bomben = sofort vorbei.
 
-| Taste / Aktion | Funktion |
-|----------------|----------|
-| `1` / `2` / `3` | Schwierigkeit wählen (im Menü) |
-| **Klick auf Stift** | Kalibrieren & starten (präziseste Methode) |
-| `SPACE` | Kalibrieren über die Box & starten |
-| `ENTER` | Direkt starten mit Standard-Pink |
-| `r` | Neustart (im Game-Over-Screen) |
-| `m` | Zurück ins Menü (im Game-Over-Screen) |
-| `c` | Stift neu kalibrieren (jederzeit) |
+| Taste | Funktion |
+|-------|----------|
+| `r` | Neustart (gleiche Schwierigkeit) |
+| `m` | Zurück zur Auswahl (Farbe/Schwierigkeit) |
 | `d` | Masken-Debugfenster an/aus |
 | `q` | Beenden |
 
-## Tests (test-case-basiert)
-Die Spiel-Logik ist durch eine **pytest**-Suite abgedeckt (Geometrie, Marker-Tracking,
-Frucht-Physik, Klinge, Spiel-Logik). Die Tests laufen headless (ohne Kamera/GUI).
+> Die Auswahl läuft komplett über den Stift (Dwell), nicht über die Tastatur.
 
+## Tests (test-case-basiert)
 ```bash
 pip install -r requirements-dev.txt
 pytest
@@ -91,40 +66,37 @@ pytest
 | Testdatei | Deckt ab |
 |-----------|----------|
 | `tests/test_geometry.py` | Linie-Kreis-Abstand (Kollision) |
-| `tests/test_marker_tracker.py` | Pink-Erkennung, Kalibrierung, Hintergrund ignorieren |
-| `tests/test_fruit.py` | Wurf-Physik: Start unten, Bogen im Bild, Miss nur beim Fallen |
+| `tests/test_marker_tracker.py` | Farberkennung Pink/Gelb/Grün + Union |
+| `tests/test_colors.py` | Farbdefinitionen |
+| `tests/test_dwell.py` | VR-Dwell-Auswahl (Zeitlogik) |
+| `tests/test_fruit.py` | Wurf-Physik: Start unten, Bogen im Bild, Miss beim Fallen |
 | `tests/test_blade.py` | Trail, Geschwindigkeit, aktueller Punkt |
 | `tests/test_game.py` | Berührungs-Schnitt, Bombe, Miss, Spawning, Reset, Kombos |
-| `tests/test_difficulty.py` | Schwierigkeitsgrade (Reihenfolge, härter = schwerer) |
-| `tests/test_highscore.py` | Top-3-Persistenz, Ranking, defekte Datei |
-
-## Entwicklung (inkrementell-iterativ über GitHub-Issues)
-Die Umsetzung erfolgt in **Inkrementen**, die als **GitHub-Issues** abgebildet werden.
-Jedes Issue = ein funktionaler Zuwachs, der implementiert, getestet und abgeschlossen
-wird. Siehe den [Issues-Tab](../../issues) des Repositories.
+| `tests/test_difficulty.py` | 3 Leben überall, härter = schneller |
+| `tests/test_highscore.py` | Top-3 je Schwierigkeit, Ranking, defekte Datei |
 
 ## Tuning
-Marker/Kamera & allgemeine Konstanten stehen in `config.py`:
-- `CAMERA_INDEX` — welche Kamera (1 = MacBook, 0 = iPhone/Continuity).
-- `MARKER_HSV_LOWER` / `MARKER_HSV_UPPER` — Standard-Pink-Bereich.
-- `H_TOLERANCE` / `S_FLOOR` / `V_FLOOR` — Farbton-Fenster & Mindest-Sättigung/-Helligkeit.
-- `MIN_MARKER_AREA` — kleinere Werte erkennen auch dünne/kleine Stifte.
+Marker/Kamera & allgemeine Konstanten in `config.py`:
+- `CAMERA_INDEX` — welche Kamera.
+- `MIN_MARKER_AREA` / `MORPH_KERNEL` — Erkennung dünner Stifte / Rauschfilter.
+- `DWELL_SECONDS` / `SELECT_RADIUS` — Dauer & Größe der Dwell-Auswahl.
 - `COMBO_WINDOW_FRAMES` / `COMBO_MIN` / `COMBO_BONUS_PER_FRUIT` — Kombo-Regeln.
 
-Die **schwierigkeitsabhängigen** Werte (Gravitation, Wurf-/Drift-Geschwindigkeit,
-Spawn-Rate, Bomben-Wahrscheinlichkeit, Leben) stehen in `difficulty.py`.
+Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.py`.
 
 ## Dateien
 | Datei | Inhalt |
 |-------|--------|
-| `main.py` | Game-Loop, States (Menu/Calibrate/Play/GameOver), Tasten, Klick-Kalibrierung |
-| `config.py` | Gemeinsame Konstanten (Kamera, HSV, Kombos, Highscore) |
-| `difficulty.py` | Schwierigkeitsgrade (Einfach/Mittel/Schwer) |
-| `marker_tracker.py` | Pink-Farb-Segmentierung + Kalibrierung + Tracking |
+| `main.py` | Game-Loop, States (Color/Difficulty/Play/GameOver), Dwell-Auswahl |
+| `config.py` | Gemeinsame Konstanten (Kamera, Dwell, Kombos, Highscore) |
+| `colors.py` | Feste Stiftfarben Pink/Gelb/Grün (HSV + UI-Farbe) |
+| `difficulty.py` | Schwierigkeitsgrade (Tempo; immer 3 Leben) |
+| `dwell.py` | VR-Dwell-Auswahl (3 s Halten → bestätigt) |
+| `marker_tracker.py` | Farb-Segmentierung (eine/mehrere Farben), Tracking |
 | `blade.py` | Klingen-Trail + Geschwindigkeit |
 | `fruit.py` | Frucht-/Bomben-Projektil-Physik + Zeichnung |
 | `game.py` | Spawning, Kollision, Score, Leben, Kombos |
-| `highscore.py` | Top-3-Highscore (JSON-Persistenz) |
+| `highscore.py` | Top-3 je Schwierigkeit (JSON-Persistenz) |
 | `sound.py` | Soundeffekte (synthetisiert, afplay) |
 | `logging_config.py` | Logfiles (rotierend, `logs/`) |
 | `utils.py` | Geometrie (Linie-Kreis) + Text-HUD |

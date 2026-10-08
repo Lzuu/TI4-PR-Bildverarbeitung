@@ -14,23 +14,16 @@ MIRROR = True             # Flip horizontally so moving right moves the hand rig
 WINDOW_NAME = "Fruit Ninja CV"
 
 # ---------------------------------------------------------------------------
-# Marker tracking (pink pen used as the "sword", HSV colour segmentation)
+# Marker tracking (fixed colour ranges -- no self-calibration; see colors.py)
 # ---------------------------------------------------------------------------
-# OpenCV HSV ranges: H 0-179, S 0-255, V 0-255.
-# Default range for a vivid pink/magenta marker. The HUE is the key discriminator;
-# saturation/brightness only need to clear a floor so lighting matters less.
-MARKER_HSV_LOWER = (140, 55, 90)
-MARKER_HSV_UPPER = (175, 255, 255)
-# Calibration measures the dominant hue and builds the range as:
-#   lower = (hue - H_TOLERANCE, S_FLOOR, V_FLOOR)
-#   upper = (hue + H_TOLERANCE, 255, 255)
-H_TOLERANCE = 10                 # +/- hue window around the sampled colour
-S_FLOOR = 55                     # Minimum saturation (ignores the pale white wall)
-V_FLOOR = 80                     # Minimum brightness
 MIN_MARKER_AREA = 200            # Ignore contours smaller than this (noise)
 MORPH_KERNEL = 5                 # Kernel size for open/close morphology
-CALIB_BOX = (0.42, 0.32, 0.16, 0.36)  # ROI fractions (x, y, w, h); hold the pen tip here
-CALIB_PATCH = 8                  # Half-size (px) of the patch sampled on a click
+
+# ---------------------------------------------------------------------------
+# Selection (VR-style dwell: hold the pen in a circle to confirm)
+# ---------------------------------------------------------------------------
+DWELL_SECONDS = 3.0              # How long to hold on a target to select it
+SELECT_RADIUS = 72               # Radius of the selection circles (px)
 
 # ---------------------------------------------------------------------------
 # Blade / slicing
