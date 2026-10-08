@@ -13,10 +13,13 @@ import random
 import cv2
 
 import config
+from difficulty import DEFAULT
 
 
 class Fruit:
-    def __init__(self, width, height):
+    def __init__(self, width, height, diff=None):
+        diff = diff or DEFAULT
+        self.gravity = diff.gravity
         self.radius = random.randint(*config.FRUIT_RADIUS)
         # Launch from just below the bottom edge at a random horizontal position
         margin = int(0.12 * width)
@@ -24,10 +27,10 @@ class Fruit:
         self.y = float(height + self.radius)
         # Arc inward (toward the centre) so fruits stay on screen; throw upward
         direction = 1.0 if self.x < width / 2.0 else -1.0
-        self.vx = direction * random.uniform(*config.FRUIT_DRIFT_VX)
-        self.vy = random.uniform(*config.FRUIT_LAUNCH_VY)   # negative => upward
+        self.vx = direction * random.uniform(*diff.drift_vx)
+        self.vy = random.uniform(*diff.launch_vy)           # negative => upward
 
-        self.is_bomb = random.random() < config.BOMB_PROBABILITY
+        self.is_bomb = random.random() < diff.bomb_probability
         if self.is_bomb:
             self.color = config.BOMB_COLOR
             self.name = "bomb"
@@ -52,7 +55,7 @@ class Fruit:
             self.slice_timer += 1
         self.x += self.vx
         self.y += self.vy
-        self.vy += config.GRAVITY
+        self.vy += self.gravity
 
     def is_missed(self, height):
         """True once an un-sliced fruit falls back out of the bottom.

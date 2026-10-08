@@ -13,6 +13,10 @@ htmlcov/
 # Runtime logfiles
 logs/
 
+# Generated sound assets & user data
+assets/
+highscores.json
+
 # OS / Editor
 .DS_Store
 .idea/

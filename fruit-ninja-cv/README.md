@@ -8,6 +8,16 @@ fliegen im Bogen auf; du zerschneidest sie, indem du den Stift über sie führst
 Projekt im Modul **Bildverarbeitung** (TI, Semester 4 – HS Albstadt-Sigmaringen).
 Entwickelt **inkrementell-iterativ** und **test-case-basiert** (siehe unten).
 
+## Features
+- 🎯 **Pink-Stift-Tracking** (HSV) mit Klick-/Box-Kalibrierung.
+- 🍉 **Wurf-Physik**: Früchte fliegen von unten im Bogen herein.
+- ✂️ **Schneiden durch Berührung** (keine Mindestgeschwindigkeit).
+- 🎚️ **Drei Schwierigkeitsgrade** (Einfach / Mittel / Schwer).
+- 🔥 **Kombos** à la Fruit Ninja: mehrere Früchte in einem Swipe → Bonuspunkte.
+- 🏆 **Highscore Top-3** (persistent gespeichert).
+- 🔊 **Soundeffekte** (synthetisiert, non-blocking).
+- 🧾 **Logfiles** fürs Debugging, **pytest**-Tests für die Logik.
+
 ## Aufgabenstellung
 Entwicklung einer interaktiven Anwendung, die mit einer **Webcam** und
 **OpenCV (Python)** ein Live-Kamerabild auswertet und daraus eine Steuerung ableitet.
@@ -19,8 +29,9 @@ Ableiten von Bewegungen, Spiel-Physik und Rückmeldung in Echtzeit.
 - Den pinken Stift farbbasiert erkennen und seine Position verfolgen.
 - Berührung des Stifts mit einer Frucht erkennt den Schnitt.
 - Früchte mit Wurf-Physik von unten einwerfen, im Bogen fliegen lassen, zerschneiden.
-- Punkte-, Leben- und Game-Over-Logik.
-- Echtzeitfähig; test-case-basiert entwickelt.
+- Punkte-, Leben-, Kombo- und Game-Over-Logik; Highscore.
+- Auswahl zwischen drei Schwierigkeitsgraden.
+- Echtzeitfähig; test-case-basiert entwickelt; Logfiles fürs Debugging.
 
 ## Bildverarbeitungs-Pipeline (das Lehrreiche daran)
 1. **Capture & Preprocessing** — Frame holen, auf feste Größe skalieren, spiegeln.
@@ -47,19 +58,23 @@ Kamera: Standard ist `CAMERA_INDEX = 1` (MacBook FaceTime HD). Für eine andere
 Kamera (z. B. iPhone/Continuity = 0, USB-Cam) den Index in `config.py` ändern.
 
 ## Ablauf & Steuerung
-1. **Start/Kalibrierung:** Am besten **direkt auf den pinken Stift klicken** — damit
+1. **Menü:** Schwierigkeit mit **1 / 2 / 3** wählen (Einfach / Mittel / Schwer).
+2. **Kalibrierung:** Am besten **direkt auf den pinken Stift klicken** — damit
    wird exakt seine Farbe gelernt und das Spiel startet. Alternativ **ENTER**
    (Standard-Pink) oder Stift in die Box + **SPACE**. Oben rechts zeigt die
    **Masken-Vorschau**, ob der Stift sauber erkannt wird (nur er sollte weiß sein).
-2. **Spielen:** Stift über die Früchte führen (**Berührung reicht**) → Punkte.
-   Verpasste Früchte kosten ein Leben. Bomben berühren = sofort vorbei.
+3. **Spielen:** Stift über die Früchte führen (**Berührung reicht**) → Punkte.
+   Mehrere Früchte in einem Swipe geben einen **Kombo-Bonus**. Verpasste Früchte
+   kosten ein Leben. Bomben berühren = sofort vorbei.
 
 | Taste / Aktion | Funktion |
 |----------------|----------|
+| `1` / `2` / `3` | Schwierigkeit wählen (im Menü) |
 | **Klick auf Stift** | Kalibrieren & starten (präziseste Methode) |
 | `SPACE` | Kalibrieren über die Box & starten |
 | `ENTER` | Direkt starten mit Standard-Pink |
 | `r` | Neustart (im Game-Over-Screen) |
+| `m` | Zurück ins Menü (im Game-Over-Screen) |
 | `c` | Stift neu kalibrieren (jederzeit) |
 | `d` | Masken-Debugfenster an/aus |
 | `q` | Beenden |
@@ -79,7 +94,9 @@ pytest
 | `tests/test_marker_tracker.py` | Pink-Erkennung, Kalibrierung, Hintergrund ignorieren |
 | `tests/test_fruit.py` | Wurf-Physik: Start unten, Bogen im Bild, Miss nur beim Fallen |
 | `tests/test_blade.py` | Trail, Geschwindigkeit, aktueller Punkt |
-| `tests/test_game.py` | Berührungs-Schnitt, Bombe, Miss, Spawning, Reset |
+| `tests/test_game.py` | Berührungs-Schnitt, Bombe, Miss, Spawning, Reset, Kombos |
+| `tests/test_difficulty.py` | Schwierigkeitsgrade (Reihenfolge, härter = schwerer) |
+| `tests/test_highscore.py` | Top-3-Persistenz, Ranking, defekte Datei |
 
 ## Entwicklung (inkrementell-iterativ über GitHub-Issues)
 Die Umsetzung erfolgt in **Inkrementen**, die als **GitHub-Issues** abgebildet werden.
@@ -87,25 +104,28 @@ Jedes Issue = ein funktionaler Zuwachs, der implementiert, getestet und abgeschl
 wird. Siehe den [Issues-Tab](../../issues) des Repositories.
 
 ## Tuning
-Alle Stellschrauben stehen in `config.py`:
+Marker/Kamera & allgemeine Konstanten stehen in `config.py`:
 - `CAMERA_INDEX` — welche Kamera (1 = MacBook, 0 = iPhone/Continuity).
 - `MARKER_HSV_LOWER` / `MARKER_HSV_UPPER` — Standard-Pink-Bereich.
 - `H_TOLERANCE` / `S_FLOOR` / `V_FLOOR` — Farbton-Fenster & Mindest-Sättigung/-Helligkeit.
 - `MIN_MARKER_AREA` — kleinere Werte erkennen auch dünne/kleine Stifte.
-- `FRUIT_LAUNCH_VY` — wie hoch/kräftig die Würfe fliegen (Betrag größer = höher).
-- `FRUIT_DRIFT_VX` — wie schräg/seitlich geworfen wird.
-- `GRAVITY` — Tempo der Flugbahn.
-- `SPAWN_INTERVAL` / `BURST_WEIGHTS` — Wurf-Frequenz & Mehrfachwürfe.
-- `BOMB_PROBABILITY` — Anteil Bomben (0 = keine Bomben).
+- `COMBO_WINDOW_FRAMES` / `COMBO_MIN` / `COMBO_BONUS_PER_FRUIT` — Kombo-Regeln.
+
+Die **schwierigkeitsabhängigen** Werte (Gravitation, Wurf-/Drift-Geschwindigkeit,
+Spawn-Rate, Bomben-Wahrscheinlichkeit, Leben) stehen in `difficulty.py`.
 
 ## Dateien
 | Datei | Inhalt |
 |-------|--------|
-| `main.py` | Game-Loop, States (Start/Play/GameOver), Tasten, Klick-Kalibrierung |
-| `config.py` | Alle Konstanten |
+| `main.py` | Game-Loop, States (Menu/Calibrate/Play/GameOver), Tasten, Klick-Kalibrierung |
+| `config.py` | Gemeinsame Konstanten (Kamera, HSV, Kombos, Highscore) |
+| `difficulty.py` | Schwierigkeitsgrade (Einfach/Mittel/Schwer) |
 | `marker_tracker.py` | Pink-Farb-Segmentierung + Kalibrierung + Tracking |
 | `blade.py` | Klingen-Trail + Geschwindigkeit |
 | `fruit.py` | Frucht-/Bomben-Projektil-Physik + Zeichnung |
-| `game.py` | Spawning, Kollision, Score, Leben |
+| `game.py` | Spawning, Kollision, Score, Leben, Kombos |
+| `highscore.py` | Top-3-Highscore (JSON-Persistenz) |
+| `sound.py` | Soundeffekte (synthetisiert, afplay) |
+| `logging_config.py` | Logfiles (rotierend, `logs/`) |
 | `utils.py` | Geometrie (Linie-Kreis) + Text-HUD |
 | `tests/` | pytest-Suite |

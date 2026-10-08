@@ -23,12 +23,15 @@ Kamera ─► main (Loop, States, Input)
 ## Module & Verantwortlichkeiten
 | Modul | Verantwortung |
 |-------|---------------|
-| `main.py` | Game-Loop, State-Machine, Kamera-Capture, Tastatur/Maus, Rendering-Orchestrierung, Logging-Setup, Fehlerbehandlung |
-| `config.py` | Alle Konstanten (Kamera, HSV, Physik, HUD) an einer Stelle |
+| `main.py` | Game-Loop, State-Machine (Menu/Calibrate/Play/GameOver), Kamera-Capture, Tastatur/Maus, Rendering-Orchestrierung, Logging-Setup, Fehlerbehandlung |
+| `config.py` | Gemeinsame Konstanten (Kamera, HSV, Kombos, Highscore, HUD) |
+| `difficulty.py` | Schwierigkeitsgrade (Einfach/Mittel/Schwer) als Presets |
 | `marker_tracker.py` | HSV-Farb-Segmentierung + Kalibrierung + Positionsbestimmung |
 | `blade.py` | Kurzer Trail der letzten Marker-Punkte; aktuelles Segment & Geschwindigkeit |
 | `fruit.py` | Frucht-/Bomben-Entität: Projektil-Physik + prozedurale Darstellung |
-| `game.py` | Spielzustand: Spawning (inkl. Bursts), Kollision, Punkte, Leben |
+| `game.py` | Spielzustand: Spawning (Bursts), Kollision, Punkte, Leben, Kombos |
+| `highscore.py` | Top-3-Highscore (JSON-Persistenz) |
+| `sound.py` | Soundeffekte (synthetisiert, non-blocking via afplay) |
 | `utils.py` | Wiederverwendbare Helfer: Linie-Kreis-Abstand, Text mit Schatten |
 | `logging_config.py` | Zentrales Logging (rotierendes Logfile + Konsole) |
 
@@ -62,6 +65,16 @@ Kamera ─► main (Loop, States, Input)
   Loop übersichtlich.
 - **Zentrale Konfiguration.** Alle Stellschrauben in `config.py` → einfaches Tuning,
   keine Magic Numbers im Code.
+- **Schwierigkeitsgrade als Presets.** `difficulty.py` bündelt alle variierenden
+  Werte je Stufe (Gravitation, Wurf, Spawn, Bomben, Leben). `Game`/`Fruit` bekommen
+  die gewählte Stufe injiziert → keine global verstreuten Magic Numbers.
+- **Kombos über ein Zeitfenster.** Mehrere Treffer innerhalb `COMBO_WINDOW_FRAMES`
+  zählen als ein Swipe; ab `COMBO_MIN` Früchten gibt es Bonuspunkte.
+- **Highscore als JSON.** `highscore.py` kapselt Laden/Schreiben der Top-3 und ist
+  so unabhängig testbar (defekte/fehlende Datei → leere Liste).
+- **Sound entkoppelt & non-blocking.** `Game` ruft nur `sounds.play(name)`; in Tests
+  wird ein `NullSound` injiziert. WAVs werden synthetisiert (keine Asset-Dateien),
+  Wiedergabe via `afplay` ohne die Game-Loop zu blockieren.
 - **Logging statt Prints.** Rotierendes Logfile unter `logs/`; unbehandelte Fehler
   werden mit Traceback geloggt → nachvollziehbares Debugging nach einem Problem.
 - **Test-case-basiert.** Die gesamte Logik (Geometrie, Tracking, Physik, Spiel) ist

@@ -46,17 +46,25 @@ BLADE_MAX_THICKNESS = 10
 # Fruits are thrown UP from below the bottom edge: they start with an upward
 # velocity, gravity decelerates them, they peak and fall back down (projectile
 # arc). An un-sliced fruit is only "missed" once it falls back below the bottom.
-START_LIVES = 3
-GRAVITY = 0.5                    # Downward acceleration added to vy each frame
-FRUIT_LAUNCH_VY = (-22.0, -18.0) # Initial UPWARD velocity range (negative = up).
-                                 # Tuned so the arc peaks inside the frame (not
-                                 # cut off at the top) while flying a bit faster.
-FRUIT_DRIFT_VX = (1.0, 4.0)      # Horizontal speed; direction is biased to centre
+#
+# Difficulty-dependent values (gravity, launch/drift velocity, spawn rate, bomb
+# chance, lives) live in difficulty.py. The constants below are shared by all
+# difficulty levels.
 FRUIT_RADIUS = (34, 52)          # Radius range
-SPAWN_INTERVAL = (35, 70)        # Frames between throws (a throw may be a burst)
-BURST_WEIGHTS = (0.70, 0.22, 0.08)  # Probabilities of 1 / 2 / 3 fruits per throw
-BOMB_PROBABILITY = 0.12          # Chance a thrown object is a bomb
 SLICE_ANIM_FRAMES = 25           # How long the two halves fly before removal
+
+# ---------------------------------------------------------------------------
+# Combos (Fruit-Ninja-style: several fruits within one swipe / short window)
+# ---------------------------------------------------------------------------
+COMBO_WINDOW_FRAMES = 12         # Slices within this window belong to one combo
+COMBO_MIN = 3                    # Minimum fruits for a combo bonus
+COMBO_BONUS_PER_FRUIT = 1        # Extra points per fruit in a qualifying combo
+COMBO_BANNER_FRAMES = 35         # How long the combo banner stays on screen
+
+# ---------------------------------------------------------------------------
+# Highscore
+# ---------------------------------------------------------------------------
+HIGHSCORE_FILE = "highscores.json"
 
 # Fruit types: (name, BGR fill color)
 FRUIT_TYPES = [
