@@ -33,6 +33,7 @@ Kamera ─► main (Loop, States, Input)
 | `fruit.py` | Frucht-/Bomben-Entität: Projektil-Physik + prozedurale Darstellung |
 | `game.py` | Spielzustand: Spawning (Bursts), Kollision, Punkte, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve, Verlauf+Glanz) für die Leben |
+| `cameras.py` | Kameras finden (Indizes durchprobieren), öffnen (1080p MJPG, unter Windows MSMF), wechseln, Auswahl in `settings.json` merken |
 | `highscore.py` | Top-3-Highscore **je Schwierigkeit** (JSON-Persistenz) |
 | `sound.py` | Soundeffekte (synthetisiert, non-blocking via afplay) |
 | `utils.py` | Wiederverwendbare Helfer: Linie-Kreis-Abstand, Text mit Schatten |
@@ -98,6 +99,16 @@ Kamera ─► main (Loop, States, Input)
   verstreuten Magic Numbers. Jede Stufe hat ein **eigenes Leaderboard**.
 - **Kombos über ein Zeitfenster.** Mehrere Treffer innerhalb `COMBO_WINDOW_FRAMES`
   zählen als ein Swipe; ab `COMBO_MIN` Früchten gibt es Bonuspunkte.
+- **Kameraauswahl: Suche einmal beim Start, vor dem Öffnen (Issue #31).** OpenCV
+  kennt keine Kameraliste, also werden die Indizes 0–4 durchprobiert (ca. 1 s je
+  Kamera, auf dem Test-Laptop 2,1 s). Eine Suche im Hintergrund während des
+  Spiels wurde verworfen: Front- und Rückkamera eines Laptops hängen oft am selben
+  Controller, der nur einen Datenstrom liefert – die laufende Kamera lieferte
+  während der Suche keine Bilder mehr. Beim Wechsel wird die alte Kamera vor dem
+  Öffnen der neuen freigegeben; scheitert die neue, bleibt die alte. Die Wahl steht
+  in `settings.json` (lokal, nicht in git); fehlt die Kamera beim nächsten Start,
+  wird `CAMERA_INDEX` bzw. irgendeine gefundene genommen. Unter Windows wird MSMF
+  mit MJPG verwendet (DirectShow: nur 5 fps bei 1080p).
 - **Highscore als JSON.** `highscore.py` kapselt Laden/Schreiben der Top-3 und ist
   so unabhängig testbar (defekte/fehlende Datei → leere Liste).
 - **Sound entkoppelt & non-blocking.** `Game` ruft nur `sounds.play(name)`; in Tests

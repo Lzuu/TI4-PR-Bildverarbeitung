@@ -38,6 +38,13 @@ Entwickelt **inkrementell-iterativ** und **test-case-basiert**.
 5. **Kollision** — Abstand Frucht-Mittelpunkt ↔ Klingen-Segment (Linie-Kreis).
 6. **Rendering** — prozedurale Früchte, Klingen-Trail, HUD, Dwell-Ladekreise.
 
+## Kamera wählen
+Hat der Rechner mehrere Kameras, erscheint im Startmenü unten rechts ein
+**„Kamera“-Button**. Per Maus-Klick öffnet sich eine Auswahl mit Vorschaubildern;
+ein Klick auf ein Bild wechselt die Kamera. Die Wahl wird in `settings.json`
+gespeichert und beim nächsten Start wieder verwendet. Die Kameras werden einmal
+beim Start gesucht (ca. 1 s je Kamera).
+
 ## Installation & Start
 ```bash
 cd fruit-ninja-cv
@@ -78,11 +85,12 @@ pytest
 | `tests/test_blade.py` | Trail, Geschwindigkeit, aktueller Punkt |
 | `tests/test_game.py` | Berührungs-Schnitt, Bombe, Miss, Spawning, Reset, Kombos |
 | `tests/test_difficulty.py` | 3 Leben überall, härter = schneller |
+| `tests/test_cameras.py` | Kamerasuche, Auswahl/Fallback, Wechsel, Speichern, Menü-Layout (ohne echte Kamera) |
 | `tests/test_highscore.py` | Top-3 je Schwierigkeit, Ranking, defekte Datei |
 
 ## Tuning
 Marker/Kamera & allgemeine Konstanten in `config.py`:
-- `CAMERA_INDEX` — welche Kamera.
+- `CAMERA_INDEX` — Standard-Kamera, solange keine im Menü gewählt wurde.
 - `MIN_MARKER_AREA` / `MORPH_KERNEL` — Erkennung dünner Stifte / Rauschfilter.
 - `DWELL_SECONDS` / `SELECT_RADIUS` — Dauer & Größe der Dwell-Auswahl.
 - `COMBO_WINDOW_FRAMES` / `COMBO_MIN` / `COMBO_BONUS_PER_FRUIT` — Kombo-Regeln.
@@ -102,6 +110,7 @@ Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.p
 | `fruit.py` | Frucht-/Bomben-Projektil-Physik + Zeichnung |
 | `game.py` | Spawning, Kollision, Score, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve) für die Lebensanzeige |
+| `cameras.py` | Kameras finden, öffnen, wechseln, Auswahl speichern |
 | `highscore.py` | Top-3 je Schwierigkeit (JSON-Persistenz) |
 | `sound.py` | Soundeffekte (synthetisiert, afplay) |
 | `logging_config.py` | Logfiles (rotierend, `logs/`) |

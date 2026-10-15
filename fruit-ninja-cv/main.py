@@ -5,6 +5,7 @@ screen resolution (responsive). The app starts in a menu with the PINK pen
 active by default (only pink is tracked). You start by holding the pen on the
 "Start" circle (VR-style dwell). The pen colour is a *setting*: it is hidden
 behind a "Stiftfarbe" button and only shown when you open it (mouse click).
+With several cameras, a "Kamera" button lets you pick one the same way.
 
 States:
   MENU       Start / Quit (pen dwell); pen colour setting via mouse button.
@@ -19,6 +20,7 @@ import logging
 import re
 import subprocess
 import sys
+import time
 
 import cv2
 
@@ -32,6 +34,7 @@ from difficulty import LEVELS
 from colors import COLORS
 from dwell import DwellTracker
 from sound import SoundPlayer
+import cameras
 import highscore
 
 logger = logging.getLogger(__name__)
@@ -66,24 +69,22 @@ def detect_screen_size():
 
 
 def open_camera():
-    """Open the configured camera, falling back to index 0."""
-    cap = cv2.VideoCapture(config.CAMERA_INDEX)
-    if cap.isOpened():
-        logger.info("Opened camera at index %d", config.CAMERA_INDEX)
-    elif config.CAMERA_INDEX != 0:
-        logger.warning("Camera index %d unavailable, falling back to 0",
-                       config.CAMERA_INDEX)
-        cap = cv2.VideoCapture(0)
-        if cap.isOpened():
-            logger.info("Opened fallback camera at index 0")
-    if not cap.isOpened():
-        logger.error("Could not open any camera (tried %d and 0)",
-                     config.CAMERA_INDEX)
+    """Find all cameras, then open the saved one (else the configured one, else any).
+
+    Returns ``(camera, previews)`` with a thumbnail per found camera index.
+    """
+    t0 = time.time()
+    previews = cameras.probe(range(config.CAMERA_MAX_INDEX))
+    logger.info("Found cameras %s in %.1f s", sorted(previews), time.time() - t0)
+    saved = cameras.load_camera_index(config.SETTINGS_FILE)
+    first = cameras.choose_index(saved, config.CAMERA_INDEX, list(previews))
+    camera = cameras.Camera()
+    if not camera.open_first(cameras.candidate_order(first, config.CAMERA_INDEX)):
+        logger.error("Could not open any camera (tried indices 0-%d)",
+                     config.CAMERA_MAX_INDEX - 1)
         print("ERROR: Could not open any camera.", file=sys.stderr)
         sys.exit(1)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-    return cap
+    return camera, previews
 
 
 # --------------------------------------------------------------------------- #
@@ -129,6 +130,25 @@ def color_swatches(w, h):
 
 def settings_button(w, h):
     return (_s(20), h - _s(70), _s(260), _s(48))
+
+
+def camera_button(w, h):
+    """Bottom-right counterpart of the pen-colour button."""
+    return (w - _s(20) - _s(200), h - _s(70), _s(200), _s(48))
+
+
+def show_camera_button(available):
+    return len(available) > 1
+
+
+def camera_tiles(w, h, n):
+    """n preview tiles (x, y, w, h) in a centred row; shrink to fit narrow screens."""
+    gap = _s(16)
+    tw = min(_s(cameras.PREVIEW_SIZE[0]), (w - gap * (n + 1)) // n)
+    th = tw * cameras.PREVIEW_SIZE[1] // cameras.PREVIEW_SIZE[0]
+    x0 = (w - (n * tw + (n - 1) * gap)) // 2
+    y = int(h * 0.45)
+    return [(x0 + i * (tw + gap), y, tw, th) for i in range(n)]
 
 
 def _hit(point, target):
@@ -211,6 +231,33 @@ def draw_menu(frame, start_t, quit_t, sbtn, swatches, pen_color, settings_open,
                   scale=0.6, color=(80, 80, 255), center=True)
 
 
+def _draw_camera_button(frame, rect, index, is_open):
+    x, y, bw, bh = rect
+    bg = (90, 90, 90) if is_open else (55, 55, 55)
+    cv2.rectangle(frame, (x, y), (x + bw, y + bh), bg, -1, cv2.LINE_AA)
+    cv2.rectangle(frame, (x, y), (x + bw, y + bh), (200, 200, 200), 1, cv2.LINE_AA)
+    draw_text(frame, f"Kamera: {index}", (x + _s(16), y + bh // 2 + _s(7)), scale=0.6)
+
+
+def draw_camera_panel(frame, tiles, indices, current, previews):
+    """Selection panel: one preview tile per camera, the current one framed."""
+    _dim(frame, 0.45)
+    h, w = frame.shape[:2]
+    draw_text(frame, "Kamera waehlen (Maus-Klick)", (w // 2, int(h * 0.36)),
+              scale=0.9, center=True)
+    for (x, y, tw, th), index in zip(tiles, indices):
+        preview = previews.get(index)
+        if preview is not None:
+            frame[y:y + th, x:x + tw] = cv2.resize(preview, (tw, th))
+        else:
+            cv2.rectangle(frame, (x, y), (x + tw, y + th), (60, 60, 60), -1)
+        color = (255, 255, 255) if index == current else (150, 150, 150)
+        cv2.rectangle(frame, (x, y), (x + tw, y + th), color,
+                      max(2, _s(4)) if index == current else 1, cv2.LINE_AA)
+        draw_text(frame, f"Kamera {index}", (x + tw // 2, y + th + _s(26)), scale=0.65,
+                  color=color, center=True)
+
+
 def draw_difficulty_screen(frame, d_targets, q_target, active, progress, point,
                            color):
     _dim(frame)
@@ -279,9 +326,9 @@ def main():
 
     cap = None
     try:
-        cap = open_camera()
+        cap, previews = open_camera()
         sounds = SoundPlayer()
-        _run_game_loop(cap, sounds)
+        _run_game_loop(cap, sounds, previews)
     except SystemExit:
         raise
     except Exception:
@@ -294,7 +341,7 @@ def main():
         logger.info("Shut down cleanly")
 
 
-def _run_game_loop(cap, sounds):
+def _run_game_loop(cap, sounds, previews=None):
     tracker = MarkerTracker()
     blade = Blade()
     dwell = DwellTracker(config.DWELL_SECONDS)
@@ -305,6 +352,8 @@ def _run_game_loop(cap, sounds):
     scores, rank = [], None
     show_mask = False
     settings_open = False
+    camera_open = False
+    previews = dict(previews or {})  # thumbnails of the cameras found at startup
     frame_failures = 0
     click = [None]
 
@@ -351,6 +400,25 @@ def _run_game_loop(cap, sounds):
             sbtn = settings_button(config.WIDTH, config.HEIGHT)
             swatches = color_swatches(config.WIDTH, config.HEIGHT)
 
+            cbtn = camera_button(config.WIDTH, config.HEIGHT)
+            previews[cap.index] = cv2.resize(clean, cameras.PREVIEW_SIZE)
+            available = sorted(previews)
+            cam_tiles = camera_tiles(config.WIDTH, config.HEIGHT, len(available))
+
+            if click[0] is not None and camera_open:
+                for index, tile in zip(available, cam_tiles):
+                    if _in_rect(click[0], tile) and index != cap.index:
+                        if cap.switch(index):
+                            cameras.save_camera_index(config.SETTINGS_FILE, index)
+                        break
+                camera_open = False          # any click in the panel closes it
+                click[0] = None
+            elif (click[0] is not None and show_camera_button(available)
+                  and _in_rect(click[0], cbtn)):
+                camera_open, settings_open = True, False
+                dwell.reset()
+                click[0] = None
+
             if click[0] is not None:
                 if _in_rect(click[0], sbtn):
                     settings_open = not settings_open
@@ -368,12 +436,16 @@ def _run_game_loop(cap, sounds):
                 click[0] = None
 
             point = tracker.track(clean)
-            if settings_open:
+            if settings_open or camera_open:
                 active, progress, confirmed = None, 0.0, None
             else:
                 active, progress, confirmed = dwell.update(point, [start_t, quit_t])
             draw_menu(frame, start_t, quit_t, sbtn, swatches, pen_color,
                       settings_open, active, progress, point)
+            if show_camera_button(available):
+                _draw_camera_button(frame, cbtn, cap.index, camera_open)
+            if camera_open:
+                draw_camera_panel(frame, cam_tiles, available, cap.index, previews)
             if confirmed == 0:              # Start
                 logger.info("Start (colour %s)", pen_color.name)
                 dwell.reset()
