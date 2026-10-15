@@ -16,7 +16,7 @@ States:
   PLAY       Slice thrown fruits with the pen (touch is enough), avoid bombs.
   GAME_OVER  Score + Top-3 leaderboard; dwell on Neustart / Startmenue / Quit.
 
-Keys: q quit | d mask (debug)
+Keys: q quit | d mask (debug) | b (re)capture the empty background for space mode
 """
 
 import logging
@@ -29,6 +29,7 @@ import time
 import cv2
 
 import config
+import background
 from marker_tracker import MarkerTracker
 from blade import Blade
 from game import Game
@@ -167,6 +168,11 @@ def camera_button(w, h):
 
 def show_camera_button(available):
     return len(available) > 1
+
+
+def reference_still_valid(reference_camera, camera_index):
+    """The empty-background reference only fits the camera it was taken with."""
+    return reference_camera == camera_index
 
 
 def handle_camera_click(click, camera_open, available, cap, w, h):
@@ -484,6 +490,15 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             logger.warning("WND_PROP_ASPECT_RATIO not supported", exc_info=True)
     cv2.setMouseCallback(config.WINDOW_NAME, on_mouse)
 
+    # Space background: load the backdrop. The reference is NOT captured
+    # automatically -- the player stands in frame to use the menu, so an auto
+    # capture would bake their silhouette into the background. They press 'b'
+    # (then step out during the countdown) to grab a clean empty background.
+    space_img = background.load_space((config.WIDTH, config.HEIGHT))
+    reference = None
+    reference_camera = None          # camera the reference was taken with
+    bg_capture_at = None
+
     while True:
         ok, frame = cap.read()
         if not ok:
@@ -502,6 +517,19 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
         if config.MIRROR:
             frame = cv2.flip(frame, 1)
         clean = frame.copy()
+
+        # --- space background: capture the reference, then cut the player out ---
+        if bg_capture_at is not None and time.monotonic() >= bg_capture_at:
+            reference = clean.copy()
+            reference_camera = cap.index
+            bg_capture_at = None
+            logger.info("Captured background reference for space compositing")
+        if reference is not None and not reference_still_valid(reference_camera, cap.index):
+            reference = None
+            logger.info("Camera changed -- space background off until 'b' is pressed again")
+        if config.BG_ENABLED and reference is not None and space_img is not None:
+            mask = background.foreground_mask(clean, reference)
+            frame = background.composite_space(frame, mask, space_img)
 
         quit_requested = False
 
@@ -695,6 +723,17 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             elif confirmed == 2:            # Quit
                 quit_requested = True
 
+        if bg_capture_at is not None:
+            secs = max(0, int(bg_capture_at - time.monotonic()) + 1)
+            draw_text(frame, f"Aus dem Bild gehen: {secs}",
+                      (config.WIDTH // 2, int(config.HEIGHT * 0.12)),
+                      scale=1.0, center=True)
+        elif (config.BG_ENABLED and space_img is not None and reference is None
+              and state != STATE_NAME_ENTRY):        # there 'b' types a letter
+            draw_text(frame, "Taste b: Weltall-Hintergrund",
+                      (config.WIDTH // 2, int(config.HEIGHT * 0.96)),
+                      scale=0.5, center=True)
+
         if show_mask and tracker.last_mask is not None:
             cv2.imshow("mask (debug)",
                        cv2.cvtColor(tracker.last_mask, cv2.COLOR_GRAY2BGR))
@@ -712,6 +751,10 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             logger.info("Debug mask %s", "on" if show_mask else "off")
             if not show_mask:
                 cv2.destroyWindow("mask (debug)")
+        elif key == ord("b") and space_img is not None:
+            bg_capture_at = time.monotonic() + config.BG_COUNTDOWN_SECONDS
+            logger.info("Background (re)capture armed -- %.1fs countdown",
+                        config.BG_COUNTDOWN_SECONDS)
 
 
 if __name__ == "__main__":

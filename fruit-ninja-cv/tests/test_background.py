@@ -1,0 +1,102 @@
+"""Tests for the space-background replacement (foreground segmentation).
+
+Pure, headless logic -- no camera, no GUI. Synthetic numpy frames stand in for
+camera images.
+"""
+
+import cv2
+import numpy as np
+
+from background import foreground_mask, composite_space, load_space
+
+H, W = 120, 160
+
+
+def _solid(bgr):
+    return np.full((H, W, 3), bgr, np.uint8)
+
+
+def test_identical_frames_give_empty_mask():
+    ref = _solid((100, 100, 100))
+    mask = foreground_mask(ref, ref.copy(), threshold=25)
+    assert mask.shape == (H, W)
+    assert mask.max() == 0
+
+
+def test_foreground_block_is_detected():
+    ref = _solid((100, 100, 100))
+    frame = ref.copy()
+    cv2.rectangle(frame, (40, 30), (120, 90), (10, 200, 10), -1)  # the "player"
+    mask = foreground_mask(frame, ref, threshold=25)
+    assert mask[60, 80] == 255      # inside the block -> foreground
+    assert mask[5, 5] == 0          # far corner -> background
+
+
+def test_foreground_mask_scaled_detects_block_full_size():
+    # Segmentation runs at reduced resolution (perf), but the returned mask is
+    # upscaled back to the full frame size and still marks the foreground.
+    ref = _solid((100, 100, 100))
+    frame = ref.copy()
+    cv2.rectangle(frame, (40, 30), (120, 90), (10, 200, 10), -1)
+    mask = foreground_mask(frame, ref, threshold=25, scale=0.5)
+    assert mask.shape == (H, W)      # upscaled back to full frame size
+    assert mask[60, 80] == 255       # block still detected
+    assert mask[5, 5] == 0           # background still empty
+
+
+def test_composite_replaces_background_keeps_foreground():
+    frame = _solid((0, 0, 255))     # red "player"
+    space = _solid((50, 20, 10))    # space backdrop colour
+    mask = np.zeros((H, W), np.uint8)
+    mask[40:80, 50:100] = 255       # a foreground region
+    out = composite_space(frame, mask, space)
+    assert out.shape == frame.shape
+    assert tuple(int(c) for c in out[60, 70]) == (0, 0, 255)   # mask -> frame kept
+    assert tuple(int(c) for c in out[5, 5]) == (50, 20, 10)    # else -> space
+
+
+def test_composite_writes_in_place():
+    # Hot path: composite writes the backdrop into the frame buffer in place
+    # rather than allocating a new full-frame array each call.
+    frame = _solid((0, 0, 255))
+    space = _solid((50, 20, 10))
+    mask = np.zeros((H, W), np.uint8)
+    mask[40:80, 50:100] = 255
+    composite_space(frame, mask, space)
+    assert tuple(int(c) for c in frame[5, 5]) == (50, 20, 10)   # background replaced
+    assert tuple(int(c) for c in frame[60, 70]) == (0, 0, 255)  # foreground kept
+
+
+def test_fill_holes_closes_interior_gap():
+    ref = _solid((100, 100, 100))
+    frame = ref.copy()
+    cv2.rectangle(frame, (30, 20), (130, 100), (10, 200, 10), -1)   # player blob
+    cv2.rectangle(frame, (70, 50), (90, 70), (100, 100, 100), -1)   # hole == background
+    # Without hole filling, the low-contrast "face" region stays background.
+    m0 = foreground_mask(frame, ref, threshold=25, scale=1.0, fill_holes=False)
+    assert m0[60, 80] == 0
+    # With hole filling, the interior gap becomes part of the solid silhouette.
+    m1 = foreground_mask(frame, ref, threshold=25, scale=1.0, fill_holes=True)
+    assert m1[60, 80] == 255
+
+
+def test_small_noise_blob_is_dropped():
+    ref = _solid((100, 100, 100))
+    frame = ref.copy()
+    cv2.rectangle(frame, (10, 10), (13, 13), (10, 200, 10), -1)     # tiny speck
+    mask = foreground_mask(frame, ref, threshold=25, scale=1.0, fill_holes=True)
+    assert mask.max() == 0
+
+
+def test_load_space_generates_when_missing(tmp_path):
+    path = str(tmp_path / "space.png")
+    img = load_space((W, H), path=path)
+    assert img is not None
+    assert img.shape == (H, W, 3)
+
+
+def test_load_space_resizes_existing(tmp_path):
+    path = str(tmp_path / "space.png")
+    cv2.imwrite(path, np.full((10, 10, 3), 7, np.uint8))
+    img = load_space((W, H), path=path)
+    assert img is not None and img.shape == (H, W, 3)

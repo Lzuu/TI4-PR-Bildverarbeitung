@@ -219,6 +219,12 @@ def test_no_camera_button_with_a_single_camera():
     assert not m.handle_camera_click((bx + 5, by + 5), False, [0], _two_cameras(), w, h)
 
 
+def test_space_background_reference_is_dropped_after_camera_switch():
+    # the empty-background reference belongs to the camera it was taken with
+    assert m.reference_still_valid(reference_camera=0, camera_index=0)
+    assert not m.reference_still_valid(reference_camera=0, camera_index=2)
+
+
 def test_guest_circle_on_face_scan_does_not_overlap_camera_button():
     w, h = config.WIDTH, config.HEIGHT
     cx, cy, r = m.guest_target(w, h)

@@ -147,6 +147,35 @@ Kamera ─► main (Loop, States, Input)
   werden mit Traceback geloggt → nachvollziehbares Debugging nach einem Problem.
 - **Test-case-basiert.** Die gesamte Logik (Geometrie, Tracking, Physik, Spiel) ist
   headless über `pytest` abgesichert und unabhängig von Kamera/GUI testbar.
+- **Weltraum-Hintergrund per Referenz-Differenz (`background.py`).** Der Spieler wird
+  freigestellt und vor einen Weltraum-Hintergrund gesetzt. Verfahren: einmalig ein
+  **Referenzbild** des leeren Hintergrunds aufnehmen (Countdown beim Start, Taste `b`
+  zum Neuaufnehmen), dann pro Frame `cv2.absdiff` → Graustufen → `threshold` →
+  Morphologie (Open/Close) → Vordergrund-Maske; Hintergrund-Pixel werden durch das
+  Weltall ersetzt (`composite_space`). Bewusst das **einfache, deterministische**
+  Verfahren statt MOG2: reine Funktionen → headless testbar, keine adaptive Drift
+  (ein stillstehender Spieler verschwindet nicht). Grenze: setzt eine **statische
+  Kamera + gleichbleibendes Licht** voraus. Das **Tracking bleibt unberührt** – es
+  arbeitet weiter auf dem rohen `clean`-Frame, nicht auf dem komponierten Bild. Das
+  Weltall ist ein **statisches Asset** (`assets/space.png`), das – wie die Sounds –
+  beim ersten Start generiert wird, falls es fehlt, und durch ein echtes Foto
+  ersetzbar ist.
+  - **Performance:** Gemessen ist der teuerste Schritt **nicht** die Morphologie
+    (~1 ms full-res), sondern das **Compositing**: `np.where` über das ganze Frame
+    kostet ~5,7 ms. Lösung: Compositing per **`cv2.copyTo`** (optimierte maskierte
+    Kopie, in-place, ~0,7 ms); Segmentierung bleibt in **voller Auflösung**
+    (Downscaling lohnt nicht – die Resizes kosten mehr, als die kleinere Morphologie
+    spart). Gesamt-Pipeline **~2,5 ms/Frame** statt ~8,5 ms (~3,4×).
+  - **Gesicht sauber freistellen (gefüllte Silhouette).** Wo der Hautton der Wand
+    ähnelt, fällt die Differenz unter den Schwellwert → Löcher im Gesicht. Daher wird
+    die Maske nach der Morphologie zu einer **gefüllten Silhouette** gemacht: externe
+    Konturen oberhalb `config.BG_MIN_BLOB_FRAC` werden **ausgefüllt** gezeichnet →
+    Innenlöcher verschwinden, Mini-Blobs (Rauschen) fallen raus.
+  - **Referenz nur bewusst (Taste `b`), kein Auto-Capture.** Der Spieler muss zur
+    Menübedienung im Bild stehen – ein automatisches Aufnehmen beim Start würde seine
+    Silhouette ins Referenzbild „einbrennen". Daher wird die Referenz erst per `b`
+    (mit Countdown zum Aus-dem-Bild-Gehen) aufgenommen; bis dahin zeigt das Spiel das
+    rohe Kamerabild mit einem dezenten Hinweis.
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.
