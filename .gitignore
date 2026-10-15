@@ -1,3 +1,6 @@
 __pycache__/
+.pytest_cache/
+logs/
+test-results.xml
 highscore.txt
 snapshot_*.png

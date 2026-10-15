@@ -3,10 +3,15 @@
 Tasten:  q / ESC = beenden,  s = Screenshot speichern
 Aufruf:  python camera.py [kamera_index]
 """
+import logging
 import sys
 import time
 
 import cv2
+
+from log_setup import setup_logging
+
+log = logging.getLogger("camera")
 
 # Index 0/1 = interne Laptop-Kameras (Front/Rück), 2 = ELP "HD USB Camera"
 CAMERA_INDEX = 2
@@ -18,20 +23,24 @@ def open_camera(index, width=WIDTH, height=HEIGHT, fps=FPS):
     # bei 1080p (YUY2) nur 5 fps, mit MSMF sind es volle 30 fps.
     cap = cv2.VideoCapture(index, cv2.CAP_MSMF)
     if not cap.isOpened():
+        log.error("Kamera %d konnte nicht geoeffnet werden", index)
         raise RuntimeError(f"Kamera {index} konnte nicht geoeffnet werden")
     cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     cap.set(cv2.CAP_PROP_FPS, fps)
+    log.info("Kamera %d geoeffnet: angefordert %dx%d@%d, erhalten %dx%d@%.0f",
+             index, width, height, fps, cap.get(cv2.CAP_PROP_FRAME_WIDTH),
+             cap.get(cv2.CAP_PROP_FRAME_HEIGHT), cap.get(cv2.CAP_PROP_FPS))
     return cap
 
 
 def main():
+    setup_logging("camera")
     index = int(sys.argv[1]) if len(sys.argv) > 1 else CAMERA_INDEX
     cap = open_camera(index)
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    print(f"Kamera {index} geoeffnet: {w}x{h}")
 
     cv2.namedWindow("ELP", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("ELP", 960, 540)
@@ -41,7 +50,7 @@ def main():
     while True:
         ok, frame = cap.read()
         if not ok:
-            print("Kein Bild von der Kamera erhalten")
+            log.error("Kein Bild von der Kamera erhalten")
             break
 
         now = time.time()
@@ -59,7 +68,7 @@ def main():
         if key == ord("s"):
             name = time.strftime("snapshot_%Y%m%d_%H%M%S.png")
             cv2.imwrite(name, frame)
-            print("Gespeichert:", name)
+            log.info("Screenshot gespeichert: %s", name)
         if cv2.getWindowProperty("ELP", cv2.WND_PROP_VISIBLE) < 1:
             break
 

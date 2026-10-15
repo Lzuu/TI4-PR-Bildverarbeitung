@@ -12,6 +12,7 @@ Tasten:  Leertaste = Kalibrieren / Start,  r / k = neu kalibrieren,
          m = Farbmaske ein/aus,  q / ESC = beenden
 Aufruf:  python fruit_ninja.py [kamera_index]
 """
+import logging
 import math
 import os
 import random
@@ -22,6 +23,9 @@ import cv2
 import numpy as np
 
 from camera import CAMERA_INDEX, open_camera
+from log_setup import setup_logging
+
+log = logging.getLogger("fruit_ninja")
 
 W, H = 1280, 720
 ROUND_TIME = 30          # Sekunden pro Runde
@@ -223,6 +227,21 @@ def spawn_fruit(bomb=False):
     return fruit
 
 
+def plan_wave(progress, intensity, rng=random):
+    """Plant den naechsten Wurf: (Anzahl Fruechte, mit Bombe?, Pause bis zum Wurf danach).
+
+    progress: 0 bei Rundenstart bis 1 am Rundenende, intensity: Dichte der Runde.
+    """
+    if rng.random() < 0.1 * intensity:
+        count = rng.randint(4, 6)    # gelegentliche Salve
+    else:
+        count = rng.choices([1, 2, 3], [5, 3, 1])[0]
+    bomb_chance = BOMB_CHANCE[0] + (BOMB_CHANCE[1] - BOMB_CHANCE[0]) * progress
+    bomb = rng.random() < bomb_chance
+    pause = rng.uniform(*SPAWN_INTERVAL) / intensity * (1.0 - 0.3 * progress)
+    return count, bomb, pause
+
+
 def to_hsv(frame):
     """Verkleinertes HSV-Bild und Maske der Pixel mit verlaesslichem Farbton."""
     small = cv2.resize(frame, (W // DETECT_SCALE, H // DETECT_SCALE))
@@ -273,6 +292,7 @@ def build_model(obj, bg, colored):
     prob = obj / (obj + bg + 1e-9)
     # Wie viel des Gegenstands sich klar vom Hintergrund abhebt
     separable = obj[prob > PROB_THRESHOLD / 255].sum()
+    log.info("Farbmodell erstellt: farbig=%.2f, vom Hintergrund trennbar=%.2f", colored, separable)
     message = ""
     if separable < 0.5:
         message = "Achtung: Farbe kommt auch im Hintergrund vor - Erkennung evtl. unsicher"
@@ -309,6 +329,28 @@ def segment_hits(p, q, x, y, r):
     return (cx - x) ** 2 + (cy - y) ** 2 <= r * r
 
 
+def update_blade(trail, pen, now):
+    """Fuehrt die Spur der Stiftpositionen fort und erkennt einen Schnitt.
+
+    trail: [((x, y), zeit), ...], pen: aktuelle Position oder None.
+    Liefert (neue Spur, Klinge). Die Klinge ist die Strecke (alt, neu) seit dem
+    letzten Frame, aber nur, wenn der Stift schnell genug war - langsame oder
+    ruhende Bewegungen sind kein Schnitt.
+    """
+    blade = None
+    if pen is None:
+        return [], None
+    if trail and math.dist(trail[-1][0], pen) > MAX_JUMP:
+        trail = []
+    if trail:
+        prev_pen, prev_t = trail[-1]
+        speed = math.dist(prev_pen, pen) / max(now - prev_t, 1e-6)
+        if speed >= MIN_SLICE_SPEED:
+            blade = (prev_pen, pen)
+    trail = [(p, t) for p, t in trail + [(pen, now)] if now - t <= TRAIL_TIME]
+    return trail, blade
+
+
 def draw_blade(img, trail, now, locked):
     color = (150, 150, 150) if locked else (0, 165, 255)
     for (p, tp), (q, tq) in zip(trail, trail[1:]):
@@ -338,6 +380,7 @@ def load_highscore():
         with open(HIGHSCORE_FILE) as f:
             return int(f.read().strip())
     except (OSError, ValueError):
+        log.debug("Kein gueltiger Highscore in %s, starte mit 0", HIGHSCORE_FILE)
         return 0
 
 
@@ -347,7 +390,9 @@ def save_highscore(value):
 
 
 def main():
+    log_path = setup_logging("fruit_ninja")
     index = int(sys.argv[1]) if len(sys.argv) > 1 else CAMERA_INDEX
+    log.info("Fruit Ninja startet mit Kamera %d, Log: %s", index, log_path)
     # in 1080p aufnehmen und selbst verkleinern: bei 720p liefert die ELP nur 9 fps
     cap = open_camera(index)
     cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
@@ -375,12 +420,17 @@ def main():
     start_fruit = Fruit(MELON, W / 2, H / 2, 0, 0)
     start_fruit.spin = 0
     last = time.time()
+    prev_state = state
+    pen_seen = False
+    # Statistik fuer das Log: Bildrate, Verarbeitungszeit, Erkennungsrate
+    stats_since, stats_frames, stats_found, stats_work = last, 0, 0, 0.0
 
     while True:
         ok, frame = cap.read()
         if not ok:
-            print("Kein Bild von der Kamera erhalten")
+            log.error("Kein Bild von der Kamera erhalten, Programm wird beendet")
             break
+        work_start = time.perf_counter()
         frame = cv2.flip(frame, 1)  # spiegeln, damit es sich wie ein Spiegel anfuehlt
         if frame.shape[1] != W or frame.shape[0] != H:
             frame = cv2.resize(frame, (W, H))
@@ -392,19 +442,11 @@ def main():
         # Klinge = Strecke von der letzten zur aktuellen Stiftposition
         hsv, valid = to_hsv(frame)
         pen, mask = find_pen(hsv, valid, model) if model is not None else (None, None)
-        blade = None
-        if pen is None:
-            trail.clear()
-        else:
-            if trail and math.dist(trail[-1][0], pen) > MAX_JUMP:
-                trail.clear()
-            if trail:
-                prev_pen, prev_t = trail[-1]
-                speed = math.dist(prev_pen, pen) / max(now - prev_t, 1e-6)
-                if speed >= MIN_SLICE_SPEED:
-                    blade = (prev_pen, pen)
-            trail.append((pen, now))
-        trail = [(p, t) for p, t in trail if now - t <= TRAIL_TIME]
+        trail, blade = update_blade(trail, pen, now)
+        if model is not None and (pen is not None) != pen_seen:
+            pen_seen = pen is not None
+            log.debug("Gegenstand %s", f"erkannt bei {pen[0]:.0f},{pen[1]:.0f}" if pen_seen
+                      else "verloren")
         locked = now < lock_until
         if locked:
             blade = None
@@ -428,6 +470,8 @@ def main():
                 if calib_count > CALIB_FRAMES:
                     calib_count = 0
                     model, calib_msg = build_model(calib_obj, calib_bg, calib_colored)
+                    if calib_msg:
+                        log.warning("Kalibrierung: %s", calib_msg)
                     if model is not None:
                         state, state_since = "verify", now
         elif state == "verify":
@@ -459,17 +503,11 @@ def main():
         elif state == "play":
             remaining = ROUND_TIME - elapsed
             if now >= next_spawn:
-                progress = elapsed / ROUND_TIME
-                if random.random() < 0.1 * intensity:
-                    count = random.randint(4, 6)    # gelegentliche Salve
-                else:
-                    count = random.choices([1, 2, 3], [5, 3, 1])[0]
+                count, bomb, pause = plan_wave(elapsed / ROUND_TIME, intensity)
                 fruits.extend(spawn_fruit() for _ in range(count))
-                bomb_chance = BOMB_CHANCE[0] + (BOMB_CHANCE[1] - BOMB_CHANCE[0]) * progress
-                if random.random() < bomb_chance:
+                if bomb:
                     fruits.append(spawn_fruit(bomb=True))
-                pause = random.uniform(*SPAWN_INTERVAL) / intensity
-                next_spawn = now + pause * (1.0 - 0.3 * progress)
+                next_spawn = now + pause
             for fruit in fruits[:]:
                 # erst schneidbar, wenn die Frucht ganz im Bild ist
                 if blade is None or fruit.y + fruit.r >= H:
@@ -481,15 +519,19 @@ def main():
                         lock_until = now + BOMB_LOCK
                         flash_until = now + 0.25
                         blade = None    # Rest dieses Schnitts zaehlt auch nicht mehr
+                        log.info("Bombe getroffen, %.0f s gesperrt", BOMB_LOCK)
                     else:
                         slice_fruit(fruit, effects)
                         score += 1
+                        log.debug("%s zerschnitten, Punkte: %d", fruit.name, score)
             if remaining <= 0:
                 last_score = score
                 new_record = score > highscore
                 if new_record:
                     highscore = score
                     save_highscore(highscore)
+                log.info("Runde vorbei: %d Punkte (Highscore %d%s), Intensitaet %.2f",
+                         score, highscore, ", neu" if new_record else "", intensity)
                 state, state_since = "menu", now
                 lock_until = 0.0
 
@@ -569,9 +611,24 @@ def main():
             cv2.rectangle(frame, (W - 330, H - 190), (W - 10, H - 10), (0, 165, 255), 2)
 
         cv2.imshow(WINDOW, frame)
+
+        if state != prev_state:
+            log.info("Zustand: %s -> %s", prev_state, state)
+            prev_state = state
+        stats_frames += 1
+        stats_found += pen is not None
+        stats_work += time.perf_counter() - work_start
+        if now - stats_since >= 5.0:
+            log.debug("%.1f fps, Verarbeitung %.1f ms/Frame, Gegenstand in %d%% der Frames",
+                      stats_frames / (now - stats_since), 1000 * stats_work / stats_frames,
+                      100 * stats_found // stats_frames)
+            stats_since, stats_frames, stats_found, stats_work = now, 0, 0, 0.0
+
         if key in (ord("q"), 27):
+            log.info("Beendet per Taste")
             break
         if cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) < 1:
+            log.info("Beendet durch Schliessen des Fensters")
             break
 
     cap.release()
