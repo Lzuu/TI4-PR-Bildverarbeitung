@@ -111,6 +111,34 @@ Kamera ─► main (Loop, States, Input)
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.
 - **Logging:** `logs/fruit-ninja.log` (rotierend), Konsole zeigt nur Warnungen/Fehler.
+- **CI:** GitHub Actions (`.github/workflows/tests.yml`) führt bei jedem Push und
+  Pull Request alle Tests aus. In `main` kommt nur Code mit grünen Tests.
+
+## Prozessentscheidungen
+- **Noahs Programm ist die gemeinsame Basis.** Es gab zwei parallele Umsetzungen
+  (Branches `FruitninjaLeon` und `FruitninjaNoah`). Das Team hat sich für Noahs
+  Projekt entschieden (modularer Aufbau, mehr Funktionen, umfangreichere Tests).
+  `FruitninjaNoah` wurde mit seiner Historie in `main` übernommen; Leons Stand bleibt
+  im Branch `FruitninjaLeon` erhalten und kann als Ideenquelle dienen (z. B.
+  Kalibrierung per Farbhistogramm, Schnitt erst ab Mindestgeschwindigkeit,
+  Kamera-Setup für die ELP-USB-Kamera unter Windows).
+- **Maßgeblich ist `aufgabenstellung.md`.** Noahs frühere `Aufgabenstellung.md`
+  wurde nicht übernommen (veraltet; kollidiert unter Windows wegen gleicher
+  Schreibweise bis auf Groß-/Kleinschreibung).
+- **Iterationen über GitHub.** Jede Iteration ist ein Milestone, Aufgaben sind
+  Issues, ein Branch pro Issue, Änderungen nur per Pull Request mit Tests.
+
+## Offen gegenüber der Aufgabenstellung
+- **Netzwerk-Mehrspieler (Teilaufgabe 6)** – fehlt noch, Architektur offen.
+- **Schnittgeste (Teilaufgabe 4):** Aktuell schneidet schon Berührung ohne
+  Mindestgeschwindigkeit; gefordert ist, dass langsame/ruhende Bewegungen kein
+  Schnitt sind.
+- **Tracking (Teilaufgabe 3):** Glättung von Messrauschen und Überbrücken kurzer
+  Erkennungsaussetzer.
+- **Stiftspitze (Teilaufgabe 2):** Aktuell wird der Schwerpunkt verwendet.
+- **Debug-Fenster** mit Kamerabild und erkannter Stiftposition (bisher Maske per `d`).
+- **Windows:** Standard-Kamera (`CAMERA_INDEX`) und Sound (`afplay`) sind auf macOS
+  ausgelegt; unter Windows mit der ELP-USB-Kamera prüfen.
 
 ## Bewusste Nicht-Ziele
-- Kein ML, kein Netzwerk, keine persistente Highscore-Speicherung (optional später).
+- Kein ML (nur klassische Bildverarbeitung).
