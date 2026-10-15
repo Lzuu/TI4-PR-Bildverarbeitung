@@ -326,12 +326,13 @@ def _run_game_loop(cap, sounds):
             logger.warning("WND_PROP_ASPECT_RATIO not supported", exc_info=True)
     cv2.setMouseCallback(config.WINDOW_NAME, on_mouse)
 
-    # Space background: load the backdrop and arm a short "step out of frame"
-    # countdown so the empty background is captured shortly after launch.
+    # Space background: load the backdrop. The reference is NOT captured
+    # automatically -- the player stands in frame to use the menu, so an auto
+    # capture would bake their silhouette into the background. They press 'b'
+    # (then step out during the countdown) to grab a clean empty background.
     space_img = background.load_space((config.WIDTH, config.HEIGHT))
     reference = None
-    bg_capture_at = (time.monotonic() + config.BG_COUNTDOWN_SECONDS
-                     if config.BG_ENABLED and space_img is not None else None)
+    bg_capture_at = None
 
     while True:
         ok, frame = cap.read()
@@ -358,7 +359,8 @@ def _run_game_loop(cap, sounds):
             bg_capture_at = None
             logger.info("Captured background reference for space compositing")
         if config.BG_ENABLED and reference is not None and space_img is not None:
-            mask = background.foreground_mask(clean, reference)
+            mask = background.foreground_mask(clean, reference,
+                                              scale=config.BG_PROC_SCALE)
             frame = background.composite_space(frame, mask, space_img)
 
         quit_requested = False
@@ -463,6 +465,10 @@ def _run_game_loop(cap, sounds):
             draw_text(frame, f"Aus dem Bild gehen: {secs}",
                       (config.WIDTH // 2, int(config.HEIGHT * 0.12)),
                       scale=1.0, center=True)
+        elif (config.BG_ENABLED and space_img is not None and reference is None):
+            draw_text(frame, "Taste b: Weltall-Hintergrund",
+                      (config.WIDTH // 2, int(config.HEIGHT * 0.96)),
+                      scale=0.5, center=True)
 
         if show_mask and tracker.last_mask is not None:
             cv2.imshow("mask (debug)",

@@ -120,6 +120,15 @@ Kamera ─► main (Loop, States, Input)
   Weltall ist ein **statisches Asset** (`assets/space.png`), das – wie die Sounds –
   beim ersten Start generiert wird, falls es fehlt, und durch ein echtes Foto
   ersetzbar ist.
+  - **Performance:** Die Segmentierung läuft auf einer **herunterskalierten** Kopie
+    (`config.BG_PROC_SCALE`, Standard 0.5); die Maske wird anschließend wieder auf
+    Framegröße hochskaliert. Die Morphologie – der teuerste Schritt pro Frame – wird
+    so ~4× günstiger, ohne die Freistellung sichtbar zu verschlechtern.
+  - **Referenz nur bewusst (Taste `b`), kein Auto-Capture.** Der Spieler muss zur
+    Menübedienung im Bild stehen – ein automatisches Aufnehmen beim Start würde seine
+    Silhouette ins Referenzbild „einbrennen". Daher wird die Referenz erst per `b`
+    (mit Countdown zum Aus-dem-Bild-Gehen) aufgenommen; bis dahin zeigt das Spiel das
+    rohe Kamerabild mit einem dezenten Hinweis.
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.

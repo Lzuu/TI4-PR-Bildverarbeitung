@@ -38,7 +38,8 @@ MORPH_KERNEL = 5                 # Kernel size for open/close morphology
 # player; the rest is replaced by assets/space.png (generated if missing).
 BG_ENABLED = True
 BG_DIFF_THRESHOLD = 35           # Per-pixel grey diff above which a pixel is "player"
-BG_MORPH_KERNEL = 7              # Open/close kernel to clean the foreground mask
+BG_MORPH_KERNEL = 5              # Open/close kernel to clean the foreground mask
+BG_PROC_SCALE = 0.5              # Segment at this fraction of the frame size (perf)
 BG_COUNTDOWN_SECONDS = 3.0       # "Step out of frame" countdown before capturing
 
 # ---------------------------------------------------------------------------

@@ -31,23 +31,37 @@ SPACE_PATH = os.path.join(ASSET_DIR, "space.png")
 # --------------------------------------------------------------------------- #
 # Segmentation (pure, headless-testable)
 # --------------------------------------------------------------------------- #
-def foreground_mask(frame, reference, threshold=None, kernel_size=None):
+def foreground_mask(frame, reference, threshold=None, kernel_size=None, scale=1.0):
     """Return a uint8 mask (0/255) of pixels that differ from ``reference``.
 
     ``frame`` and ``reference`` are BGR images of identical shape. A pixel whose
     absolute difference (converted to grey) exceeds ``threshold`` is foreground
     (the player); morphology then removes speckle noise and closes small holes.
+
+    ``scale`` < 1.0 runs the whole segmentation on a downscaled copy (much
+    cheaper morphology) and upscales the resulting mask back to the full frame
+    size -- the dominant per-frame cost of the space background.
     """
     if threshold is None:
         threshold = config.BG_DIFF_THRESHOLD
     if kernel_size is None:
         kernel_size = config.BG_MORPH_KERNEL
+
+    h, w = frame.shape[:2]
+    if scale != 1.0:
+        sw, sh = max(1, int(w * scale)), max(1, int(h * scale))
+        frame = cv2.resize(frame, (sw, sh), interpolation=cv2.INTER_AREA)
+        reference = cv2.resize(reference, (sw, sh), interpolation=cv2.INTER_AREA)
+
     diff = cv2.absdiff(frame, reference)
     gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
     _, mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+    if scale != 1.0:
+        mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
     return mask
 
 

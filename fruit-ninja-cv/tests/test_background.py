@@ -32,6 +32,18 @@ def test_foreground_block_is_detected():
     assert mask[5, 5] == 0          # far corner -> background
 
 
+def test_foreground_mask_scaled_detects_block_full_size():
+    # Segmentation runs at reduced resolution (perf), but the returned mask is
+    # upscaled back to the full frame size and still marks the foreground.
+    ref = _solid((100, 100, 100))
+    frame = ref.copy()
+    cv2.rectangle(frame, (40, 30), (120, 90), (10, 200, 10), -1)
+    mask = foreground_mask(frame, ref, threshold=25, scale=0.5)
+    assert mask.shape == (H, W)      # upscaled back to full frame size
+    assert mask[60, 80] == 255       # block still detected
+    assert mask[5, 5] == 0           # background still empty
+
+
 def test_composite_replaces_background_keeps_foreground():
     frame = _solid((0, 0, 255))     # red "player"
     space = _solid((50, 20, 10))    # space backdrop colour
