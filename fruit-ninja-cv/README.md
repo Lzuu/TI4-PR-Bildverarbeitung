@@ -53,6 +53,14 @@ biometrische Daten). Alternativ per Kommandozeile: `python enroll.py "Noah Braun
 Die Modelle (YuNet + SFace, ca. 39 MB) lädt das Spiel beim ersten Start nach
 `models/`.
 
+## Kamera wählen
+Hat der Rechner mehrere Kameras, erscheint im Startmenü und auf dem Gesichtsscan
+unten rechts ein **„Kamera“-Button** (auf dem Scan wichtig, falls das Spiel mit der
+falschen Kamera startet). Per Maus-Klick öffnet sich eine Auswahl mit Vorschaubildern;
+ein Klick auf ein Bild wechselt die Kamera. Die Wahl wird in `settings.json`
+gespeichert und beim nächsten Start wieder verwendet. Die Kameras werden einmal
+beim Start gesucht (ca. 1 s je Kamera).
+
 ## Installation & Start
 ```bash
 cd fruit-ninja-cv
@@ -93,13 +101,14 @@ pytest
 | `tests/test_blade.py` | Trail, Geschwindigkeit, aktueller Punkt |
 | `tests/test_game.py` | Berührungs-Schnitt, Bombe, Miss, Spawning, Reset, Kombos |
 | `tests/test_difficulty.py` | 3 Leben überall, härter = schneller |
+| `tests/test_cameras.py` | Kamerasuche, Auswahl/Fallback, Wechsel, Speichern, Menü-Layout (ohne echte Kamera) |
 | `tests/test_highscore.py` | Top-3 je Schwierigkeit, Ranking, Spielername, alte Dateien, defekte Datei |
 | `tests/test_face_id.py` | Gesichtsdetektion, Wiedererkennung auf anderem Foto, Gast, Scan im Kreis, Einlernen, Startablauf |
 | `tests/test_keyboard.py` | Bildschirmtastatur: Layout, Großschreibung, Löschen, Leerzeichen, Länge, echte Tastatur |
 
 ## Tuning
 Marker/Kamera & allgemeine Konstanten in `config.py`:
-- `CAMERA_INDEX` — welche Kamera.
+- `CAMERA_INDEX` — Standard-Kamera, solange keine im Menü gewählt wurde.
 - `MIN_MARKER_AREA` / `MORPH_KERNEL` — Erkennung dünner Stifte / Rauschfilter.
 - `DWELL_SECONDS` / `SELECT_RADIUS` — Dauer & Größe der Dwell-Auswahl.
 - `COMBO_WINDOW_FRAMES` / `COMBO_MIN` / `COMBO_BONUS_PER_FRUIT` — Kombo-Regeln.
@@ -119,6 +128,7 @@ Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.p
 | `fruit.py` | Frucht-/Bomben-Projektil-Physik + Zeichnung |
 | `game.py` | Spawning, Kollision, Score, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve) für die Lebensanzeige |
+| `cameras.py` | Kameras finden, öffnen, wechseln, Auswahl speichern |
 | `highscore.py` | Top-3 je Schwierigkeit mit Spielername (JSON-Persistenz) |
 | `face_id.py` | Spielererkennung (YuNet + SFace), Scan im Kreis, Einlernen |
 | `keyboard.py` | Bildschirmtastatur für die Namenseingabe per Stift |

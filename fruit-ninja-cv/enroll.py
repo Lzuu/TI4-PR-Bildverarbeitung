@@ -38,7 +38,7 @@ def main():
     identifier = face_id.FaceIdentifier(paths["detector"], paths["recognizer"])
     logger.info("Enrolling %s into %s", args.name, folder)
 
-    cap = open_camera()
+    cap, _ = open_camera()
     saved, last_save = 0, 0.0
     try:
         while saved < args.count:

@@ -8,6 +8,9 @@ tweaked without touching the logic modules.
 # Camera / window
 # ---------------------------------------------------------------------------
 CAMERA_INDEX = 1          # 1 = MacBook FaceTime HD. (0 = iPhone Continuity on this Mac.)
+                          # Default only -- the camera chosen in the menu wins (SETTINGS_FILE).
+CAMERA_MAX_INDEX = 5      # Camera indices 0..4 are searched for the camera selection
+SETTINGS_FILE = "settings.json"   # Local settings (chosen camera), not in git
 # WIDTH/HEIGHT are the render canvas size. They default to 960x540 but are set to
 # the actual screen resolution at startup (fullscreen, responsive layout). SCALE is
 # derived from HEIGHT so physics and UI scale with the resolution.

@@ -16,6 +16,7 @@ logs/
 # Generated sound assets & user data
 assets/
 highscores.json
+settings.json
 
 # OS / Editor
 .DS_Store
