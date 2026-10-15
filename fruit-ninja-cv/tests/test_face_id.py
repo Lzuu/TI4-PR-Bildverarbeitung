@@ -52,7 +52,7 @@ def test_best_match_uses_best_reference_of_a_person():
 
 
 # --------------------------------------------------------------------------- #
-# Deciding over several frames (pure, injectable clock)
+# Face scan in the circle (pure, injectable clock)
 # --------------------------------------------------------------------------- #
 class FakeClock:
     def __init__(self):
@@ -62,46 +62,99 @@ class FakeClock:
         return self.t
 
 
-def test_vote_decides_after_enough_matching_frames():
+CROP = np.zeros((112, 112, 3), np.uint8)
+
+
+def _scanner(clock, crops=3, votes=3, interval=0.3):
+    return face_id.FaceScanner(crops_needed=crops, votes_needed=votes, interval=interval,
+                               time_fn=clock)
+
+
+def test_scan_recognises_known_player_after_enough_frames():
     clock = FakeClock()
-    vote = face_id.PlayerVote(needed=3, timeout=5.0, time_fn=clock)
-    assert vote.update("Noah") is None
-    assert vote.update("Noah") is None
-    assert vote.update("Noah") == "Noah"
+    scan = _scanner(clock)
+    assert scan.update(True, "Noah", CROP) is None
+    assert scan.update(True, "Noah", CROP) is None
+    assert scan.update(True, "Noah", CROP) == ("known", "Noah")
 
 
-def test_vote_ignores_frames_without_face():
-    vote = face_id.PlayerVote(needed=2, timeout=5.0, time_fn=FakeClock())
-    assert vote.update(None) is None
-    assert vote.update("Noah") is None
-    assert vote.update(None) is None
-    assert vote.update("Noah") == "Noah"
-
-
-def test_vote_timeout_without_face_is_guest():
+def test_scan_collects_crops_of_an_unknown_face():
     clock = FakeClock()
-    vote = face_id.PlayerVote(needed=3, timeout=4.0, time_fn=clock)
-    vote.update(None)
-    clock.t = 4.1
-    assert vote.update(None) == face_id.GUEST
+    scan = _scanner(clock, crops=3)
+    results = []
+    for i in range(3):
+        clock.t = i * 0.5
+        results.append(scan.update(True, face_id.GUEST, CROP))
+    assert results[:2] == [None, None]
+    kind, crops = results[2]
+    assert kind == "new" and len(crops) == 3
 
 
-def test_vote_timeout_takes_most_frequent_name():
+def test_scan_takes_crops_only_every_interval():
     clock = FakeClock()
-    vote = face_id.PlayerVote(needed=10, timeout=4.0, time_fn=clock)
-    for name in ["Noah", face_id.GUEST, "Noah"]:
-        vote.update(name)
-    clock.t = 4.1
-    assert vote.update(None) == "Noah"
+    scan = _scanner(clock, crops=3, interval=0.3)
+    for _ in range(10):                       # same instant: only one crop
+        scan.update(True, face_id.GUEST, CROP)
+    assert len(scan.crops) == 1
 
 
-def test_vote_reset_starts_over():
+def test_scan_pauses_while_face_is_outside_the_circle():
     clock = FakeClock()
-    vote = face_id.PlayerVote(needed=2, timeout=4.0, time_fn=clock)
-    vote.update("Noah")
-    clock.t = 10.0
-    vote.reset()
-    assert vote.update("Leon") is None      # old vote and old start time are gone
+    scan = _scanner(clock)
+    for i in range(10):
+        clock.t = i
+        assert scan.update(False, "Noah", CROP) is None
+    assert scan.progress == 0.0
+
+
+def test_scan_progress_grows_towards_one():
+    clock = FakeClock()
+    scan = _scanner(clock, crops=4)
+    scan.update(True, face_id.GUEST, CROP)
+    clock.t = 1
+    scan.update(True, face_id.GUEST, CROP)
+    assert scan.progress == 0.5
+
+
+def test_scan_reset_starts_over():
+    clock = FakeClock()
+    scan = _scanner(clock)
+    scan.update(True, "Noah", CROP)
+    scan.reset()
+    assert scan.progress == 0.0 and scan.crops == []
+
+
+def test_face_in_circle():
+    circle = (500, 300, 150)
+    assert face_id.face_in_circle((450, 250, 100, 110), circle)       # centred, fitting
+    assert not face_id.face_in_circle((50, 50, 100, 110), circle)     # far outside
+    assert not face_id.face_in_circle((480, 290, 20, 22), circle)     # too small (far away)
+    assert not face_id.face_in_circle(None, circle)
+
+
+def test_default_player_name_uses_next_free_number():
+    assert face_id.default_player_name([]) == "Spieler 1"
+    assert face_id.default_player_name(["Spieler 1", "Noah", "Spieler 3"]) == "Spieler 2"
+
+
+# --------------------------------------------------------------------------- #
+# Start flow: the face scan is the very first screen
+# --------------------------------------------------------------------------- #
+def test_game_starts_with_face_scan_when_identification_works():
+    assert m.initial_state(object()) == m.STATE_FACE_SCAN
+
+
+def test_game_starts_in_menu_without_identification():
+    assert m.initial_state(None) == m.STATE_MENU
+
+
+def test_menu_has_a_switch_player_target_apart_from_start_and_quit():
+    import config
+    w, h = config.WIDTH, config.HEIGHT
+    sx, sy, sr = m.menu_start_target(w, h)
+    for cx, cy, r in (m.menu_start_target(w, h), m.quit_target(w, h)):
+        px, py, pr = m.player_target(w, h)
+        assert (px - cx) ** 2 + (py - cy) ** 2 > (pr + r) ** 2
 
 
 # --------------------------------------------------------------------------- #
@@ -120,23 +173,6 @@ def test_person_dir_rejects_unsafe_names(tmp_path, bad):
 def test_person_dir_inside_faces_dir(tmp_path):
     path = face_id.person_dir(str(tmp_path), " Noah Braun ")
     assert path == os.path.join(str(tmp_path), "Noah Braun")
-
-
-# --------------------------------------------------------------------------- #
-# New state: identification runs before the difficulty selection
-# --------------------------------------------------------------------------- #
-class _Ident:
-    def __init__(self, persons):
-        self.persons = persons
-
-
-def test_start_goes_to_identification_when_players_are_enrolled():
-    assert m.state_after_start(_Ident(["Noah"])) == m.STATE_IDENTIFY
-
-
-def test_start_skips_identification_without_enrolled_players():
-    assert m.state_after_start(_Ident([])) == m.STATE_DIFFICULTY
-    assert m.state_after_start(None) == m.STATE_DIFFICULTY
 
 
 # --------------------------------------------------------------------------- #
@@ -214,6 +250,24 @@ def test_gallery_loads_photos_and_aligned_crops_from_folders(identifier, tmp_pat
     assert identifier.load_gallery(str(tmp_path)) == 1
     assert identifier.persons == ["Neil Armstrong"]
     assert len(identifier.gallery["Neil Armstrong"]) == 2
+
+
+def test_scan_returns_aligned_crop_of_largest_face(identifier):
+    name, score, box, crop = identifier.scan(_img("armstrong_portrait.jpg"))
+    assert box is not None
+    assert crop.shape == (112, 112, 3)
+
+
+def test_enroll_saves_crops_and_recognises_the_new_player(identifier, crew_faces, tmp_path):
+    portrait = _img("armstrong_portrait.jpg")
+    crop = identifier.aligned_crop(portrait, identifier.detect(portrait)[0])
+    identifier.enroll(str(tmp_path), "Neil Armstrong", [crop, crop])
+    assert len(list((tmp_path / "Neil Armstrong").glob("*.png"))) == 2
+    img, (armstrong, _, _) = crew_faces
+    assert identifier.match(img, armstrong)[0] == "Neil Armstrong"
+    # a fresh identifier loads the saved crops from disk
+    fresh = face_id.FaceIdentifier(*identifier.model_paths)
+    assert fresh.load_gallery(str(tmp_path)) == 1
 
 
 def test_ensure_models_rejects_corrupt_file(tmp_path):

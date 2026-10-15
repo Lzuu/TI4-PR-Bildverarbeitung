@@ -7,8 +7,10 @@ active by default (only pink is tracked). You start by holding the pen on the
 behind a "Stiftfarbe" button and only shown when you open it (mouse click).
 
 States:
-  MENU       Start / Quit (pen dwell); pen colour setting via mouse button.
-  IDENTIFY   Recognise the player by face (only if players are enrolled).
+  FACE_SCAN  First screen: face into the circle -> known player is greeted,
+             a new face is recorded (only if face identification is available).
+  NAME_ENTRY A new player types their name with the pen (on-screen keyboard).
+  MENU       Start / Quit / Spieler wechseln (pen dwell); pen colour via mouse.
   DIFFICULTY Pick the difficulty (Einfach / Mittel / Schwer) by dwelling.
   PLAY       Slice thrown fruits with the pen (touch is enough), avoid bombs.
   GAME_OVER  Score + Top-3 leaderboard; dwell on Neustart / Startmenue / Quit.
@@ -17,6 +19,7 @@ Keys: q quit | d mask (debug)
 """
 
 import logging
+import os
 import re
 import subprocess
 import sys
@@ -36,11 +39,13 @@ from dwell import DwellTracker
 from sound import SoundPlayer
 import face_id
 import highscore
+import keyboard
 
 logger = logging.getLogger(__name__)
 
+STATE_FACE_SCAN = "face_scan"
+STATE_NAME_ENTRY = "name_entry"
 STATE_MENU = "menu"
-STATE_IDENTIFY = "identify"
 STATE_DIFFICULTY = "difficulty"
 STATE_PLAY = "play"
 STATE_GAME_OVER = "game_over"
@@ -135,11 +140,23 @@ def settings_button(w, h):
     return (_s(20), h - _s(70), _s(260), _s(48))
 
 
-def state_after_start(identifier):
-    """Identify the player first -- but only if anyone is enrolled to be recognised."""
-    if identifier is not None and identifier.persons:
-        return STATE_IDENTIFY
-    return STATE_DIFFICULTY
+def initial_state(identifier):
+    """Start with the face scan -- unless face identification is unavailable."""
+    return STATE_FACE_SCAN if identifier is not None else STATE_MENU
+
+
+def player_target(w, h):
+    """'Spieler wechseln' circle, right of the Start circle."""
+    return (int(w * 0.82), int(h * 0.38), _s(55))
+
+
+def face_circle(w, h):
+    return (w // 2, int(h * 0.48), _s(config.FACE_SCAN_RADIUS))
+
+
+def guest_target(w, h):
+    """'Als Gast spielen' circle on the face-scan screen."""
+    return (int(w * 0.85), int(h * 0.82), _s(45))
 
 
 def _hit(point, target):
@@ -196,7 +213,7 @@ def _draw_settings_button(frame, rect, pen_color, is_open):
 
 
 def draw_menu(frame, start_t, quit_t, sbtn, swatches, pen_color, settings_open,
-              active, progress, point):
+              active, progress, point, player_t=None, player=None):
     _dim(frame)
     h, w = frame.shape[:2]
     draw_text(frame, "FRUIT NINJA CV", (w // 2, int(h * 0.16)), scale=1.4,
@@ -205,6 +222,13 @@ def draw_menu(frame, start_t, quit_t, sbtn, swatches, pen_color, settings_open,
                         progress)
     _draw_circle_option(frame, quit_t, (200, 200, 200), "Quit", active == 1,
                         progress)
+    if player_t is not None:
+        _draw_circle_option(frame, player_t, (200, 200, 200), "Spieler wechseln",
+                            active == 2, progress)
+        if player is not None:
+            px, py, pr = player_t
+            draw_text(frame, face_id.display_name(player), (px, py - pr - _s(22)),
+                      scale=0.7, color=(0, 215, 255), center=True)
     _draw_settings_button(frame, sbtn, pen_color, settings_open)
     if settings_open:
         _dim(frame, 0.45)
@@ -237,28 +261,52 @@ def draw_difficulty_screen(frame, d_targets, q_target, active, progress, point,
     _draw_pen_marker(frame, point)
 
 
-def draw_identify_screen(frame, name, box, progress, player):
-    """Face box + current guess while identifying, then the greeting."""
+def draw_face_scan(frame, circle, box, inside, progress, greeting, guest_t,
+                   guest_active, guest_progress, point):
+    """Face-scan screen: circle with progress ring, face box, greeting at the end."""
     h, w = frame.shape[:2]
+    cx, cy, r = circle
+    _dim(frame, 0.35)
+    color = (80, 220, 80) if inside else (230, 230, 230)
+    cv2.circle(frame, (cx, cy), r, color, max(2, _s(4)), cv2.LINE_AA)
+    _draw_ring(frame, (cx, cy), r + _s(10), progress, (0, 215, 255))
     if box is not None:
         x, y, bw, bh = box
-        color = (80, 220, 80) if name not in (None, face_id.GUEST) else (200, 200, 200)
-        cv2.rectangle(frame, (x, y), (x + bw, y + bh), color, max(2, _s(3)), cv2.LINE_AA)
-        if name is not None:
-            draw_text(frame, face_id.display_name(name), (x, max(_s(20), y - _s(10))),
-                      scale=0.7, color=color)
-    if player is not None:
-        draw_text(frame, f"Hallo, {face_id.display_name(player)}!", (w // 2, int(h * 0.16)),
+        cv2.rectangle(frame, (x, y), (x + bw, y + bh), color, max(1, _s(2)), cv2.LINE_AA)
+    if greeting is not None:
+        draw_text(frame, f"Hallo, {face_id.display_name(greeting)}!", (w // 2, int(h * 0.12)),
                   scale=1.4, color=(0, 215, 255), thickness=3, center=True)
         return
-    draw_text(frame, "Spieler wird erkannt ...", (w // 2, int(h * 0.12)), scale=1.1,
+    draw_text(frame, "Gesicht in den Kreis halten", (w // 2, int(h * 0.10)), scale=1.1,
               center=True)
-    draw_text(frame, "Bitte in die Kamera schauen", (w // 2, int(h * 0.19)), scale=0.65,
+    hint = "Stillhalten ..." if inside else "Naeher ran und mittig in den Kreis"
+    draw_text(frame, hint, (w // 2, int(h * 0.17)), scale=0.65, center=True)
+    _draw_circle_option(frame, guest_t, (200, 200, 200), "Als Gast", guest_active,
+                        guest_progress)
+    _draw_pen_marker(frame, point)
+
+
+def draw_name_entry(frame, targets, entry, active, progress, point, color):
+    """On-screen keyboard: dwell on a key to type, OK to confirm."""
+    _dim(frame, 0.6)
+    h, w = frame.shape[:2]
+    draw_text(frame, "Neuer Spieler - Name eingeben", (w // 2, int(h * 0.08)), scale=1.0,
               center=True)
-    bx, by, bw = int(w * 0.3), int(h * 0.9), int(w * 0.4)
-    cv2.rectangle(frame, (bx, by), (bx + bw, by + _s(10)), (90, 90, 90), -1)
-    cv2.rectangle(frame, (bx, by), (bx + int(bw * progress), by + _s(10)),
-                  (200, 200, 200), -1)
+    draw_text(frame, f"{entry.text}_", (w // 2, int(h * 0.19)), scale=1.3,
+              color=(0, 215, 255), thickness=3, center=True)
+    draw_text(frame, f"Stift {config.KEYBOARD_DWELL_SECONDS:g}s auf eine Taste halten  -  "
+              f"leer lassen = Spieler-Nummer", (w // 2, int(h * 0.27)), scale=0.55, center=True)
+    for i, (cx, cy, r) in enumerate(targets):
+        key = keyboard.KEYS[i]
+        on = i == active
+        cv2.circle(frame, (cx, cy), r, color if on else (200, 200, 200),
+                   max(1, _s(2)), cv2.LINE_AA)
+        if on:
+            _draw_ring(frame, (cx, cy), r, progress, color)
+        label = face_id.display_name(key) if len(key) == 1 else key
+        draw_text(frame, label, (cx, cy), scale=0.6 if len(key) == 1 else 0.45,
+                  center=True)
+    _draw_pen_marker(frame, point)
 
 
 def draw_mask_inset(frame, mask):
@@ -343,8 +391,13 @@ def _run_game_loop(cap, sounds, identifier=None):
     tracker.set_color(pen_color)
     scores, rank = [], None
     player = face_id.GUEST
-    vote = face_id.PlayerVote()
+    faces_dir = os.path.join(face_id.BASE_DIR, config.FACES_DIR)
+    scanner = face_id.FaceScanner()
     greet_until = None             # set once the player is decided (greeting shown)
+    new_crops = []                 # face crops of a new player until the name is typed
+    entry = keyboard.NameEntry()
+    key_dwell = DwellTracker(config.KEYBOARD_DWELL_SECONDS)
+    typed_key = None               # key from the physical keyboard (name entry)
     show_mask = False
     settings_open = False
     frame_failures = 0
@@ -354,7 +407,7 @@ def _run_game_loop(cap, sounds, identifier=None):
         if event == cv2.EVENT_LBUTTONDOWN:
             click[0] = (x, y)
 
-    state = STATE_MENU
+    state = initial_state(identifier)
     cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
     if config.FULLSCREEN:
         cv2.setWindowProperty(config.WINDOW_NAME, cv2.WND_PROP_FULLSCREEN,
@@ -410,35 +463,78 @@ def _run_game_loop(cap, sounds, identifier=None):
                 click[0] = None
 
             point = tracker.track(clean)
+            player_t = player_target(config.WIDTH, config.HEIGHT) if identifier else None
+            targets = [start_t, quit_t] + ([player_t] if player_t else [])
             if settings_open:
                 active, progress, confirmed = None, 0.0, None
             else:
-                active, progress, confirmed = dwell.update(point, [start_t, quit_t])
+                active, progress, confirmed = dwell.update(point, targets)
             draw_menu(frame, start_t, quit_t, sbtn, swatches, pen_color,
-                      settings_open, active, progress, point)
+                      settings_open, active, progress, point, player_t,
+                      player if identifier else None)
             if confirmed == 0:              # Start
-                logger.info("Start (colour %s)", pen_color.name)
+                logger.info("Start (colour %s, player %s)", pen_color.name, player)
                 dwell.reset()
-                player = face_id.GUEST
-                state = state_after_start(identifier)
-                if state == STATE_IDENTIFY:
-                    vote.reset()
-                    greet_until = None
+                state = STATE_DIFFICULTY
             elif confirmed == 1:            # Quit
                 quit_requested = True
+            elif confirmed == 2:            # Spieler wechseln
+                logger.info("Switch player")
+                dwell.reset()
+                scanner.reset()
+                greet_until = None
+                state = STATE_FACE_SCAN
 
-        elif state == STATE_IDENTIFY:
-            name, score, box = identifier.identify(clean)
+        elif state == STATE_FACE_SCAN:
+            circle = face_circle(config.WIDTH, config.HEIGHT)
+            guest_t = guest_target(config.WIDTH, config.HEIGHT)
+            name, score, box, crop = identifier.scan(clean)
+            inside = face_id.face_in_circle(box, circle)
+            point = tracker.track(clean)
+            g_active, g_progress, g_confirmed = dwell.update(point, [guest_t])
             if greet_until is None:
-                decided = vote.update(name)
-                if decided is not None:
-                    player = decided
+                result = scanner.update(inside, name, crop)
+                if g_confirmed is not None:
+                    result = ("known", face_id.GUEST)
+                if result is not None and result[0] == "known":
+                    player = result[1]
                     greet_until = time.time() + config.FACE_GREETING_SECONDS
-                    logger.info("Player identified: %s (votes %s)", player, dict(vote.votes))
-            draw_identify_screen(frame, name, box, vote.progress(),
-                                 player if greet_until is not None else None)
-            if greet_until is not None and time.time() >= greet_until:
-                state = STATE_DIFFICULTY
+                    logger.info("Player recognised: %s", player)
+                elif result is not None:
+                    new_crops = result[1]
+                    entry = keyboard.NameEntry()
+                    key_dwell.reset()
+                    typed_key = None
+                    logger.info("New face recorded (%d crops) -- asking for the name",
+                                len(new_crops))
+                    state = STATE_NAME_ENTRY
+            if state == STATE_FACE_SCAN:
+                draw_face_scan(frame, circle, box, inside, scanner.progress,
+                               player if greet_until is not None else None, guest_t,
+                               g_active == 0, g_progress, point)
+                if greet_until is not None and time.time() >= greet_until:
+                    dwell.reset()
+                    state = STATE_MENU
+
+        elif state == STATE_NAME_ENTRY:
+            point = tracker.track(clean)
+            k_targets = keyboard.layout(config.WIDTH, config.HEIGHT)
+            active, progress, confirmed = key_dwell.update(point, k_targets)
+            pressed = typed_key
+            typed_key = None
+            if confirmed is not None:
+                pressed = keyboard.KEYS[confirmed]
+                key_dwell.reset()        # hold again to repeat the same key
+            if pressed is not None and entry.press(pressed):
+                player = entry.result() or face_id.default_player_name(identifier.persons)
+                identifier.enroll(faces_dir, player, new_crops)
+                new_crops = []
+                scanner.reset()
+                greet_until = time.time() + config.FACE_GREETING_SECONDS
+                state = STATE_FACE_SCAN  # shows the greeting, then the menu
+            else:
+                draw_name_entry(frame, k_targets, entry, active, progress, point,
+                                pen_color.display)
 
         elif state == STATE_DIFFICULTY:
             point = tracker.track(clean)
@@ -506,7 +602,9 @@ def _run_game_loop(cap, sounds, identifier=None):
         cv2.imshow(config.WINDOW_NAME, frame)
         key = cv2.waitKey(1) & 0xFF
 
-        if quit_requested or key == ord("q"):
+        if state == STATE_NAME_ENTRY and keyboard.from_keycode(key) is not None:
+            typed_key = keyboard.from_keycode(key)   # letters type here instead of q/d
+        elif quit_requested or key == ord("q"):
             logger.info("Quit requested")
             break
         elif key == ord("d"):

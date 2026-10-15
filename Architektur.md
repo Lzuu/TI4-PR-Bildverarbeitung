@@ -23,7 +23,7 @@ Kamera ─► main (Loop, States, Input)
 ## Module & Verantwortlichkeiten
 | Modul | Verantwortung |
 |-------|---------------|
-| `main.py` | Game-Loop, State-Machine (Menu/Identify/Difficulty/Play/GameOver), Kamera-Capture, Dwell-Auswahl, Maus-Farbeinstellung, Rendering, Logging-Setup, Fehlerbehandlung |
+| `main.py` | Game-Loop, State-Machine (FaceScan/NameEntry/Menu/Difficulty/Play/GameOver), Kamera-Capture, Dwell-Auswahl, Maus-Farbeinstellung, Rendering, Logging-Setup, Fehlerbehandlung |
 | `config.py` | Gemeinsame Konstanten (Kamera, Marker, Dwell, Kombos, Highscore, HUD) |
 | `colors.py` | Feste Stiftfarben Pink/Gelb/Grün (HSV-Bereich + UI-Farbe) |
 | `difficulty.py` | Schwierigkeitsgrade (Tempo; immer 3 Leben) als Presets |
@@ -34,7 +34,8 @@ Kamera ─► main (Loop, States, Input)
 | `game.py` | Spielzustand: Spawning (Bursts), Kollision, Punkte, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve, Verlauf+Glanz) für die Leben |
 | `highscore.py` | Top-3-Highscore **je Schwierigkeit** mit Spielername (JSON-Persistenz) |
-| `face_id.py` | Spielererkennung per Gesicht: YuNet-Detektion, SFace-Merkmale, Abgleich mit `faces/`, Mehrheitsentscheid über mehrere Frames |
+| `face_id.py` | Spielererkennung per Gesicht: YuNet-Detektion, SFace-Merkmale, Abgleich mit `faces/`, Scan im Kreis (`FaceScanner`), Einlernen |
+| `keyboard.py` | Bildschirmtastatur (Dwell pro Taste) für den Namen neuer Spieler |
 | `enroll.py` | Spieler einlernen: speichert ausgerichtete Gesichtsausschnitte nach `faces/<Name>/` |
 | `sound.py` | Soundeffekte (synthetisiert, non-blocking via afplay) |
 | `utils.py` | Wiederverwendbare Helfer: Linie-Kreis-Abstand, Text mit Schatten |
@@ -110,10 +111,18 @@ Kamera ─► main (Loop, States, Input)
   lichtrobuster als LBPH, aber eine bewusste Ausnahme von „kein ML“ – nur für die
   Spielererkennung, nicht für die Stifterkennung. Die Modelle (OpenCV Model Zoo,
   ca. 39 MB) werden beim ersten Start nach `models/` geladen und per SHA256 geprüft,
-  nicht ins Repo eingecheckt. Entschieden wird per Mehrheit über mehrere Frames
-  (`PlayerVote`), nicht anhand eines Einzelbilds; ohne Gesicht oder unbekannt →
-  „Gast“. Ohne eingelernte Spieler wird der Schritt übersprungen, ohne Modelle
-  (offline) spielt jeder als Gast.
+  nicht ins Repo eingecheckt. Ohne Modelle (offline) startet das Spiel direkt im
+  Menü und jeder spielt als Gast.
+- **Gesichtsscan als erster Bildschirm, Einlernen im Spiel.** Statt eines separaten
+  Einlern-Programms hält man das Gesicht in einen Kreis: Ein bekannter Spieler gilt
+  nach 5 übereinstimmenden Frames als erkannt (nicht nach einem Einzelbild); bei
+  einem unbekannten Gesicht werden 8 ausgerichtete Ausschnitte im Abstand von 0,3 s
+  aufgenommen (leichte Kopfbewegungen → robustere Referenz), danach wird der Name
+  abgefragt. Gescannt wird beim Start und über „Spieler wechseln“, nicht vor jeder
+  Runde. Die Namenseingabe läuft per Stift über eine Bildschirmtastatur (Dwell
+  0,8 s statt 3 s pro Taste, sonst zu langsam); die echte Tastatur geht zusätzlich.
+  Logik (`FaceScanner`, `NameEntry`) ist von der Darstellung getrennt und mit
+  injizierbarer Uhr testbar.
 - **Referenzbilder sind biometrische Daten.** `faces/` liegt nur lokal (in
   `.gitignore`); die Tests nutzen gemeinfreie NASA-Fotos (`tests/data/QUELLEN.md`).
 - **Highscore als JSON.** `highscore.py` kapselt Laden/Schreiben der Top-3 und ist

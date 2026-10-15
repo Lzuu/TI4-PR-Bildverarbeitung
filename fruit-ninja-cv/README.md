@@ -39,16 +39,19 @@ Entwickelt **inkrementell-iterativ** und **test-case-basiert**.
 6. **Rendering** — prozedurale Früchte, Klingen-Trail, HUD, Dwell-Ladekreise.
 
 ## Spieler per Gesicht erkennen
-Vor der Schwierigkeitsauswahl erkennt das Spiel, wer spielt, und trägt den Namen
-in den Highscore ein. Dazu jeden Spieler einmal einlernen:
-```bash
-python enroll.py "Noah Braun"     # in die Kamera schauen, Kopf leicht drehen
-```
-Die Bilder landen in `faces/Noah Braun/` und bleiben **nur lokal** (nicht in git,
-biometrische Daten). Eigene Fotos können auch direkt in den Ordner gelegt werden.
-Unbekannte Gesichter spielen als **Gast**; ist niemand eingelernt, entfällt der
-Schritt. Die Modelle (YuNet + SFace, ca. 39 MB) lädt das Spiel beim ersten Start
-nach `models/`.
+Der **erste Bildschirm** ist ein Kreis: Gesicht hineinhalten.
+- **Bekanntes Gesicht** → „Hallo, Name!“ → Startmenü.
+- **Neues Gesicht** → ein Ladering füllt sich, während ca. 2 s lang Bilder
+  aufgenommen werden → Name per **Bildschirmtastatur mit dem Stift** eingeben
+  (0,8 s auf eine Taste halten; `OK` bestätigt, leer = „Spieler 1“, „Spieler 2“ …;
+  die echte Tastatur geht auch) → Startmenü.
+- **„Als Gast“** (Stift 3 s in den Kreis) überspringt den Scan.
+
+Der Name steht im Highscore. Im Startmenü führt **„Spieler wechseln“** zurück zum
+Scan. Die Bilder landen in `faces/<Name>/` und bleiben **nur lokal** (nicht in git,
+biometrische Daten). Alternativ per Kommandozeile: `python enroll.py "Noah Braun"`.
+Die Modelle (YuNet + SFace, ca. 39 MB) lädt das Spiel beim ersten Start nach
+`models/`.
 
 ## Installation & Start
 ```bash
@@ -91,7 +94,8 @@ pytest
 | `tests/test_game.py` | Berührungs-Schnitt, Bombe, Miss, Spawning, Reset, Kombos |
 | `tests/test_difficulty.py` | 3 Leben überall, härter = schneller |
 | `tests/test_highscore.py` | Top-3 je Schwierigkeit, Ranking, Spielername, alte Dateien, defekte Datei |
-| `tests/test_face_id.py` | Gesichtsdetektion, Wiedererkennung auf anderem Foto, Gast, Mehrheitsentscheid, Einlernen, neuer State |
+| `tests/test_face_id.py` | Gesichtsdetektion, Wiedererkennung auf anderem Foto, Gast, Scan im Kreis, Einlernen, Startablauf |
+| `tests/test_keyboard.py` | Bildschirmtastatur: Layout, Großschreibung, Löschen, Leerzeichen, Länge, echte Tastatur |
 
 ## Tuning
 Marker/Kamera & allgemeine Konstanten in `config.py`:
@@ -105,7 +109,7 @@ Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.p
 ## Dateien
 | Datei | Inhalt |
 |-------|--------|
-| `main.py` | Game-Loop, States (Menu/Identify/Difficulty/Play/GameOver), Dwell-Auswahl |
+| `main.py` | Game-Loop, States (FaceScan/NameEntry/Menu/Difficulty/Play/GameOver), Dwell-Auswahl |
 | `config.py` | Gemeinsame Konstanten (Kamera, Dwell, Kombos, Highscore) |
 | `colors.py` | Feste Stiftfarben Pink/Gelb/Grün (HSV + UI-Farbe) |
 | `difficulty.py` | Schwierigkeitsgrade (Tempo; immer 3 Leben) |
@@ -116,7 +120,8 @@ Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.p
 | `game.py` | Spawning, Kollision, Score, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve) für die Lebensanzeige |
 | `highscore.py` | Top-3 je Schwierigkeit mit Spielername (JSON-Persistenz) |
-| `face_id.py` | Spielererkennung (YuNet + SFace), Mehrheitsentscheid |
+| `face_id.py` | Spielererkennung (YuNet + SFace), Scan im Kreis, Einlernen |
+| `keyboard.py` | Bildschirmtastatur für die Namenseingabe per Stift |
 | `enroll.py` | Spieler einlernen (`faces/<Name>/`) |
 | `sound.py` | Soundeffekte (synthetisiert, afplay) |
 | `logging_config.py` | Logfiles (rotierend, `logs/`) |

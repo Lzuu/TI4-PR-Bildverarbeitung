@@ -120,36 +120,68 @@ def person_dir(faces_dir, name):
     return os.path.join(faces_dir, name)
 
 
-class PlayerVote:
-    """Decide on a player over several frames instead of trusting a single one.
+def face_in_circle(box, circle):
+    """Is the face (x, y, w, h) centred in the scan circle and close enough to the camera?"""
+    if box is None:
+        return False
+    x, y, w, h = box
+    cx, cy, r = circle
+    fx, fy = x + w / 2, y + h / 2
+    centred = (fx - cx) ** 2 + (fy - cy) ** 2 <= (0.5 * r) ** 2
+    return centred and 0.4 * r <= w <= 2.0 * r
 
-    ``update(name)`` gets the per-frame result (``None`` = no face) and returns
-    the decided name once a name was seen ``needed`` times, or after
-    ``timeout`` seconds the most frequent name (``GUEST`` if there was none).
+
+def default_player_name(existing):
+    """'Spieler N' with the lowest number not taken yet."""
+    n = 1
+    while f"Spieler {n}" in existing:
+        n += 1
+    return f"Spieler {n}"
+
+
+class FaceScanner:
+    """Decides what a face in the scan circle is: a known player or a new one.
+
+    ``update(in_circle, name, crop)`` gets the per-frame result. A known player is
+    accepted after ``votes_needed`` frames; for an unknown face one aligned crop
+    is recorded every ``interval`` seconds, and after ``crops_needed`` crops it is
+    a new player. Returns ``("known", name)``, ``("new", crops)`` or ``None``.
+    Nothing happens while the face is outside the circle.
     """
 
-    def __init__(self, needed=config.FACE_VOTES_NEEDED,
-                 timeout=config.FACE_TIMEOUT_SECONDS, time_fn=time.time):
-        self.needed = needed
-        self.timeout = timeout
+    def __init__(self, crops_needed=config.FACE_SCAN_CROPS,
+                 votes_needed=config.FACE_VOTES_NEEDED,
+                 interval=config.FACE_SCAN_INTERVAL, time_fn=time.time):
+        self.crops_needed = crops_needed
+        self.votes_needed = votes_needed
+        self.interval = interval
         self._time = time_fn
         self.reset()
 
     def reset(self):
         self.votes = Counter()
-        self._start = self._time()
+        self.crops = []
+        self._last_crop = None
 
+    @property
     def progress(self):
-        """Elapsed share of the timeout (0..1), for a progress bar."""
-        return min((self._time() - self._start) / self.timeout, 1.0)
+        best_vote = max(self.votes.values(), default=0) / self.votes_needed
+        return min(1.0, max(best_vote, len(self.crops) / self.crops_needed))
 
-    def update(self, name):
-        if name is not None:
+    def update(self, in_circle, name, crop):
+        if not in_circle:
+            return None
+        if name is not None and name != GUEST:
             self.votes[name] += 1
-            if self.votes[name] >= self.needed:
-                return name
-        if self._time() - self._start >= self.timeout:
-            return self.votes.most_common(1)[0][0] if self.votes else GUEST
+            if self.votes[name] >= self.votes_needed:
+                return "known", name
+            return None
+        now = self._time()
+        if self._last_crop is None or now - self._last_crop >= self.interval:
+            self.crops.append(crop)
+            self._last_crop = now
+        if len(self.crops) >= self.crops_needed:
+            return "new", list(self.crops)
         return None
 
 
@@ -163,6 +195,7 @@ class FaceIdentifier:
         self._detector = cv2.FaceDetectorYN.create(detector_path, "", (320, 320),
                                                    score_threshold)
         self._recognizer = cv2.FaceRecognizerSF.create(recognizer_path, "")
+        self.model_paths = (detector_path, recognizer_path)
         self.threshold = threshold
         self.gallery = {}        # name -> list of normalised features
 
@@ -226,20 +259,37 @@ class FaceIdentifier:
                 logger.warning("Player %s: no usable face in %s", name, folder)
         return len(self.gallery)
 
-    def identify(self, frame):
-        """``(name, similarity, box)`` for the largest face, or ``(None, 0.0, None)``.
+    def scan(self, frame):
+        """``(name, similarity, box, crop)`` for the largest face, or all ``None``/0.
 
-        The frame is downscaled for speed; ``box`` is (x, y, w, h) in frame coordinates.
+        The frame is downscaled for speed; ``box`` is (x, y, w, h) in frame
+        coordinates, ``crop`` the aligned 112x112 face for enrolling.
         """
         scale = min(1.0, config.FACE_INPUT_WIDTH / frame.shape[1])
         small = frame if scale == 1.0 else cv2.resize(frame, None, fx=scale, fy=scale,
                                                       interpolation=cv2.INTER_AREA)
         faces = self.detect(small)
         if not faces:
-            return None, 0.0, None
-        name, score = self.match(small, faces[0])
+            return None, 0.0, None, None
+        crop = self.aligned_crop(small, faces[0])
+        name, score = best_match(self._feature_of_crop(crop), self.gallery, self.threshold)
         box = tuple(int(round(v / scale)) for v in faces[0][:4])
-        return name, score, box
+        return name, score, box, crop
+
+    def identify(self, frame):
+        """``(name, similarity, box)`` for the largest face, or ``(None, 0.0, None)``."""
+        return self.scan(frame)[:3]
+
+    def enroll(self, faces_dir, name, crops):
+        """Save the crops to ``faces_dir/<name>/`` and add the player to the gallery."""
+        folder = person_dir(faces_dir, name)
+        os.makedirs(folder, exist_ok=True)
+        stamp = int(time.time() * 1000)
+        for i, crop in enumerate(crops):
+            cv2.imwrite(os.path.join(folder, f"{stamp}_{i}.png"), crop)
+        added = self.add_person(name.strip(), crops)
+        logger.info("Enrolled player %s with %d face image(s)", name.strip(), added)
+        return added
 
 
 def create_identifier(faces_dir=None):

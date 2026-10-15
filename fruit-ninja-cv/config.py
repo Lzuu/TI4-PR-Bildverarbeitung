@@ -78,9 +78,13 @@ FACES_DIR = "faces"              # Reference images: faces/<Name>/*.jpg|png (pyt
 FACE_DETECT_SCORE = 0.8          # Minimum YuNet confidence for a face
 FACE_MATCH_THRESHOLD = 0.363     # Cosine similarity for "same person" (SFace recommendation)
 FACE_INPUT_WIDTH = 640           # Frames are downscaled to this width before detection
-FACE_VOTES_NEEDED = 5            # Frames with the same name needed to decide
-FACE_TIMEOUT_SECONDS = 5.0       # After this, decide with what we have (no face -> Gast)
+FACE_VOTES_NEEDED = 5            # Frames recognising the same player needed to accept
+FACE_SCAN_CROPS = 8              # Face crops recorded for a new player
+FACE_SCAN_INTERVAL = 0.3         # Seconds between two recorded crops (head may move a bit)
+FACE_SCAN_RADIUS = 150           # Radius of the "face here" circle (scaled with SCALE)
 FACE_GREETING_SECONDS = 1.5      # How long "Hallo, <Name>!" is shown
+KEYBOARD_DWELL_SECONDS = 0.8     # Dwell per key on the on-screen keyboard (faster than menus)
+NAME_MAX_LENGTH = 16             # Maximum length of a player name
 
 # Fruit types: (name, BGR fill color)
 FRUIT_TYPES = [
