@@ -31,6 +31,18 @@ MIN_MARKER_AREA = 300            # Ignore contours smaller than this (noise/fals
 MORPH_KERNEL = 5                 # Kernel size for open/close morphology
 
 # ---------------------------------------------------------------------------
+# Space background (cut the player out of the camera, show a space backdrop)
+# ---------------------------------------------------------------------------
+# A reference frame of the *empty* background is captured once (press 'b', or
+# the startup countdown). Each live frame is diffed against it to segment the
+# player; the rest is replaced by assets/space.png (generated if missing).
+BG_ENABLED = True
+BG_DIFF_THRESHOLD = 30           # Per-pixel grey diff above which a pixel is "player"
+BG_MORPH_KERNEL = 5              # Open/close kernel to clean the foreground mask
+BG_MIN_BLOB_FRAC = 0.003         # Drop foreground blobs smaller than this frame fraction
+BG_COUNTDOWN_SECONDS = 3.0       # "Step out of frame" countdown before capturing
+
+# ---------------------------------------------------------------------------
 # Selection (VR-style dwell: hold the pen in a circle to confirm)
 # ---------------------------------------------------------------------------
 DWELL_SECONDS = 3.0              # How long to hold on a target to select it
