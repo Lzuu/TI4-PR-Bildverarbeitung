@@ -107,6 +107,19 @@ Kamera ─► main (Loop, States, Input)
   werden mit Traceback geloggt → nachvollziehbares Debugging nach einem Problem.
 - **Test-case-basiert.** Die gesamte Logik (Geometrie, Tracking, Physik, Spiel) ist
   headless über `pytest` abgesichert und unabhängig von Kamera/GUI testbar.
+- **Weltraum-Hintergrund per Referenz-Differenz (`background.py`).** Der Spieler wird
+  freigestellt und vor einen Weltraum-Hintergrund gesetzt. Verfahren: einmalig ein
+  **Referenzbild** des leeren Hintergrunds aufnehmen (Countdown beim Start, Taste `b`
+  zum Neuaufnehmen), dann pro Frame `cv2.absdiff` → Graustufen → `threshold` →
+  Morphologie (Open/Close) → Vordergrund-Maske; Hintergrund-Pixel werden durch das
+  Weltall ersetzt (`composite_space`). Bewusst das **einfache, deterministische**
+  Verfahren statt MOG2: reine Funktionen → headless testbar, keine adaptive Drift
+  (ein stillstehender Spieler verschwindet nicht). Grenze: setzt eine **statische
+  Kamera + gleichbleibendes Licht** voraus. Das **Tracking bleibt unberührt** – es
+  arbeitet weiter auf dem rohen `clean`-Frame, nicht auf dem komponierten Bild. Das
+  Weltall ist ein **statisches Asset** (`assets/space.png`), das – wie die Sounds –
+  beim ersten Start generiert wird, falls es fehlt, und durch ein echtes Foto
+  ersetzbar ist.
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.

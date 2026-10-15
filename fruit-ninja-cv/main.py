@@ -12,17 +12,19 @@ States:
   PLAY       Slice thrown fruits with the pen (touch is enough), avoid bombs.
   GAME_OVER  Score + Top-3 leaderboard; dwell on Neustart / Startmenue / Quit.
 
-Keys: q quit | d mask (debug)
+Keys: q quit | d mask (debug) | b (re)capture the empty background for space mode
 """
 
 import logging
 import re
 import subprocess
 import sys
+import time
 
 import cv2
 
 import config
+import background
 from marker_tracker import MarkerTracker
 from blade import Blade
 from game import Game
@@ -324,6 +326,13 @@ def _run_game_loop(cap, sounds):
             logger.warning("WND_PROP_ASPECT_RATIO not supported", exc_info=True)
     cv2.setMouseCallback(config.WINDOW_NAME, on_mouse)
 
+    # Space background: load the backdrop and arm a short "step out of frame"
+    # countdown so the empty background is captured shortly after launch.
+    space_img = background.load_space((config.WIDTH, config.HEIGHT))
+    reference = None
+    bg_capture_at = (time.monotonic() + config.BG_COUNTDOWN_SECONDS
+                     if config.BG_ENABLED and space_img is not None else None)
+
     while True:
         ok, frame = cap.read()
         if not ok:
@@ -342,6 +351,15 @@ def _run_game_loop(cap, sounds):
         if config.MIRROR:
             frame = cv2.flip(frame, 1)
         clean = frame.copy()
+
+        # --- space background: capture the reference, then cut the player out ---
+        if bg_capture_at is not None and time.monotonic() >= bg_capture_at:
+            reference = clean.copy()
+            bg_capture_at = None
+            logger.info("Captured background reference for space compositing")
+        if config.BG_ENABLED and reference is not None and space_img is not None:
+            mask = background.foreground_mask(clean, reference)
+            frame = background.composite_space(frame, mask, space_img)
 
         quit_requested = False
 
@@ -440,6 +458,12 @@ def _run_game_loop(cap, sounds):
             elif confirmed == 2:            # Quit
                 quit_requested = True
 
+        if bg_capture_at is not None:
+            secs = max(0, int(bg_capture_at - time.monotonic()) + 1)
+            draw_text(frame, f"Aus dem Bild gehen: {secs}",
+                      (config.WIDTH // 2, int(config.HEIGHT * 0.12)),
+                      scale=1.0, center=True)
+
         if show_mask and tracker.last_mask is not None:
             cv2.imshow("mask (debug)",
                        cv2.cvtColor(tracker.last_mask, cv2.COLOR_GRAY2BGR))
@@ -455,6 +479,10 @@ def _run_game_loop(cap, sounds):
             logger.info("Debug mask %s", "on" if show_mask else "off")
             if not show_mask:
                 cv2.destroyWindow("mask (debug)")
+        elif key == ord("b") and space_img is not None:
+            bg_capture_at = time.monotonic() + config.BG_COUNTDOWN_SECONDS
+            logger.info("Background (re)capture armed -- %.1fs countdown",
+                        config.BG_COUNTDOWN_SECONDS)
 
 
 if __name__ == "__main__":
