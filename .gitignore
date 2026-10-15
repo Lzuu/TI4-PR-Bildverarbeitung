@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Tests / tooling
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Runtime logfiles
+logs/
+
+# OS / Editor
+.DS_Store
+.idea/
+.vscode/
