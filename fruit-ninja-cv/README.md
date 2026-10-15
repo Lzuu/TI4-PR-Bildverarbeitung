@@ -38,6 +38,18 @@ Entwickelt **inkrementell-iterativ** und **test-case-basiert**.
 5. **Kollision** — Abstand Frucht-Mittelpunkt ↔ Klingen-Segment (Linie-Kreis).
 6. **Rendering** — prozedurale Früchte, Klingen-Trail, HUD, Dwell-Ladekreise.
 
+## Spieler per Gesicht erkennen
+Vor der Schwierigkeitsauswahl erkennt das Spiel, wer spielt, und trägt den Namen
+in den Highscore ein. Dazu jeden Spieler einmal einlernen:
+```bash
+python enroll.py "Noah Braun"     # in die Kamera schauen, Kopf leicht drehen
+```
+Die Bilder landen in `faces/Noah Braun/` und bleiben **nur lokal** (nicht in git,
+biometrische Daten). Eigene Fotos können auch direkt in den Ordner gelegt werden.
+Unbekannte Gesichter spielen als **Gast**; ist niemand eingelernt, entfällt der
+Schritt. Die Modelle (YuNet + SFace, ca. 39 MB) lädt das Spiel beim ersten Start
+nach `models/`.
+
 ## Installation & Start
 ```bash
 cd fruit-ninja-cv
@@ -78,7 +90,8 @@ pytest
 | `tests/test_blade.py` | Trail, Geschwindigkeit, aktueller Punkt |
 | `tests/test_game.py` | Berührungs-Schnitt, Bombe, Miss, Spawning, Reset, Kombos |
 | `tests/test_difficulty.py` | 3 Leben überall, härter = schneller |
-| `tests/test_highscore.py` | Top-3 je Schwierigkeit, Ranking, defekte Datei |
+| `tests/test_highscore.py` | Top-3 je Schwierigkeit, Ranking, Spielername, alte Dateien, defekte Datei |
+| `tests/test_face_id.py` | Gesichtsdetektion, Wiedererkennung auf anderem Foto, Gast, Mehrheitsentscheid, Einlernen, neuer State |
 
 ## Tuning
 Marker/Kamera & allgemeine Konstanten in `config.py`:
@@ -92,7 +105,7 @@ Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.p
 ## Dateien
 | Datei | Inhalt |
 |-------|--------|
-| `main.py` | Game-Loop, States (Color/Difficulty/Play/GameOver), Dwell-Auswahl |
+| `main.py` | Game-Loop, States (Menu/Identify/Difficulty/Play/GameOver), Dwell-Auswahl |
 | `config.py` | Gemeinsame Konstanten (Kamera, Dwell, Kombos, Highscore) |
 | `colors.py` | Feste Stiftfarben Pink/Gelb/Grün (HSV + UI-Farbe) |
 | `difficulty.py` | Schwierigkeitsgrade (Tempo; immer 3 Leben) |
@@ -102,7 +115,9 @@ Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.p
 | `fruit.py` | Frucht-/Bomben-Projektil-Physik + Zeichnung |
 | `game.py` | Spawning, Kollision, Score, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve) für die Lebensanzeige |
-| `highscore.py` | Top-3 je Schwierigkeit (JSON-Persistenz) |
+| `highscore.py` | Top-3 je Schwierigkeit mit Spielername (JSON-Persistenz) |
+| `face_id.py` | Spielererkennung (YuNet + SFace), Mehrheitsentscheid |
+| `enroll.py` | Spieler einlernen (`faces/<Name>/`) |
 | `sound.py` | Soundeffekte (synthetisiert, afplay) |
 | `logging_config.py` | Logfiles (rotierend, `logs/`) |
 | `utils.py` | Geometrie (Linie-Kreis) + Text-HUD |

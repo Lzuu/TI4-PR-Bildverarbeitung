@@ -23,7 +23,7 @@ Kamera ─► main (Loop, States, Input)
 ## Module & Verantwortlichkeiten
 | Modul | Verantwortung |
 |-------|---------------|
-| `main.py` | Game-Loop, State-Machine (Menu/Difficulty/Play/GameOver), Kamera-Capture, Dwell-Auswahl, Maus-Farbeinstellung, Rendering, Logging-Setup, Fehlerbehandlung |
+| `main.py` | Game-Loop, State-Machine (Menu/Identify/Difficulty/Play/GameOver), Kamera-Capture, Dwell-Auswahl, Maus-Farbeinstellung, Rendering, Logging-Setup, Fehlerbehandlung |
 | `config.py` | Gemeinsame Konstanten (Kamera, Marker, Dwell, Kombos, Highscore, HUD) |
 | `colors.py` | Feste Stiftfarben Pink/Gelb/Grün (HSV-Bereich + UI-Farbe) |
 | `difficulty.py` | Schwierigkeitsgrade (Tempo; immer 3 Leben) als Presets |
@@ -33,7 +33,9 @@ Kamera ─► main (Loop, States, Input)
 | `fruit.py` | Frucht-/Bomben-Entität: Projektil-Physik + prozedurale Darstellung |
 | `game.py` | Spielzustand: Spawning (Bursts), Kollision, Punkte, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve, Verlauf+Glanz) für die Leben |
-| `highscore.py` | Top-3-Highscore **je Schwierigkeit** (JSON-Persistenz) |
+| `highscore.py` | Top-3-Highscore **je Schwierigkeit** mit Spielername (JSON-Persistenz) |
+| `face_id.py` | Spielererkennung per Gesicht: YuNet-Detektion, SFace-Merkmale, Abgleich mit `faces/`, Mehrheitsentscheid über mehrere Frames |
+| `enroll.py` | Spieler einlernen: speichert ausgerichtete Gesichtsausschnitte nach `faces/<Name>/` |
 | `sound.py` | Soundeffekte (synthetisiert, non-blocking via afplay) |
 | `utils.py` | Wiederverwendbare Helfer: Linie-Kreis-Abstand, Text mit Schatten |
 | `logging_config.py` | Zentrales Logging (rotierendes Logfile + Konsole) |
@@ -98,6 +100,22 @@ Kamera ─► main (Loop, States, Input)
   verstreuten Magic Numbers. Jede Stufe hat ein **eigenes Leaderboard**.
 - **Kombos über ein Zeitfenster.** Mehrere Treffer innerhalb `COMBO_WINDOW_FRAMES`
   zählen als ein Swipe; ab `COMBO_MIN` Früchten gibt es Bonuspunkte.
+- **Spielererkennung per Gesicht mit vortrainierten Netzen (Issue #28).** Vor der
+  Schwierigkeitsauswahl erkennt das Spiel den Spieler und ordnet ihm den Highscore
+  zu. Klassische Verfahren (Haar-Cascade + LBPH) gibt es in OpenCV 5 nicht mehr
+  (Haar nur noch in OpenCV 4, LBPH nur in opencv-contrib). Das Team hat sich deshalb
+  für die in OpenCV 5 enthaltenen DNN-Verfahren entschieden: **YuNet** findet
+  Gesichter, **SFace** berechnet aus dem ausgerichteten 112x112-Ausschnitt einen
+  Merkmalsvektor; gleiche Person ab Kosinus-Ähnlichkeit 0,363. Genauer und
+  lichtrobuster als LBPH, aber eine bewusste Ausnahme von „kein ML“ – nur für die
+  Spielererkennung, nicht für die Stifterkennung. Die Modelle (OpenCV Model Zoo,
+  ca. 39 MB) werden beim ersten Start nach `models/` geladen und per SHA256 geprüft,
+  nicht ins Repo eingecheckt. Entschieden wird per Mehrheit über mehrere Frames
+  (`PlayerVote`), nicht anhand eines Einzelbilds; ohne Gesicht oder unbekannt →
+  „Gast“. Ohne eingelernte Spieler wird der Schritt übersprungen, ohne Modelle
+  (offline) spielt jeder als Gast.
+- **Referenzbilder sind biometrische Daten.** `faces/` liegt nur lokal (in
+  `.gitignore`); die Tests nutzen gemeinfreie NASA-Fotos (`tests/data/QUELLEN.md`).
 - **Highscore als JSON.** `highscore.py` kapselt Laden/Schreiben der Top-3 und ist
   so unabhängig testbar (defekte/fehlende Datei → leere Liste).
 - **Sound entkoppelt & non-blocking.** `Game` ruft nur `sounds.play(name)`; in Tests
@@ -141,4 +159,5 @@ Kamera ─► main (Loop, States, Input)
   ausgelegt; unter Windows mit der ELP-USB-Kamera prüfen.
 
 ## Bewusste Nicht-Ziele
-- Kein ML (nur klassische Bildverarbeitung).
+- Kein ML für die Stifterkennung (klassische Bildverarbeitung). Ausnahme:
+  Spielererkennung per Gesicht (siehe oben).

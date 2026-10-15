@@ -8,6 +8,7 @@ behind a "Stiftfarbe" button and only shown when you open it (mouse click).
 
 States:
   MENU       Start / Quit (pen dwell); pen colour setting via mouse button.
+  IDENTIFY   Recognise the player by face (only if players are enrolled).
   DIFFICULTY Pick the difficulty (Einfach / Mittel / Schwer) by dwelling.
   PLAY       Slice thrown fruits with the pen (touch is enough), avoid bombs.
   GAME_OVER  Score + Top-3 leaderboard; dwell on Neustart / Startmenue / Quit.
@@ -19,6 +20,7 @@ import logging
 import re
 import subprocess
 import sys
+import time
 
 import cv2
 
@@ -32,11 +34,13 @@ from difficulty import LEVELS
 from colors import COLORS
 from dwell import DwellTracker
 from sound import SoundPlayer
+import face_id
 import highscore
 
 logger = logging.getLogger(__name__)
 
 STATE_MENU = "menu"
+STATE_IDENTIFY = "identify"
 STATE_DIFFICULTY = "difficulty"
 STATE_PLAY = "play"
 STATE_GAME_OVER = "game_over"
@@ -129,6 +133,13 @@ def color_swatches(w, h):
 
 def settings_button(w, h):
     return (_s(20), h - _s(70), _s(260), _s(48))
+
+
+def state_after_start(identifier):
+    """Identify the player first -- but only if anyone is enrolled to be recognised."""
+    if identifier is not None and identifier.persons:
+        return STATE_IDENTIFY
+    return STATE_DIFFICULTY
 
 
 def _hit(point, target):
@@ -226,6 +237,30 @@ def draw_difficulty_screen(frame, d_targets, q_target, active, progress, point,
     _draw_pen_marker(frame, point)
 
 
+def draw_identify_screen(frame, name, box, progress, player):
+    """Face box + current guess while identifying, then the greeting."""
+    h, w = frame.shape[:2]
+    if box is not None:
+        x, y, bw, bh = box
+        color = (80, 220, 80) if name not in (None, face_id.GUEST) else (200, 200, 200)
+        cv2.rectangle(frame, (x, y), (x + bw, y + bh), color, max(2, _s(3)), cv2.LINE_AA)
+        if name is not None:
+            draw_text(frame, face_id.display_name(name), (x, max(_s(20), y - _s(10))),
+                      scale=0.7, color=color)
+    if player is not None:
+        draw_text(frame, f"Hallo, {face_id.display_name(player)}!", (w // 2, int(h * 0.16)),
+                  scale=1.4, color=(0, 215, 255), thickness=3, center=True)
+        return
+    draw_text(frame, "Spieler wird erkannt ...", (w // 2, int(h * 0.12)), scale=1.1,
+              center=True)
+    draw_text(frame, "Bitte in die Kamera schauen", (w // 2, int(h * 0.19)), scale=0.65,
+              center=True)
+    bx, by, bw = int(w * 0.3), int(h * 0.9), int(w * 0.4)
+    cv2.rectangle(frame, (bx, by), (bx + bw, by + _s(10)), (90, 90, 90), -1)
+    cv2.rectangle(frame, (bx, by), (bx + int(bw * progress), by + _s(10)),
+                  (200, 200, 200), -1)
+
+
 def draw_mask_inset(frame, mask):
     iw, ih = _s(192), _s(108)
     small = cv2.cvtColor(cv2.resize(mask, (iw, ih)), cv2.COLOR_GRAY2BGR)
@@ -240,21 +275,24 @@ GAME_OVER_LABELS = ["Neustart", "Startmenue", "Quit"]
 
 
 def draw_game_over(frame, game, scores, rank, targets, active, progress, point,
-                   color):
+                   color, player):
     _dim(frame, 0.55)
     h, w = frame.shape[:2]
     draw_text(frame, "GAME OVER", (w // 2, int(h * 0.16)), scale=1.6,
               color=(80, 80, 255), thickness=3, center=True)
-    draw_text(frame, f"Score: {game.score}", (w // 2, int(h * 0.26)),
-              scale=1.0, center=True)
+    draw_text(frame, f"{face_id.display_name(player)}:  {game.score}",
+              (w // 2, int(h * 0.26)), scale=1.0, center=True)
     if rank is not None:
         draw_text(frame, f"NEUER HIGHSCORE  (#{rank})!", (w // 2, int(h * 0.33)),
                   scale=0.75, color=(0, 215, 255), center=True)
     draw_text(frame, f"Leaderboard - {game.difficulty.name}",
               (w // 2, int(h * 0.42)), scale=0.7, center=True)
     for i in range(3):
-        value = scores[i] if i < len(scores) else "-"
-        draw_text(frame, f"{i + 1}.  {value}", (w // 2, int(h * 0.47) + _s(26) * i),
+        if i < len(scores):
+            line = f"{i + 1}.  {face_id.display_name(scores[i]['name'])}  {scores[i]['score']}"
+        else:
+            line = f"{i + 1}.  -"
+        draw_text(frame, line, (w // 2, int(h * 0.47) + _s(26) * i),
                   scale=0.65, center=True)
     for i, t in enumerate(targets):
         _draw_circle_option(frame, t, color, GAME_OVER_LABELS[i], active == i,
@@ -281,7 +319,8 @@ def main():
     try:
         cap = open_camera()
         sounds = SoundPlayer()
-        _run_game_loop(cap, sounds)
+        identifier = face_id.create_identifier()
+        _run_game_loop(cap, sounds, identifier)
     except SystemExit:
         raise
     except Exception:
@@ -294,7 +333,7 @@ def main():
         logger.info("Shut down cleanly")
 
 
-def _run_game_loop(cap, sounds):
+def _run_game_loop(cap, sounds, identifier=None):
     tracker = MarkerTracker()
     blade = Blade()
     dwell = DwellTracker(config.DWELL_SECONDS)
@@ -303,6 +342,9 @@ def _run_game_loop(cap, sounds):
     pen_color = COLORS[0]            # Pink by default -- only this colour is tracked
     tracker.set_color(pen_color)
     scores, rank = [], None
+    player = face_id.GUEST
+    vote = face_id.PlayerVote()
+    greet_until = None             # set once the player is decided (greeting shown)
     show_mask = False
     settings_open = False
     frame_failures = 0
@@ -377,9 +419,26 @@ def _run_game_loop(cap, sounds):
             if confirmed == 0:              # Start
                 logger.info("Start (colour %s)", pen_color.name)
                 dwell.reset()
-                state = STATE_DIFFICULTY
+                player = face_id.GUEST
+                state = state_after_start(identifier)
+                if state == STATE_IDENTIFY:
+                    vote.reset()
+                    greet_until = None
             elif confirmed == 1:            # Quit
                 quit_requested = True
+
+        elif state == STATE_IDENTIFY:
+            name, score, box = identifier.identify(clean)
+            if greet_until is None:
+                decided = vote.update(name)
+                if decided is not None:
+                    player = decided
+                    greet_until = time.time() + config.FACE_GREETING_SECONDS
+                    logger.info("Player identified: %s (votes %s)", player, dict(vote.votes))
+            draw_identify_screen(frame, name, box, vote.progress(),
+                                 player if greet_until is not None else None)
+            if greet_until is not None and time.time() >= greet_until:
+                state = STATE_DIFFICULTY
 
         elif state == STATE_DIFFICULTY:
             point = tracker.track(clean)
@@ -410,10 +469,10 @@ def _run_game_loop(cap, sounds):
             game.draw_combo(frame)
             if game.game_over:
                 scores, rank = highscore.add(config.HIGHSCORE_FILE,
-                                             game.difficulty.name, game.score)
+                                             game.difficulty.name, game.score, player)
                 sounds.play("over")
-                logger.info("Game over -- %s, score %d (rank: %s)",
-                            game.difficulty.name, game.score, rank)
+                logger.info("Game over -- %s, %s scored %d (rank: %s)",
+                            game.difficulty.name, player, game.score, rank)
                 dwell.reset()
                 state = STATE_GAME_OVER
 
@@ -424,7 +483,7 @@ def _run_game_loop(cap, sounds):
             game.draw(frame)
             game.draw_hud(frame)
             draw_game_over(frame, game, scores, rank, targets, active, progress,
-                           point, pen_color.display)
+                           point, pen_color.display, player)
             if confirmed == 0:              # Neustart
                 logger.info("Restart requested (%s)", game.difficulty.name)
                 game.reset()
