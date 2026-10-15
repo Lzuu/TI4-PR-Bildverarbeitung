@@ -31,7 +31,23 @@ SPACE_PATH = os.path.join(ASSET_DIR, "space.png")
 # --------------------------------------------------------------------------- #
 # Segmentation (pure, headless-testable)
 # --------------------------------------------------------------------------- #
-def foreground_mask(frame, reference, threshold=None, kernel_size=None, scale=1.0):
+def _fill_silhouette(mask, min_area):
+    """Turn a speckly mask into solid filled blobs.
+
+    External contours above ``min_area`` are redrawn *filled*, so interior holes
+    (e.g. low-contrast face regions that fell under the threshold) become part of
+    the silhouette, and small noise blobs are dropped. Returns a new mask.
+    """
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    out = np.zeros_like(mask)
+    keep = [c for c in contours if cv2.contourArea(c) >= min_area]
+    if keep:
+        cv2.drawContours(out, keep, -1, 255, thickness=cv2.FILLED)
+    return out
+
+
+def foreground_mask(frame, reference, threshold=None, kernel_size=None, scale=1.0,
+                    fill_holes=True, min_blob_frac=None):
     """Return a uint8 mask (0/255) of pixels that differ from ``reference``.
 
     ``frame`` and ``reference`` are BGR images of identical shape. A pixel whose
@@ -41,11 +57,18 @@ def foreground_mask(frame, reference, threshold=None, kernel_size=None, scale=1.
     ``scale`` < 1.0 runs the whole segmentation on a downscaled copy (much
     cheaper morphology) and upscales the resulting mask back to the full frame
     size -- the dominant per-frame cost of the space background.
+
+    ``fill_holes`` redraws the external contours filled, so interior holes (a
+    face that blends into the wall) are closed and the player becomes a solid
+    silhouette; blobs below ``min_blob_frac`` of the (downscaled) area are
+    dropped.
     """
     if threshold is None:
         threshold = config.BG_DIFF_THRESHOLD
     if kernel_size is None:
         kernel_size = config.BG_MORPH_KERNEL
+    if min_blob_frac is None:
+        min_blob_frac = config.BG_MIN_BLOB_FRAC
 
     h, w = frame.shape[:2]
     if scale != 1.0:
@@ -60,19 +83,24 @@ def foreground_mask(frame, reference, threshold=None, kernel_size=None, scale=1.
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
+    if fill_holes:
+        mh, mw = mask.shape[:2]
+        mask = _fill_silhouette(mask, min_blob_frac * mh * mw)
+
     if scale != 1.0:
         mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
     return mask
 
 
 def composite_space(frame, mask, space_img):
-    """Keep ``frame`` where ``mask`` is set (the player), else show ``space_img``.
+    """Show ``space_img`` wherever ``mask`` is 0, keep ``frame`` where it is set.
 
-    ``space_img`` must match the frame size. Returns a *new* BGR image; the
-    inputs are not modified.
+    Uses ``cv2.copyTo`` (OpenCV's optimised masked copy) to write the backdrop
+    into ``frame`` *in place* -- far cheaper than ``np.where`` on a full frame,
+    which is the per-frame hot path. ``space_img`` must match the frame size.
     """
-    mask3 = mask[:, :, None].astype(bool)
-    return np.where(mask3, frame, space_img)
+    cv2.copyTo(space_img, cv2.bitwise_not(mask), frame)
+    return frame
 
 
 # --------------------------------------------------------------------------- #

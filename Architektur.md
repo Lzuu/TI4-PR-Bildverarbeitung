@@ -120,10 +120,17 @@ Kamera ─► main (Loop, States, Input)
   Weltall ist ein **statisches Asset** (`assets/space.png`), das – wie die Sounds –
   beim ersten Start generiert wird, falls es fehlt, und durch ein echtes Foto
   ersetzbar ist.
-  - **Performance:** Die Segmentierung läuft auf einer **herunterskalierten** Kopie
-    (`config.BG_PROC_SCALE`, Standard 0.5); die Maske wird anschließend wieder auf
-    Framegröße hochskaliert. Die Morphologie – der teuerste Schritt pro Frame – wird
-    so ~4× günstiger, ohne die Freistellung sichtbar zu verschlechtern.
+  - **Performance:** Gemessen ist der teuerste Schritt **nicht** die Morphologie
+    (~1 ms full-res), sondern das **Compositing**: `np.where` über das ganze Frame
+    kostet ~5,7 ms. Lösung: Compositing per **`cv2.copyTo`** (optimierte maskierte
+    Kopie, in-place, ~0,7 ms); Segmentierung bleibt in **voller Auflösung**
+    (Downscaling lohnt nicht – die Resizes kosten mehr, als die kleinere Morphologie
+    spart). Gesamt-Pipeline **~2,5 ms/Frame** statt ~8,5 ms (~3,4×).
+  - **Gesicht sauber freistellen (gefüllte Silhouette).** Wo der Hautton der Wand
+    ähnelt, fällt die Differenz unter den Schwellwert → Löcher im Gesicht. Daher wird
+    die Maske nach der Morphologie zu einer **gefüllten Silhouette** gemacht: externe
+    Konturen oberhalb `config.BG_MIN_BLOB_FRAC` werden **ausgefüllt** gezeichnet →
+    Innenlöcher verschwinden, Mini-Blobs (Rauschen) fallen raus.
   - **Referenz nur bewusst (Taste `b`), kein Auto-Capture.** Der Spieler muss zur
     Menübedienung im Bild stehen – ein automatisches Aufnehmen beim Start würde seine
     Silhouette ins Referenzbild „einbrennen". Daher wird die Referenz erst per `b`

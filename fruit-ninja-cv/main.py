@@ -359,8 +359,7 @@ def _run_game_loop(cap, sounds):
             bg_capture_at = None
             logger.info("Captured background reference for space compositing")
         if config.BG_ENABLED and reference is not None and space_img is not None:
-            mask = background.foreground_mask(clean, reference,
-                                              scale=config.BG_PROC_SCALE)
+            mask = background.foreground_mask(clean, reference)
             frame = background.composite_space(frame, mask, space_img)
 
         quit_requested = False

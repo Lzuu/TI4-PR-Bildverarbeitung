@@ -55,13 +55,37 @@ def test_composite_replaces_background_keeps_foreground():
     assert tuple(int(c) for c in out[5, 5]) == (50, 20, 10)    # else -> space
 
 
-def test_composite_does_not_mutate_inputs():
+def test_composite_writes_in_place():
+    # Hot path: composite writes the backdrop into the frame buffer in place
+    # rather than allocating a new full-frame array each call.
     frame = _solid((0, 0, 255))
     space = _solid((50, 20, 10))
     mask = np.zeros((H, W), np.uint8)
     mask[40:80, 50:100] = 255
     composite_space(frame, mask, space)
-    assert tuple(int(c) for c in frame[5, 5]) == (0, 0, 255)   # frame untouched
+    assert tuple(int(c) for c in frame[5, 5]) == (50, 20, 10)   # background replaced
+    assert tuple(int(c) for c in frame[60, 70]) == (0, 0, 255)  # foreground kept
+
+
+def test_fill_holes_closes_interior_gap():
+    ref = _solid((100, 100, 100))
+    frame = ref.copy()
+    cv2.rectangle(frame, (30, 20), (130, 100), (10, 200, 10), -1)   # player blob
+    cv2.rectangle(frame, (70, 50), (90, 70), (100, 100, 100), -1)   # hole == background
+    # Without hole filling, the low-contrast "face" region stays background.
+    m0 = foreground_mask(frame, ref, threshold=25, scale=1.0, fill_holes=False)
+    assert m0[60, 80] == 0
+    # With hole filling, the interior gap becomes part of the solid silhouette.
+    m1 = foreground_mask(frame, ref, threshold=25, scale=1.0, fill_holes=True)
+    assert m1[60, 80] == 255
+
+
+def test_small_noise_blob_is_dropped():
+    ref = _solid((100, 100, 100))
+    frame = ref.copy()
+    cv2.rectangle(frame, (10, 10), (13, 13), (10, 200, 10), -1)     # tiny speck
+    mask = foreground_mask(frame, ref, threshold=25, scale=1.0, fill_holes=True)
+    assert mask.max() == 0
 
 
 def test_load_space_generates_when_missing(tmp_path):
