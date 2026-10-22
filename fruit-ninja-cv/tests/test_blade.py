@@ -41,3 +41,14 @@ def test_reset_clears_trail():
     b.add((1, 1))
     b.reset()
     assert b.current_point() is None
+
+
+def test_trail_glow_can_take_the_saber_colour():
+    import numpy as np
+    b = Blade()
+    for x in range(50, 250, 20):
+        b.add((x, 100))
+    frame = np.zeros((200, 300, 3), np.uint8)
+    b.draw(frame, glow_color=(0, 0, 255))            # red glow (BGR)
+    halo = frame[100 - 8, 150]                       # beside the white core
+    assert halo[2] > 40 and halo[2] > halo[0] + 20

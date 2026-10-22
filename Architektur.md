@@ -34,6 +34,7 @@ Kamera ─► main (Loop, States, Input)
 | `game.py` | Spielzustand: Spawning (Bursts), Kollision, Punkte, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve, Verlauf+Glanz) für die Leben |
 | `background.py` | Spieler freistellen (Referenz-Differenz) und vor das Weltall setzen |
+| `lightsaber.py` | Stift als Lichtschwert: Stiftachse aus der Farbmaske, Griff über dem Stift, leuchtende Klinge |
 | `suit.py` | Raumanzug: Silhouette wird zu Anzugstoff (folgt den Armen), Kopf/Hände/Stift frei, Details am Gesicht |
 | `cameras.py` | Kameras finden (Indizes durchprobieren), öffnen (1080p MJPG, unter Windows MSMF), wechseln, Auswahl in `settings.json` merken |
 | `highscore.py` | Top-3-Highscore **je Schwierigkeit** mit Spielername (JSON-Persistenz) |
@@ -236,6 +237,18 @@ Kamera ─► main (Loop, States, Input)
     Auflösung und nur im Bildausschnitt des Spielers, Schattierung per Tabelle,
     Hauterkennung auf halber Auflösung, Überblenden per `cv2.blendLinear` →
     insgesamt ~9–19 ms pro Frame (je nach CPU-Takt).
+- **Stift als Lichtschwert (`lightsaber.py`).** Der Stift wird auf jedem Bildschirm
+  als Lichtschwert gezeichnet. Der Marker-Tracker liefert nur den Mittelpunkt; die
+  **Richtung** kommt aus der Form der Farbmaske: größte Fläche → `cv2.minAreaRect`
+  (Länge, Breite) und `cv2.fitLine` (Längsachse). Die Klinge zeigt zunächst nach
+  oben und folgt dann stetig (kein Umklappen, wenn der Stift über die Waagerechte
+  dreht); ist der Stift nur von vorne zu sehen (runder Fleck), bleibt die letzte
+  Richtung. Die Richtung wird geglättet. Griff über dem echten Stift (Breite aus der
+  Stiftbreite, gedeckelt), Klinge in der Stiftfarbe vom oberen Ende aus, feste
+  Länge in Bildschirm-Pixeln (`SABER_LENGTH`). Glühen per additiver, weichgezeichneter
+  Linie auf halber Auflösung (~2,6 ms pro Frame). Die Schwungspur übernimmt die
+  Stiftfarbe. Die **Schnitt-Logik bleibt unverändert** (Kollision am Stift-Mittelpunkt),
+  das Lichtschwert ist reine Darstellung.
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.

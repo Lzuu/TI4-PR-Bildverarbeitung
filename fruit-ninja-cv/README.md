@@ -72,6 +72,13 @@ liegen in `assets/suit_details.png` (wird beim ersten Start erzeugt, darf durch 
 eigene PNG mit Transparenz ersetzt werden). Abschalten: `SUIT_ENABLED = False` in
 `config.py`.
 
+## Lichtschwert
+Der Stift erscheint auf dem Bildschirm als **Lichtschwert**: ein Griff liegt über dem
+echten Stift, aus dem oberen Ende wächst eine leuchtende Klinge in der Stiftfarbe. Sie
+folgt der Neigung des Stifts. Am besten funktioniert ein länglicher, durchgehend
+farbiger Stift (die Richtung wird aus seiner Form bestimmt). Abschalten:
+`SABER_ENABLED = False`, Klingenlänge: `SABER_LENGTH` in `config.py`.
+
 ## Installation & Start
 ```bash
 cd fruit-ninja-cv
@@ -115,6 +122,7 @@ pytest
 | `tests/test_cameras.py` | Kamerasuche, Auswahl/Fallback, Wechsel, Speichern, Menü-Layout (ohne echte Kamera) |
 | `tests/test_highscore.py` | Top-3 je Schwierigkeit, Ranking, Spielername, alte Dateien, defekte Datei |
 | `tests/test_face_id.py` | Gesichtsdetektion, Wiedererkennung auf anderem Foto, Gast, Scan im Kreis, Einlernen, Startablauf |
+| `tests/test_lightsaber.py` | Stiftachse aus der Maske, Klinge nach oben, kein Umklappen, Glättung, Zeichnen von Klinge und Griff |
 | `tests/test_suit.py` | Spieler-Box/Schwerpunkt, Anzug folgt dem erhobenen Arm, Kopf/Hände/Stift bleiben frei, Stoff mit Falten und Rundung, Details am Gesicht, Overlay, Glättung, Sprite |
 | `tests/test_keyboard.py` | Bildschirmtastatur: Layout, Großschreibung, Löschen, Leerzeichen, Länge, echte Tastatur |
 
@@ -141,6 +149,7 @@ Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.p
 | `game.py` | Spawning, Kollision, Score, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve) für die Lebensanzeige |
 | `background.py` | Spieler freistellen, Weltraum-Hintergrund |
+| `lightsaber.py` | Stift als Lichtschwert |
 | `suit.py` | Raumanzug aus der Silhouette (bewegt sich mit) |
 | `cameras.py` | Kameras finden, öffnen, wechseln, Auswahl speichern |
 | `highscore.py` | Top-3 je Schwierigkeit mit Spielername (JSON-Persistenz) |

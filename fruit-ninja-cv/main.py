@@ -31,6 +31,7 @@ import cv2
 import config
 import background
 import suit
+import lightsaber
 from marker_tracker import MarkerTracker
 from blade import Blade
 from game import Game
@@ -518,6 +519,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     space_img = background.load_space((config.WIDTH, config.HEIGHT))
     suit_img = suit.load_suit() if config.SUIT_ENABLED else None
     suit_smoother = suit.RectSmoother()
+    saber = lightsaber.SaberTracker()
     suit_texture = suit.load_texture() if config.SUIT_ENABLED else None   # textures/suit.png
     reference = None
     reference_camera = None          # camera the reference was taken with
@@ -745,7 +747,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             blade.add(point)
             game.update(blade)
             game.draw(frame)
-            blade.draw(frame)
+            blade.draw(frame, pen_color.display if config.SABER_ENABLED else None)
             game.draw_hud(frame)
             game.draw_combo(frame)
             if game.game_over:
@@ -795,6 +797,10 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
         if show_mask and tracker.last_mask is not None:
             cv2.imshow("mask (debug)",
                        cv2.cvtColor(tracker.last_mask, cv2.COLOR_GRAY2BGR))
+
+        # the pen as a lightsaber, on every screen (drawn last, like a cursor)
+        if config.SABER_ENABLED and tracker.last_mask is not None:
+            lightsaber.draw_saber(frame, saber.update(tracker.last_mask), pen_color.display)
 
         cv2.imshow(config.WINDOW_NAME, frame)
         key = cv2.waitKey(1) & 0xFF

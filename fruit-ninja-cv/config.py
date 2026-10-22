@@ -69,6 +69,8 @@ TRAIL_LENGTH = 12                # How many recent marker points form the blade
 BLADE_COLOR = (255, 255, 255)    # BGR
 BLADE_GLOW_COLOR = (255, 230, 120)
 BLADE_MAX_THICKNESS = 10
+SABER_ENABLED = True             # Draw the pen as a lightsaber (lightsaber.py)
+SABER_LENGTH = 220               # Blade length in px at REF_HEIGHT (scaled with SCALE)
 
 # ---------------------------------------------------------------------------
 # Gameplay / physics (pixels per frame)
