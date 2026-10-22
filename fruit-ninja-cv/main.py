@@ -519,7 +519,6 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     space_img = background.load_space((config.WIDTH, config.HEIGHT))
     suit_img = suit.load_suit() if config.SUIT_ENABLED else None
     suit_smoother = suit.RectSmoother()
-    saber = lightsaber.SaberTracker()
     suit_texture = suit.load_texture() if config.SUIT_ENABLED else None   # textures/suit.png
     reference = None
     reference_camera = None          # camera the reference was taken with
@@ -800,10 +799,9 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                        cv2.cvtColor(tracker.last_mask, cv2.COLOR_GRAY2BGR))
 
         # the pen as a lightsaber, on every screen (drawn last, like a cursor)
-        if config.SABER_ENABLED and tracker.last_mask is not None:
-            # tip = pen point (the only thing that cuts), hilt on the hand (skin colour)
-            saber_now = saber.update(tracker.last_mask, point, suit.skin_mask(clean))
-            lightsaber.draw_saber(frame, saber_now, pen_color.display)
+        if config.SABER_ENABLED:
+            # static saber: tip = pen point (the only thing that cuts), blade straight down
+            lightsaber.draw_saber(frame, lightsaber.saber_at(point), pen_color.display)
 
         cv2.imshow(config.WINDOW_NAME, frame)
         key = cv2.waitKey(1) & 0xFF

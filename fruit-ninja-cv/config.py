@@ -71,7 +71,8 @@ BLADE_GLOW_COLOR = (255, 230, 120)
 BLADE_MAX_THICKNESS = 10
 PEN_POINT = "tip"                # Tracked pen point: "tip" (upper end) or "centroid"
 SABER_ENABLED = True             # Draw the pen as a lightsaber (lightsaber.py)
-SABER_HILT_LENGTH = 70           # Hilt length in px at REF_HEIGHT (scaled); the blade reaches from it to the pen point
+SABER_LENGTH = 110               # Blade length in px at REF_HEIGHT (scaled), down from the pen point
+SABER_HILT_LENGTH = 45           # Hilt length in px at REF_HEIGHT (scaled), below the blade
 
 # ---------------------------------------------------------------------------
 # Gameplay / physics (pixels per frame)

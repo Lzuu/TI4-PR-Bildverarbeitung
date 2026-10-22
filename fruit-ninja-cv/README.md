@@ -73,11 +73,10 @@ eigene PNG mit Transparenz ersetzt werden). Abschalten: `SUIT_ENABLED = False` i
 `config.py`.
 
 ## Lichtschwert
-Der Stift erscheint auf dem Bildschirm als **Lichtschwert**: Die Stiftspitze (der Punkt,
-der die Früchte schneidet; `PEN_POINT = "tip"`) ist die Spitze der Klinge, die Klinge läuft nach unten zur
-Hand, der Griff liegt auf der Hand. Sie folgt der Neigung des Stifts. Am besten funktioniert ein länglicher, durchgehend
-farbiger Stift (die Richtung wird aus seiner Form bestimmt). Abschalten:
-`SABER_ENABLED = False`, Grifflänge: `SABER_HILT_LENGTH` in `config.py`.
+Am Stift erscheint ein **Lichtschwert**: Die Spitze der Klinge ist die Stiftspitze –
+der Punkt, der die Früchte schneidet (`PEN_POINT = "tip"`). Die leuchtende Klinge
+hängt von dort senkrecht nach unten, darunter sitzt der Griff. Abschalten:
+`SABER_ENABLED = False`; Längen: `SABER_LENGTH`, `SABER_HILT_LENGTH` in `config.py`.
 
 ## Installation & Start
 ```bash
@@ -122,7 +121,7 @@ pytest
 | `tests/test_cameras.py` | Kamerasuche, Auswahl/Fallback, Wechsel, Speichern, Menü-Layout (ohne echte Kamera) |
 | `tests/test_highscore.py` | Top-3 je Schwierigkeit, Ranking, Spielername, alte Dateien, defekte Datei |
 | `tests/test_face_id.py` | Gesichtsdetektion, Wiedererkennung auf anderem Foto, Gast, Scan im Kreis, Einlernen, Startablauf |
-| `tests/test_lightsaber.py` | Stiftachse aus der Maske, Klinge nach oben, kein Umklappen, Glättung, Zeichnen von Klinge und Griff |
+| `tests/test_lightsaber.py` | Spitze am Schnittpunkt, Klinge senkrecht nach unten, dicker Strahl, Leuchten, Griff |
 | `tests/test_suit.py` | Spieler-Box/Schwerpunkt, Anzug folgt dem erhobenen Arm, Kopf/Hände/Stift bleiben frei, Stoff mit Falten und Rundung, Details am Gesicht, Overlay, Glättung, Sprite |
 | `tests/test_keyboard.py` | Bildschirmtastatur: Layout, Großschreibung, Löschen, Leerzeichen, Länge, echte Tastatur |
 
