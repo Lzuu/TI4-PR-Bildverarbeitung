@@ -73,11 +73,11 @@ eigene PNG mit Transparenz ersetzt werden). Abschalten: `SUIT_ENABLED = False` i
 `config.py`.
 
 ## Lichtschwert
-Der Stift erscheint auf dem Bildschirm als **Lichtschwert**: ein Griff liegt über dem
-echten Stift, aus dem oberen Ende wächst eine leuchtende Klinge in der Stiftfarbe. Sie
-folgt der Neigung des Stifts. Am besten funktioniert ein länglicher, durchgehend
+Der Stift erscheint auf dem Bildschirm als **Lichtschwert**: Der Stiftpunkt (der Punkt,
+der die Früchte schneidet) ist die Spitze der Klinge, die Klinge läuft nach unten zur
+Hand, der Griff liegt auf der Hand. Sie folgt der Neigung des Stifts. Am besten funktioniert ein länglicher, durchgehend
 farbiger Stift (die Richtung wird aus seiner Form bestimmt). Abschalten:
-`SABER_ENABLED = False`, Klingenlänge: `SABER_LENGTH` in `config.py`.
+`SABER_ENABLED = False`, Grifflänge: `SABER_HILT_LENGTH` in `config.py`.
 
 ## Installation & Start
 ```bash

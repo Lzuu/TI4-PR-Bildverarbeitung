@@ -243,9 +243,12 @@ Kamera ─► main (Loop, States, Input)
   (Länge, Breite) und `cv2.fitLine` (Längsachse). Die Klinge zeigt zunächst nach
   oben und folgt dann stetig (kein Umklappen, wenn der Stift über die Waagerechte
   dreht); ist der Stift nur von vorne zu sehen (runder Fleck), bleibt die letzte
-  Richtung. Die Richtung wird geglättet. Griff über dem echten Stift (Breite aus der
-  Stiftbreite, gedeckelt), Klinge in der Stiftfarbe vom oberen Ende aus, feste
-  Länge in Bildschirm-Pixeln (`SABER_LENGTH`). Glühen per additiver, weichgezeichneter
+  Richtung. Die Richtung wird geglättet. Der getrackte Stiftpunkt (der Punkt, der
+  schneidet) ist die **Spitze der Klinge**; die Klinge läuft entlang der Stiftachse
+  nach unten bis zur **Hand**, auf der der Griff sitzt. Die Hand wird über die
+  Hauterkennung gefunden (hautfarbene Pixel nahe dem unteren Stiftende, nicht weiter
+  weg als 0,75 × Stiftlänge → das Gesicht zählt nicht); ohne Hand sitzt der Griff am
+  unteren Stiftende. Handposition geglättet. Glühen per additiver, weichgezeichneter
   Linie auf halber Auflösung (~2,6 ms pro Frame). Die Schwungspur übernimmt die
   Stiftfarbe. Die **Schnitt-Logik bleibt unverändert** (Kollision am Stift-Mittelpunkt),
   das Lichtschwert ist reine Darstellung.

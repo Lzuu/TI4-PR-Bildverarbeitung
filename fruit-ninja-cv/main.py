@@ -577,6 +577,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                                        suit_texture)
 
         quit_requested = False
+        point = None                 # tracked pen point this frame (set by the states)
 
         if state == STATE_MENU:
             start_t = menu_start_target(config.WIDTH, config.HEIGHT)
@@ -800,7 +801,9 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
 
         # the pen as a lightsaber, on every screen (drawn last, like a cursor)
         if config.SABER_ENABLED and tracker.last_mask is not None:
-            lightsaber.draw_saber(frame, saber.update(tracker.last_mask), pen_color.display)
+            # tip = pen point (the only thing that cuts), hilt on the hand (skin colour)
+            saber_now = saber.update(tracker.last_mask, point, suit.skin_mask(clean))
+            lightsaber.draw_saber(frame, saber_now, pen_color.display)
 
         cv2.imshow(config.WINDOW_NAME, frame)
         key = cv2.waitKey(1) & 0xFF

@@ -1,15 +1,18 @@
 """Draw the tracked pen as a lightsaber.
 
-The marker tracker already segments the pen by colour. Its mask also tells the
-pen's *orientation*: the largest blob is elongated, and its main axis
-(``cv2.fitLine``) is the direction the pen points. Per frame:
+The tracked pen point -- the point that cuts the fruit -- is the **tip** of the
+blade. The blade runs down along the pen to the hand holding it, where the hilt
+sits. Per frame:
 
-  pen mask -> largest blob -> centre, length, axis direction
-  -> hilt drawn over the real pen, glowing blade from its upper end onwards.
+  pen mask -> largest blob -> centre, length, axis direction (fitLine)
+  skin mask near the lower end of the pen -> the hand
+  -> blade from the pen point down to the hilt, hilt on the hand.
 
-The blade points "up" by default and then follows the pen continuously (it does
+The axis points "up" by default and then follows the pen continuously (it does
 not flip when the pen turns past horizontal). A pen seen end-on (round blob)
-keeps the last direction. The direction is smoothed against jitter.
+keeps the last direction. Direction and hand position are smoothed. Without a
+visible hand the hilt sits at the lower end of the pen. Drawing only -- the
+cutting still uses the pen point alone.
 """
 
 import math
@@ -21,7 +24,7 @@ import numpy as np
 import config
 
 PenAxis = namedtuple("PenAxis", "center direction length width")
-Saber = namedtuple("Saber", "grip emitter tip width")
+Saber = namedtuple("Saber", "tip hilt_top hilt_bottom width")
 
 MIN_ELONGATION = 1.8             # length/width below this: no reliable direction
 
@@ -58,42 +61,79 @@ def pen_axis(mask, min_area=None, min_elongation=MIN_ELONGATION):
     return PenAxis((cx, cy), (vx / n, vy / n), length, width)
 
 
-class SaberTracker:
-    """Turns the pen mask into saber geometry, frame by frame."""
+MIN_HAND_PIXELS = 40             # fewer skin pixels near the pen: no hand found
 
-    def __init__(self, blade_length=None, smoothing=0.5):
-        self.blade_length = blade_length
+
+def find_hand(skin, start, radius):
+    """Centre of the skin pixels within ``radius`` of ``start`` (the hand), or None."""
+    if skin is None:
+        return None
+    h, w = skin.shape[:2]
+    sx, sy = start
+    x0, y0 = max(int(sx - radius), 0), max(int(sy - radius), 0)
+    x1, y1 = min(int(sx + radius) + 1, w), min(int(sy + radius) + 1, h)
+    if x0 >= x1 or y0 >= y1:
+        return None
+    ys, xs = np.nonzero(skin[y0:y1, x0:x1])
+    xs, ys = xs + x0, ys + y0
+    near = (xs - sx) ** 2 + (ys - sy) ** 2 <= radius * radius
+    if near.sum() < MIN_HAND_PIXELS:
+        return None
+    return float(xs[near].mean()), float(ys[near].mean())
+
+
+class SaberTracker:
+    """Turns pen mask + pen point (+ skin mask) into saber geometry, frame by frame."""
+
+    def __init__(self, hilt_length=None, smoothing=0.5):
+        self.hilt_length = hilt_length
         self.smoothing = smoothing
         self._dir = None
+        self._hand = None
 
-    def update(self, mask):
-        """``Saber(grip, emitter, tip, width)`` (int points, pen width), or None."""
-        axis = pen_axis(mask)
+    def _smooth(self, old, new):
+        if old is None:
+            return new
+        k = self.smoothing
+        return (k * old[0] + (1 - k) * new[0], k * old[1] + (1 - k) * new[1])
+
+    def update(self, mask, point, skin=None):
+        """``Saber(tip, hilt_top, hilt_bottom, width)`` as int points, or None.
+
+        ``point`` is the tracked pen point (blade tip), ``skin`` a skin mask to
+        find the hand that holds the pen.
+        """
+        axis = pen_axis(mask) if point is not None else None
         if axis is None:
-            self._dir = None             # pen gone: start fresh next time
+            self._dir = self._hand = None    # pen gone: start fresh next time
             return None
         d = axis.direction
-        if d is None:                    # seen end-on: keep the last direction
+        if d is None:                        # seen end-on: keep the last direction
             d = self._dir or (0.0, -1.0)
         elif self._dir is not None:
             if d[0] * self._dir[0] + d[1] * self._dir[1] < 0:
-                d = (-d[0], -d[1])       # continuity beats "up": no flip past horizontal
-            k = self.smoothing
-            d = (k * self._dir[0] + (1 - k) * d[0], k * self._dir[1] + (1 - k) * d[1])
+                d = (-d[0], -d[1])           # continuity beats "up": no flip past horizontal
+            d = self._smooth(self._dir, d)
             n = math.hypot(*d) or 1.0
             d = (d[0] / n, d[1] / n)
         self._dir = d
 
-        blade = self.blade_length
-        if blade is None:
-            blade = config.SABER_LENGTH * config.SCALE
+        # the hand holds the lower end of the pen; skin there marks it
         cx, cy = axis.center
         half = axis.length / 2
-        grip = (cx - d[0] * half, cy - d[1] * half)
-        emitter = (cx + d[0] * half, cy + d[1] * half)
-        tip = (emitter[0] + d[0] * blade, emitter[1] + d[1] * blade)
+        lower_end = (cx - d[0] * half, cy - d[1] * half)
+        hand = find_hand(skin, lower_end, max(axis.length * 0.75, 30.0)) or lower_end
+        hand = self._hand = self._smooth(self._hand, hand)
+
+        up = d if math.dist(point, hand) < 1 else unit(point, hand)
+        hilt = self.hilt_length
+        if hilt is None:
+            hilt = config.SABER_HILT_LENGTH * config.SCALE
+        top_offset = min(hilt / 2, math.dist(point, hand) / 2)   # hilt never past the tip
+        hilt_top = (hand[0] + up[0] * top_offset, hand[1] + up[1] * top_offset)
+        hilt_bottom = (hand[0] - up[0] * hilt / 2, hand[1] - up[1] * hilt / 2)
         as_int = lambda p: (int(round(p[0])), int(round(p[1])))
-        return Saber(as_int(grip), as_int(emitter), as_int(tip), axis.width)
+        return Saber(as_int(point), as_int(hilt_top), as_int(hilt_bottom), axis.width)
 
 
 def _add_glow(frame, a, b, color, thickness, sigma):
@@ -122,13 +162,13 @@ def draw_saber(frame, saber, color):
     if saber is None:
         return frame
     s = config.SCALE
-    grip, emitter, tip, pen_width = saber
+    tip, emitter, grip, pen_width = saber            # blade: emitter (hilt top) -> tip
     # blade: wide soft glow, tighter bright glow, white-hot core
     _add_glow(frame, emitter, tip, color, max(2, int(22 * s)), max(1.0, 9 * s))
     _add_glow(frame, emitter, tip, color, max(2, int(10 * s)), max(1.0, 3 * s))
     cv2.line(frame, emitter, tip, (255, 255, 255), max(2, int(5 * s)), cv2.LINE_AA)
     # hilt over the real pen: dark metal with grip ridges and a bright emitter ring
-    # covers the real pen, but never absurdly wide (pen very close to the camera)
+    # hilt on the hand: about pen width, never absurdly wide (pen close to the camera)
     hilt = min(max(3, int(14 * s), int(pen_width) + 6), max(3, int(32 * s)))
     cv2.line(frame, grip, emitter, (60, 60, 65), hilt, cv2.LINE_AA)
     d = unit(emitter, grip)

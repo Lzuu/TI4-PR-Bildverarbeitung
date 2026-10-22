@@ -70,7 +70,7 @@ BLADE_COLOR = (255, 255, 255)    # BGR
 BLADE_GLOW_COLOR = (255, 230, 120)
 BLADE_MAX_THICKNESS = 10
 SABER_ENABLED = True             # Draw the pen as a lightsaber (lightsaber.py)
-SABER_LENGTH = 220               # Blade length in px at REF_HEIGHT (scaled with SCALE)
+SABER_HILT_LENGTH = 70           # Hilt length in px at REF_HEIGHT (scaled); the blade reaches from it to the pen point
 
 # ---------------------------------------------------------------------------
 # Gameplay / physics (pixels per frame)
