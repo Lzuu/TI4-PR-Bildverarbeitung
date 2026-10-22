@@ -27,6 +27,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 ASSET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+TEXTURE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "textures", "suit.png")
 SUIT_PATH = os.path.join(ASSET_DIR, "suit_details.png")   # new name: old torso sprite is stale
 
 SUIT_WIDTH_PER_FACE = 3.2        # suit width = face width * this
@@ -117,12 +118,18 @@ def skin_mask(frame):
     return _full(cv2.dilate(skin, _SKIN_KERNEL), frame.shape, cv2.INTER_NEAREST)
 
 
-def paint_fabric(frame, region):
+FOLD_STRENGTH = 0.3              # how much of the real clothes' folds shows (opaque!)
+FOLD_LIMIT = 30                  # strong patterns (stripes, prints) are capped
+
+
+def paint_fabric(frame, region, texture=None):
     """Turn ``region`` of ``frame`` into suit fabric (in place).
 
     Brightness: high in the middle, darker towards the edge of the silhouette
-    (distance transform -> arms look round), plus the fine light/dark detail of
-    the real clothes (frame minus its blur), so folds stay visible.
+    (distance transform -> arms look round), plus a little of the fine light/dark
+    detail of the real clothes (capped, so the fabric stays opaque and prints do
+    not shine through). With ``texture`` (BGR image of a suit) the colours come
+    from that image, stretched over the player; otherwise the fabric is white.
     """
     if cv2.countNonZero(region) == 0:
         return frame
@@ -137,11 +144,21 @@ def paint_fabric(frame, region):
 
     small_region = _half(roi_region, cv2.INTER_NEAREST)
     gray = _half(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)).astype(np.float32)
-    detail = gray - cv2.GaussianBlur(gray, (0, 0), 6)
+    detail = np.clip(gray - cv2.GaussianBlur(gray, (0, 0), 6), -FOLD_LIMIT, FOLD_LIMIT)
     dist = cv2.distanceTransform(small_region, cv2.DIST_L2, 3)
     shade = _SHADE_LUT[np.minimum(dist * 2, 255).astype(np.uint8)]   # dist in full-res px
-    value = np.clip(cv2.scaleAdd(detail, 1.2, shade), 0, 255).astype(np.uint8)
-    fabric = _full(cv2.merge([value, value, cv2.multiply(value, 0.96)]), roi.shape)
+    value = np.clip(cv2.scaleAdd(detail, FOLD_STRENGTH, shade), 0, 255)
+    if texture is None:
+        v = value.astype(np.uint8)
+        small_fabric = cv2.merge([v, v, cv2.multiply(v, 0.96)])      # slightly cool white
+    else:
+        # suit image stretched over the player's bounding box, shaded like the fabric
+        bx, by, bw, bh = cv2.boundingRect(small_region)
+        canvas = np.zeros(small_region.shape + (3,), np.uint8)
+        canvas[by:by + bh, bx:bx + bw] = cv2.resize(texture, (bw, bh), interpolation=cv2.INTER_AREA)
+        factor = cv2.merge([value * (1.0 / 240.0)] * 3)
+        small_fabric = np.clip(canvas * factor, 0, 255).astype(np.uint8)
+    fabric = _full(small_fabric, roi.shape)
     cv2.copyTo(fabric, roi_region, roi)              # slightly cool white, in place
     contours, _ = cv2.findContours(small_region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     cv2.drawContours(roi, [c * 2 for c in contours], -1, (90, 90, 95), 2)
@@ -244,7 +261,31 @@ class RectSmoother:
         return round(x), round(y), w, h
 
 
-def dress(frame, mask, sprite, face=None, smoother=None, keep=None):
+def load_texture(path=TEXTURE_PATH):
+    """Suit image (BGR) to use as fabric, or None if there is none.
+
+    Transparent parts of a PNG are filled with the suit's average colour, so a
+    cut-out suit picture works as well as a plain fabric texture.
+    """
+    if not os.path.exists(path):
+        return None
+    img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+    if img is None:
+        logger.warning("Could not read suit texture %s", path)
+        return None
+    if img.ndim == 2:
+        return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    if img.shape[2] == 4:
+        alpha = img[:, :, 3:4].astype(np.float32) / 255.0
+        colour = img[:, :, :3].astype(np.float32)
+        visible = img[:, :, 3] > 0
+        mean = colour[visible].mean(axis=0) if visible.any() else np.full(3, 200, np.float32)
+        img = (colour * alpha + mean * (1.0 - alpha)).astype(np.uint8)
+    logger.info("Using suit texture %s", path)
+    return img
+
+
+def dress(frame, mask, sprite, face=None, smoother=None, keep=None, texture=None):
     """Put the suit on the player found in ``mask`` (no player -> frame unchanged).
 
     The fabric follows the silhouette (arms included); ``keep`` (hands, pen)
@@ -255,7 +296,7 @@ def dress(frame, mask, sprite, face=None, smoother=None, keep=None):
         if smoother is not None:
             smoother.update(None)
         return frame
-    paint_fabric(frame, region)
+    paint_fabric(frame, region, texture)
     rect = suit_rect(player_bbox(mask), face)
     if smoother is not None:
         rect = smoother.update(rect)

@@ -195,6 +195,12 @@ Kamera ─► main (Loop, States, Input)
   Start nach `assets/suit_details.png` generiert (neuer Dateiname, damit ein altes,
   starres Anzug-Sprite nicht weiterverwendet wird). Grenze: Kleidung in Hauttönen
   bleibt sichtbar.
+  - **Deckender Stoff, eigenes Anzugbild:** Die Falten der echten Kleidung fließen
+    nur noch schwach und begrenzt ein (Faktor 0,3, max. ±30 Graustufen) – mit
+    Faktor 1,2 schienen Muster des Shirts durch. Liegt `textures/suit.png` vor,
+    wird dieses Bild auf die Bounding-Box des Spielers gestreckt und mit derselben
+    Schattierung versehen; es folgt damit dem Körper, die Ärmel im Bild treffen aber
+    nicht exakt die echten Arme. `textures/` ist im Repo (anders als `assets/`).
   - **Performance:** Die erste Fassung kostete ~70 ms pro Frame (Weichzeichnen und
     Gleitkomma-Rechnung in voller Auflösung). Jetzt: Helligkeitskarte auf halber
     Auflösung und nur im Bildausschnitt des Spielers, Schattierung per Tabelle,

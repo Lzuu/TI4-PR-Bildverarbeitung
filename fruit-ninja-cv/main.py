@@ -498,6 +498,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     space_img = background.load_space((config.WIDTH, config.HEIGHT))
     suit_img = suit.load_suit() if config.SUIT_ENABLED else None
     suit_smoother = suit.RectSmoother()
+    suit_texture = suit.load_texture() if config.SUIT_ENABLED else None   # textures/suit.png
     reference = None
     reference_camera = None          # camera the reference was taken with
     bg_capture_at = None
@@ -541,7 +542,8 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                 keep = suit.skin_mask(clean)
                 if tracker.last_mask is not None:
                     keep = cv2.bitwise_or(keep, tracker.last_mask)
-                frame = suit.dress(frame, mask, suit_img, face_box, suit_smoother, keep)
+                frame = suit.dress(frame, mask, suit_img, face_box, suit_smoother, keep,
+                                   suit_texture)
 
         quit_requested = False
 

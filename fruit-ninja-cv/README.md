@@ -64,7 +64,9 @@ beim Start gesucht (ca. 1 s je Kamera).
 ## Raumanzug
 Ist der Weltraum-Hintergrund aktiv (Taste `b`), trägt der freigestellte Spieler einen
 **Raumanzug, der sich mit Armen und Körper bewegt**: Die eigene Silhouette wird zu
-weißem Anzugstoff (die Falten der echten Kleidung bleiben sichtbar). Kopf, Hände und
+weißem, deckendem Anzugstoff (die Falten der echten Kleidung bleiben leicht sichtbar).
+**Eigener Anzug:** ein Bild als `textures/suit.png` ablegen – es wird statt des weißen
+Stoffs auf den Körper gestreckt (Details in `textures/README.md`). Kopf, Hände und
 der Stift bleiben frei. Kragen, Brustpanel und Abzeichen sitzen am Gesicht. Die Details
 liegen in `assets/suit_details.png` (wird beim ersten Start erzeugt, darf durch eine
 eigene PNG mit Transparenz ersetzt werden). Abschalten: `SUIT_ENABLED = False` in

@@ -1,5 +1,6 @@
 """Tests for dressing the cut-out player in a space suit (issue #27). Headless."""
 
+import cv2
 import numpy as np
 
 import suit
@@ -153,6 +154,53 @@ def test_fabric_is_light_and_keeps_the_folds():
     assert abs(int(out[100, 60, 0]) - int(out[100, 60, 2])) < 30   # and nearly grey/white
     assert out[100, 100].mean() < out[100, 60].mean()          # fold still visible
     assert (out[5, 5] == frame[5, 5]).all()                    # outside untouched
+
+
+def test_fabric_is_opaque_the_shirt_pattern_does_not_show_through():
+    frame = np.zeros((200, 200, 3), np.uint8)
+    frame[:, ::8] = 255                                        # high-contrast striped shirt
+    frame[:, 1::8] = 255
+    region = np.zeros((200, 200), np.uint8)
+    region[20:180, 20:180] = 255
+    out = suit.paint_fabric(frame.copy(), region)
+    inner = out[60:140, 60:140].astype(np.float32).mean(axis=2)
+    assert inner.std() < 15                                    # stripes almost gone
+
+
+def test_texture_replaces_the_fabric_colour():
+    frame = np.full((200, 200, 3), 60, np.uint8)
+    region = np.zeros((200, 200), np.uint8)
+    region[20:180, 20:180] = 255
+    texture = np.zeros((50, 50, 3), np.uint8)
+    texture[:] = (30, 30, 200)                                 # red suit (BGR)
+    out = suit.paint_fabric(frame.copy(), region, texture)
+    b, g, r = out[100, 100].astype(int)
+    assert r > 150 and r > b + 80 and r > g + 80               # red, not white
+    assert (out[5, 5] == 60).all()                             # outside untouched
+
+
+def test_texture_is_stretched_over_the_player():
+    frame = np.full((200, 300, 3), 60, np.uint8)
+    region = np.zeros((200, 300), np.uint8)
+    region[20:180, 50:250] = 255
+    texture = np.zeros((40, 40, 3), np.uint8)
+    texture[:, :20] = (30, 30, 200)                            # left half red
+    texture[:, 20:] = (200, 30, 30)                            # right half blue
+    out = suit.paint_fabric(frame.copy(), region, texture)
+    assert out[100, 90, 2] > out[100, 90, 0]                   # left side of the body red
+    assert out[100, 210, 0] > out[100, 210, 2]                 # right side blue
+
+
+def test_load_texture(tmp_path):
+    assert suit.load_texture(str(tmp_path / "fehlt.png")) is None
+    rgba = np.zeros((20, 20, 4), np.uint8)
+    rgba[:, :, :3] = (30, 30, 200)
+    rgba[5:15, 5:15, 3] = 255                                  # suit in the middle, rest transparent
+    path = tmp_path / "anzug.png"
+    cv2.imwrite(str(path), rgba)
+    tex = suit.load_texture(str(path))
+    assert tex.shape == (20, 20, 3)
+    assert (tex[0, 0] == (30, 30, 200)).all()                  # transparent area filled with suit colour
 
 
 def test_fabric_is_darker_at_the_edge_than_in_the_middle():
