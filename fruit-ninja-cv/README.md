@@ -73,8 +73,8 @@ eigene PNG mit Transparenz ersetzt werden). Abschalten: `SUIT_ENABLED = False` i
 `config.py`.
 
 ## Lichtschwert
-Der Stift erscheint auf dem Bildschirm als **Lichtschwert**: Der Stiftpunkt (der Punkt,
-der die Früchte schneidet) ist die Spitze der Klinge, die Klinge läuft nach unten zur
+Der Stift erscheint auf dem Bildschirm als **Lichtschwert**: Die Stiftspitze (der Punkt,
+der die Früchte schneidet; `PEN_POINT = "tip"`) ist die Spitze der Klinge, die Klinge läuft nach unten zur
 Hand, der Griff liegt auf der Hand. Sie folgt der Neigung des Stifts. Am besten funktioniert ein länglicher, durchgehend
 farbiger Stift (die Richtung wird aus seiner Form bestimmt). Abschalten:
 `SABER_ENABLED = False`, Grifflänge: `SABER_HILT_LENGTH` in `config.py`.
@@ -112,7 +112,7 @@ pytest
 | Testdatei | Deckt ab |
 |-----------|----------|
 | `tests/test_geometry.py` | Linie-Kreis-Abstand (Kollision) |
-| `tests/test_marker_tracker.py` | Farberkennung Pink/Gelb/Grün + Union |
+| `tests/test_marker_tracker.py` | Farberkennung Pink/Gelb/Grün + Union, Stiftspitze als Punkt |
 | `tests/test_colors.py` | Farbdefinitionen |
 | `tests/test_dwell.py` | VR-Dwell-Auswahl (Zeitlogik) |
 | `tests/test_fruit.py` | Wurf-Physik: Start unten, Bogen im Bild, Miss beim Fallen |

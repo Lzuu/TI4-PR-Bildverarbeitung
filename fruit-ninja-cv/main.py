@@ -473,7 +473,7 @@ def main():
 
 
 def _run_game_loop(cap, sounds, previews=None, identifier=None):
-    tracker = MarkerTracker()
+    tracker = MarkerTracker(point_mode=config.PEN_POINT)   # tip = lightsaber tip, cuts
     blade = Blade()
     dwell = DwellTracker(config.DWELL_SECONDS)
     game = None

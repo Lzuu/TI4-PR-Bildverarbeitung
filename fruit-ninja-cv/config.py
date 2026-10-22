@@ -69,6 +69,7 @@ TRAIL_LENGTH = 12                # How many recent marker points form the blade
 BLADE_COLOR = (255, 255, 255)    # BGR
 BLADE_GLOW_COLOR = (255, 230, 120)
 BLADE_MAX_THICKNESS = 10
+PEN_POINT = "tip"                # Tracked pen point: "tip" (upper end) or "centroid"
 SABER_ENABLED = True             # Draw the pen as a lightsaber (lightsaber.py)
 SABER_HILT_LENGTH = 70           # Hilt length in px at REF_HEIGHT (scaled); the blade reaches from it to the pen point
 

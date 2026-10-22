@@ -169,3 +169,20 @@ def test_draw_partly_outside_the_frame_does_not_crash():
     s = lightsaber.SaberTracker().update(pen_mask(center=(30, 450)), (30, 450))
     lightsaber.draw_saber(frame, s, (0, 0, 255))
     lightsaber.draw_saber(frame, None, (0, 0, 255))     # no pen: nothing happens
+
+
+def test_with_the_pen_tip_as_point_the_blade_covers_the_whole_pen():
+    tip = (300, 250 - 60)                               # upper end of the pen
+    hand = (300, 330)
+    s = lightsaber.SaberTracker(smoothing=0.0).update(pen_mask(), tip, skin_blob(hand))
+    assert s.tip == tip
+    assert math.dist(_mid(s.hilt_top, s.hilt_bottom), hand) < 12
+    assert s.hilt_top[1] > 250                          # blade runs over the whole pen
+
+
+def test_blade_always_runs_from_the_point_through_the_pen():
+    """If the tracker picked the lower end as tip, the hilt goes to the other end."""
+    point = (300, 250 + 60)                             # lower end of the pen
+    s = lightsaber.SaberTracker(smoothing=0.0).update(pen_mask(), point)
+    assert s.tip == point
+    assert math.dist(_mid(s.hilt_top, s.hilt_bottom), (300, 190)) < 8

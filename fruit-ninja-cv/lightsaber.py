@@ -108,7 +108,17 @@ class SaberTracker:
             self._dir = self._hand = None    # pen gone: start fresh next time
             return None
         d = axis.direction
-        if d is None:                        # seen end-on: keep the last direction
+        cx, cy = axis.center
+        towards_point = (point[0] - cx, point[1] - cy)
+        if d is not None and math.hypot(*towards_point) > 0.2 * axis.length:
+            # the point sits at one end of the pen: the axis points to that end
+            if d[0] * towards_point[0] + d[1] * towards_point[1] < 0:
+                d = (-d[0], -d[1])
+            if self._dir is not None:
+                d = self._smooth(self._dir, d)
+                n = math.hypot(*d) or 1.0
+                d = (d[0] / n, d[1] / n)
+        elif d is None:                      # seen end-on: keep the last direction
             d = self._dir or (0.0, -1.0)
         elif self._dir is not None:
             if d[0] * self._dir[0] + d[1] * self._dir[1] < 0:
@@ -119,7 +129,6 @@ class SaberTracker:
         self._dir = d
 
         # the hand holds the lower end of the pen; skin there marks it
-        cx, cy = axis.center
         half = axis.length / 2
         lower_end = (cx - d[0] * half, cy - d[1] * half)
         hand = find_hand(skin, lower_end, max(axis.length * 0.75, 30.0)) or lower_end

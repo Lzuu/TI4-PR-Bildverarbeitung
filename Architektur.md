@@ -244,7 +244,12 @@ Kamera ─► main (Loop, States, Input)
   oben und folgt dann stetig (kein Umklappen, wenn der Stift über die Waagerechte
   dreht); ist der Stift nur von vorne zu sehen (runder Fleck), bleibt die letzte
   Richtung. Die Richtung wird geglättet. Der getrackte Stiftpunkt (der Punkt, der
-  schneidet) ist die **Spitze der Klinge**; die Klinge läuft entlang der Stiftachse
+  schneidet) ist die **Spitze der Klinge**. Dafür liefert der Marker-Tracker im Modus
+  `point_mode="tip"` (`config.PEN_POINT`) das **obere Stiftende** statt des
+  Schwerpunkts (Mittel der äußersten Konturpunkte entlang der Achse, Orientierung
+  stetig gehalten, runder Fleck → Schwerpunkt); mit dem Schwerpunkt ragte die obere
+  Stifthälfte über die Klinge hinaus. Damit schneidet und zielt jetzt die Stiftspitze;
+  der Standardmodus des Trackers bleibt `centroid`. die Klinge läuft entlang der Stiftachse
   nach unten bis zur **Hand**, auf der der Griff sitzt. Die Hand wird über die
   Hauterkennung gefunden (hautfarbene Pixel nahe dem unteren Stiftende, nicht weiter
   weg als 0,75 × Stiftlänge → das Gesicht zählt nicht); ohne Hand sitzt der Griff am
