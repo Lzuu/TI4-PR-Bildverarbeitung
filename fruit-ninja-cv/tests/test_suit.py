@@ -191,6 +191,35 @@ def test_texture_is_stretched_over_the_player():
     assert out[100, 210, 0] > out[100, 210, 2]                 # right side blue
 
 
+def test_texture_starts_at_the_chin_not_at_the_top_of_the_silhouette():
+    """Raised arms make the silhouette taller -- the suit image must still start at the neck."""
+    frame = np.full((300, 300, 3), 60, np.uint8)
+    region = np.zeros((300, 300), np.uint8)
+    region[20:280, 50:250] = 255                               # silhouette from y=20 (raised arms)
+    texture = np.zeros((40, 40, 3), np.uint8)
+    texture[:20] = (30, 30, 200)                               # upper half red (chest)
+    texture[20:] = (200, 30, 30)                               # lower half blue (belt, legs)
+    out = suit.paint_fabric(frame.copy(), region, texture, top=120)
+    assert out[140, 150, 2] > out[140, 150, 0]                 # just below the chin: red chest
+    assert out[260, 150, 0] > out[260, 150, 2]                 # bottom: blue
+    assert out[60, 150, 2] > 30 and out[60, 150, 0] > 30       # above the chin: suit base colour
+
+
+def test_details_only_on_the_default_suit_not_on_a_custom_one():
+    frame = np.full((400, 600, 3), 60, np.uint8)
+    mask = blank()
+    mask[40:400, 150:450] = 255
+    face = (270, 60, 60, 70)
+    details = np.zeros((480, 400, 4), np.uint8)
+    details[:, :] = (0, 255, 0, 255)                           # bright green, fully opaque
+    texture = np.full((50, 50, 3), (30, 30, 200), np.uint8)    # red custom suit
+    with_default = suit.dress(frame.copy(), mask, details, face)
+    with_custom = suit.dress(frame.copy(), mask, details, face, texture=texture)
+    green = lambda img: ((img[:, :, 1] > 200) & (img[:, :, 2] < 50)).sum()
+    assert green(with_default) > 0
+    assert green(with_custom) == 0
+
+
 def test_load_texture(tmp_path):
     assert suit.load_texture(str(tmp_path / "fehlt.png")) is None
     rgba = np.zeros((20, 20, 4), np.uint8)

@@ -198,9 +198,13 @@ Kamera ─► main (Loop, States, Input)
   - **Deckender Stoff, eigenes Anzugbild:** Die Falten der echten Kleidung fließen
     nur noch schwach und begrenzt ein (Faktor 0,3, max. ±30 Graustufen) – mit
     Faktor 1,2 schienen Muster des Shirts durch. Liegt `textures/suit.png` vor,
-    wird dieses Bild auf die Bounding-Box des Spielers gestreckt und mit derselben
-    Schattierung versehen; es folgt damit dem Körper, die Ärmel im Bild treffen aber
-    nicht exakt die echten Arme. `textures/` ist im Repo (anders als `assets/`).
+    wird dieses Bild über den Körper gestreckt – oben am **Kinn** verankert, nicht
+    an der Oberkante der Silhouette (sonst rutscht z. B. der Gürtel auf die Brust,
+    sobald die Arme gehoben werden); darüber liegt die Durchschnittsfarbe des
+    Anzugs. Es folgt dem Körper, die Ärmel im Bild treffen aber nicht exakt die
+    echten Arme. Mit eigenem Bild entfallen Kragen/Panel/Abzeichen. Das Bild selbst
+    wird nicht eingecheckt (`.gitignore`), weil Anzugbilder oft urheberrechtlich
+    geschützt sind.
   - **Performance:** Die erste Fassung kostete ~70 ms pro Frame (Weichzeichnen und
     Gleitkomma-Rechnung in voller Auflösung). Jetzt: Helligkeitskarte auf halber
     Auflösung und nur im Bildausschnitt des Spielers, Schattierung per Tabelle,

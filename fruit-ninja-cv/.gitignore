@@ -25,4 +25,6 @@ settings.json
 
 # Face identification: downloaded models and biometric reference images
 models/
+# Custom suit images are often copyrighted (e.g. film characters): keep them local
+textures/suit.png
 faces/

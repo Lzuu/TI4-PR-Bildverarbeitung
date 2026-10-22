@@ -122,14 +122,16 @@ FOLD_STRENGTH = 0.3              # how much of the real clothes' folds shows (op
 FOLD_LIMIT = 30                  # strong patterns (stripes, prints) are capped
 
 
-def paint_fabric(frame, region, texture=None):
+def paint_fabric(frame, region, texture=None, top=None):
     """Turn ``region`` of ``frame`` into suit fabric (in place).
 
     Brightness: high in the middle, darker towards the edge of the silhouette
     (distance transform -> arms look round), plus a little of the fine light/dark
     detail of the real clothes (capped, so the fabric stays opaque and prints do
     not shine through). With ``texture`` (BGR image of a suit) the colours come
-    from that image, stretched over the player; otherwise the fabric is white.
+    from that image, stretched over the player from ``top`` (the chin, if known)
+    down; above it (e.g. raised arms) the suit's average colour is used.
+    Otherwise the fabric is white.
     """
     if cv2.countNonZero(region) == 0:
         return frame
@@ -154,7 +156,11 @@ def paint_fabric(frame, region, texture=None):
     else:
         # suit image stretched over the player's bounding box, shaded like the fabric
         bx, by, bw, bh = cv2.boundingRect(small_region)
-        canvas = np.zeros(small_region.shape + (3,), np.uint8)
+        if top is not None:              # image starts at the neck, not at raised hands
+            neck = min(max((top - y0) // 2, by), by + bh - 1)
+            bh, by = by + bh - neck, neck
+        canvas = np.empty(small_region.shape + (3,), np.uint8)
+        canvas[:] = texture.reshape(-1, 3).mean(axis=0)
         canvas[by:by + bh, bx:bx + bw] = cv2.resize(texture, (bw, bh), interpolation=cv2.INTER_AREA)
         factor = cv2.merge([value * (1.0 / 240.0)] * 3)
         small_fabric = np.clip(canvas * factor, 0, 255).astype(np.uint8)
@@ -296,7 +302,10 @@ def dress(frame, mask, sprite, face=None, smoother=None, keep=None, texture=None
         if smoother is not None:
             smoother.update(None)
         return frame
-    paint_fabric(frame, region, texture)
+    chin = face[1] + face[3] if face is not None else None
+    paint_fabric(frame, region, texture, top=chin)
+    if texture is not None:
+        return frame                 # a custom suit brings its own details
     rect = suit_rect(player_bbox(mask), face)
     if smoother is not None:
         rect = smoother.update(rect)

@@ -9,3 +9,8 @@ trägt der freigestellte Spieler statt des weißen Stoffs dieses Bild als Anzug.
 - PNG mit Transparenz ist erlaubt: durchsichtige Stellen bekommen die
   Durchschnittsfarbe des Anzugs.
 - Ohne `suit.png` wird der weiße Standard-Anzug verwendet.
+- Bei einem eigenen Bild entfallen Kragenring, Brustpanel und Abzeichen.
+- `suit.png` wird **nicht** ins Repo eingecheckt (`.gitignore`): Anzugbilder sind
+  oft urheberrechtlich geschützt (z. B. Filmfiguren), und das Repo ist öffentlich.
+- Bei einem Ganzkörperbild am besten nur den Teil vom Hals bis zur Hüfte
+  ausschneiden: Die Kamera sieht meist nur den Oberkörper.
