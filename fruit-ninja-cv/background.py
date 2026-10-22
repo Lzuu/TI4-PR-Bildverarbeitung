@@ -33,10 +33,12 @@ SPACE_PATH = os.path.join(ASSET_DIR, "space.png")
 MODE_GREENSCREEN = "greenscreen"
 MODE_NORMAL = "normal"
 MODE_OFF = "off"
-MODES = (MODE_GREENSCREEN, MODE_NORMAL, MODE_OFF)
+MODE_YOLO = "yolo"
+MODES = (MODE_GREENSCREEN, MODE_NORMAL, MODE_YOLO, MODE_OFF)
 MODE_LABELS = {
     MODE_GREENSCREEN: "Greenscreen",
     MODE_NORMAL: "Normal",
+    MODE_YOLO: "YOLO",
     MODE_OFF: "Aus",
 }
 

@@ -178,9 +178,9 @@ Kamera ─► main (Loop, States, Input)
     Silhouette ins Referenzbild „einbrennen". Daher wird die Referenz erst per `b`
     (mit Countdown zum Aus-dem-Bild-Gehen) aufgenommen; bis dahin zeigt das Spiel das
     rohe Kamerabild mit einem dezenten Hinweis.
-  - **Drei Hintergrund-Modi (wählbar im Menü).** Über einen „Hintergrund"-Button
+  - **Vier Hintergrund-Modi (wählbar im Menü).** Über einen „Hintergrund"-Button
     (Maus-Klick, links unten über „Stiftfarbe") schaltet man zyklisch zwischen
-    `greenscreen` / `normal` / `off` (`background.MODES`, `next_mode`):
+    `greenscreen` / `normal` / `yolo` / `off` (`background.MODES`, `next_mode`):
     - `greenscreen` – **Chroma-Key**, robust gegen ungleichmäßiges Licht, damit nie
       Grün durchscheint (nicht nur die Ränder weggeschnitten): zwei billige C-Detektoren
       werden **ver-odert** – `cv2.inRange` über einen großzügigen HSV-Bereich
@@ -198,10 +198,22 @@ Kamera ─► main (Loop, States, Input)
       Auflösung); Downscaling hilft kaum und macht die Kanten blockig → bewusst volle
       Auflösung (wie beim absdiff-Verfahren).
     - `normal` – das oben beschriebene **absdiff-Referenz**-Verfahren (Taste `b`).
+    - `yolo` – **YOLOv8-seg Personensegmentierung** (`yolo_seg.py`, Issue #38): schneidet
+      den Spieler aus **jedem** Hintergrund frei, **ohne Greenscreen und ohne Referenz**.
+      Läuft als **ONNX über `cv2.dnn`** – wie die Gesichtserkennung (YuNet/SFace) und
+      bewusst **ohne `torch`/`ultralytics`** zur Laufzeit; das Modell (`yolov8n-seg.onnx`,
+      ~13 MB) wird beim ersten Start nach `models/` geladen (SHA256-geprüft), fehlt es,
+      fällt der Modus sauber auf „aus" zurück. Der Decode der rohen YOLO-Ausgaben
+      (Boxen + 32 Masken-Koeffizienten × 32 Prototyp-Masken, Person-Klasse, NMS) liegt in
+      **reinen, headless getesteten** Funktionen. Inferenz (~15 ms) läuft nur jeden
+      `YOLO_EVERY_N`-ten Frame auf 320px-Letterbox, die Maske wird dazwischen gehalten →
+      **~5 ms/Frame** im Schnitt. Diese Maske speist Freistellung **und** Anzug; die
+      `suit.py`-Pipeline bleibt unverändert. (Modell exportiert aus Ultralytics
+      YOLOv8n-seg, AGPL-3.0, als Release-Asset gehostet.)
     - `off` – kein Compositing, rohes Kamerabild.
-    Beide Masken-Verfahren teilen sich dieselbe Nachbearbeitung (`_refine_mask`:
-    Morphologie + gefüllte Silhouette) und dasselbe `composite_space`, nur die
-    Segmentierung unterscheidet sich. Die Wahl wird in `settings.json`
+    Alle Modi nutzen dasselbe `composite_space`; nur die Maskenquelle unterscheidet
+    sich (greenscreen und absdiff teilen zusätzlich die Nachbearbeitung `_refine_mask`).
+    Die Wahl wird in `settings.json`
     (`background_mode`, via `cameras.load/save_background_mode`) **persistiert** –
     analog zur Kamerawahl. Default ist `normal` (unverändertes Verhalten).
 - **Raumanzug aus der eigenen Silhouette (`suit.py`, Issue #27).** Sobald der Spieler

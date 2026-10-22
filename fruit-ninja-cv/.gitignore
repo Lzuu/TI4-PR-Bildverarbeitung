@@ -23,8 +23,10 @@ settings.json
 .idea/
 .vscode/
 
-# Face identification: downloaded models and biometric reference images
+# Face identification + YOLO: downloaded models and biometric reference images
 models/
+# Raw ML weights (e.g. yolov8n-seg.pt from a one-time ONNX export) -- not needed at runtime
+*.pt
 # Custom suit images are often copyrighted (e.g. film characters): keep them local
 textures/suit.png
 faces/

@@ -31,6 +31,7 @@ import cv2
 import config
 import background
 import suit
+import yolo_seg
 from marker_tracker import MarkerTracker
 from blade import Blade
 from game import Game
@@ -526,6 +527,9 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     if bg_mode not in background.MODES:
         bg_mode = config.BG_MODE
     logger.info("Background mode: %s", bg_mode)
+    # YOLO body segmenter for the "yolo" mode (downloaded on first use); None if
+    # the model is unavailable, then the mode falls back like "off".
+    segmenter = yolo_seg.create_segmenter() if config.YOLO_ENABLED else None
 
     while True:
         ok, frame = cap.read()
@@ -559,7 +563,9 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             mask = None
             if bg_mode == background.MODE_GREENSCREEN:
                 mask = background.greenscreen_mask(clean, scale=config.GREEN_SCALE)
-            elif reference is not None:          # normal mode needs the empty reference
+            elif bg_mode == background.MODE_YOLO and segmenter is not None:
+                mask = segmenter.segment(clean)      # person mask, no green screen needed
+            elif bg_mode == background.MODE_NORMAL and reference is not None:
                 mask = background.foreground_mask(clean, reference)
             if mask is not None:
                 frame = background.composite_space(frame, mask, space_img)
@@ -791,6 +797,10 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             draw_text(frame, "Taste b: Weltall-Hintergrund",
                       (config.WIDTH // 2, int(config.HEIGHT * 0.96)),
                       scale=0.5, center=True)
+        elif bg_mode == background.MODE_YOLO and segmenter is None:
+            draw_text(frame, "YOLO-Modell nicht verfuegbar", (config.WIDTH // 2,
+                      int(config.HEIGHT * 0.96)), scale=0.5, color=(80, 80, 255),
+                      center=True)
 
         if show_mask and tracker.last_mask is not None:
             cv2.imshow("mask (debug)",

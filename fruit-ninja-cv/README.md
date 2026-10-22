@@ -72,6 +72,13 @@ liegen in `assets/suit_details.png` (wird beim ersten Start erzeugt, darf durch 
 eigene PNG mit Transparenz ersetzt werden). Abschalten: `SUIT_ENABLED = False` in
 `config.py`.
 
+**Hintergrund-Modi** (Button „Hintergrund" im Menü, links über „Stiftfarbe"):
+`Greenscreen` (Chroma-Key), `Normal` (Referenz per Taste `b`), **`YOLO`** und `Aus`.
+Im **`YOLO`-Modus** erkennt eine YOLOv8-seg-Personensegmentierung (ONNX über `cv2.dnn`,
+kein `torch`) den Körper – das stellt den Spieler **ohne Greenscreen und ohne Referenz**
+frei und zieht ihm den Anzug an. Das Modell (`yolov8n-seg.onnx`, ~13 MB) lädt das Spiel
+beim ersten Start nach `models/`; fehlt es, fällt der Modus auf „Aus" zurück.
+
 ## Installation & Start
 ```bash
 cd fruit-ninja-cv
@@ -140,8 +147,9 @@ Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.p
 | `fruit.py` | Frucht-/Bomben-Projektil-Physik + Zeichnung |
 | `game.py` | Spawning, Kollision, Score, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve) für die Lebensanzeige |
-| `background.py` | Spieler freistellen, Weltraum-Hintergrund |
+| `background.py` | Spieler freistellen, Weltraum-Hintergrund (Modi: greenscreen/normal/yolo/off) |
 | `suit.py` | Raumanzug aus der Silhouette (bewegt sich mit) |
+| `yolo_seg.py` | Personensegmentierung (YOLOv8-seg, ONNX via `cv2.dnn`) für den `yolo`-Modus |
 | `cameras.py` | Kameras finden, öffnen, wechseln, Auswahl speichern |
 | `highscore.py` | Top-3 je Schwierigkeit mit Spielername (JSON-Persistenz) |
 | `face_id.py` | Spielererkennung (YuNet + SFace), Scan im Kreis, Einlernen |
