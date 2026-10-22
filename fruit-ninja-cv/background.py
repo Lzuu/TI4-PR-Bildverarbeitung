@@ -27,6 +27,25 @@ logger = logging.getLogger(__name__)
 ASSET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 SPACE_PATH = os.path.join(ASSET_DIR, "space.png")
 
+# Background modes the player cycles through in the menu. ``greenscreen`` keys a
+# green backdrop out by colour; ``normal`` uses the empty-background reference
+# (press 'b'); ``off`` shows the raw camera image (no space compositing).
+MODE_GREENSCREEN = "greenscreen"
+MODE_NORMAL = "normal"
+MODE_OFF = "off"
+MODES = (MODE_GREENSCREEN, MODE_NORMAL, MODE_OFF)
+MODE_LABELS = {
+    MODE_GREENSCREEN: "Greenscreen",
+    MODE_NORMAL: "Normal",
+    MODE_OFF: "Aus",
+}
+
+
+def next_mode(mode):
+    """The next background mode in the cycle (wraps around)."""
+    i = MODES.index(mode) if mode in MODES else -1
+    return MODES[(i + 1) % len(MODES)]
+
 
 # --------------------------------------------------------------------------- #
 # Segmentation (pure, headless-testable)
@@ -44,6 +63,31 @@ def _fill_silhouette(mask, min_area):
     if keep:
         cv2.drawContours(out, keep, -1, 255, thickness=cv2.FILLED)
     return out
+
+
+def _drop_small_blobs(mask, min_area):
+    """Zero out foreground connected components smaller than ``min_area``.
+
+    Unlike ``_fill_silhouette`` this keeps interior holes -- background enclosed
+    by the player, e.g. the gap inside looped arms -- as background, instead of
+    filling the player's outer contour solid. Returns a new mask.
+    """
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    lut = np.zeros(n, np.uint8)                 # label -> 255 if big enough, else 0
+    lut[1:] = np.where(stats[1:, cv2.CC_STAT_AREA] >= min_area, 255, 0)
+    return lut[labels]                          # fast per-pixel relabel (LUT index)
+
+
+def _refine_mask(mask, kernel_size, fill_holes, min_blob_frac):
+    """Clean a raw 0/255 foreground mask: open/close morphology, then optionally
+    fill the silhouette so interior holes close and small noise blobs drop."""
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    if fill_holes:
+        mh, mw = mask.shape[:2]
+        mask = _fill_silhouette(mask, min_blob_frac * mh * mw)
+    return mask
 
 
 def foreground_mask(frame, reference, threshold=None, kernel_size=None, scale=1.0,
@@ -79,13 +123,70 @@ def foreground_mask(frame, reference, threshold=None, kernel_size=None, scale=1.
     diff = cv2.absdiff(frame, reference)
     gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
     _, mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    mask = _refine_mask(mask, kernel_size, fill_holes, min_blob_frac)
 
-    if fill_holes:
+    if scale != 1.0:
+        mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
+    return mask
+
+
+def _green_backdrop(frame, lower, upper, dominance):
+    """Mask (0/255) of green-screen pixels, robust to uneven lighting.
+
+    OR of two cheap, all-C detectors so no shade of green slips through:
+      * HSV ``inRange`` -- catches the green hue band;
+      * green-dominance -- ``G - max(B, R) >= dominance`` (saturating subtract),
+        which is brightness-invariant and so still fires on dark/shadowed or
+        washed-out green that falls outside the HSV box.
+    """
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    green = cv2.inRange(hsv, np.array(lower, np.uint8), np.array(upper, np.uint8))
+    b, g, r = cv2.split(frame)
+    greenness = cv2.subtract(g, cv2.max(b, r))      # 0 where green is not dominant
+    _, dom = cv2.threshold(greenness, dominance, 255, cv2.THRESH_BINARY)
+    return cv2.bitwise_or(green, dom)
+
+
+def greenscreen_mask(frame, lower=None, upper=None, kernel_size=None, scale=1.0,
+                     drop_small=True, min_blob_frac=None, dominance=None):
+    """Return a uint8 mask (0/255) of the player in front of a green screen.
+
+    Chroma key: everything detected as the green backdrop becomes background,
+    everything else is the player. Same output contract as ``foreground_mask``
+    (player = 255) so the caller composites it identically, and no empty
+    reference is needed. The backdrop is cleaned with a morphological *close*
+    first so stray non-green speckles inside the green field are absorbed (the
+    field is then fully keyed out, not just its edges); the player mask is then
+    opened and, with ``drop_small``, tiny noise components are discarded. Unlike
+    the absdiff path the silhouette is **not** filled -- green enclosed by the
+    player (looped arms) must stay keyed out, so genuine holes are preserved.
+    ``scale`` < 1 runs the whole segmentation on a downscaled copy (cheaper) and
+    upscales the mask back -- the per-frame cost of the green-screen mode.
+    """
+    if lower is None:
+        lower = config.GREEN_LOWER_HSV
+    if upper is None:
+        upper = config.GREEN_UPPER_HSV
+    if kernel_size is None:
+        kernel_size = config.BG_MORPH_KERNEL
+    if min_blob_frac is None:
+        min_blob_frac = config.BG_MIN_BLOB_FRAC
+    if dominance is None:
+        dominance = config.GREEN_DOMINANCE
+
+    h, w = frame.shape[:2]
+    if scale != 1.0:
+        sw, sh = max(1, int(w * scale)), max(1, int(h * scale))
+        frame = cv2.resize(frame, (sw, sh), interpolation=cv2.INTER_AREA)
+
+    green = _green_backdrop(frame, lower, upper, dominance)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    green = cv2.morphologyEx(green, cv2.MORPH_CLOSE, kernel)   # solidify the backdrop
+    mask = cv2.bitwise_not(green)                              # player = not backdrop
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)      # drop stray foreground specks
+    if drop_small:
         mh, mw = mask.shape[:2]
-        mask = _fill_silhouette(mask, min_blob_frac * mh * mw)
+        mask = _drop_small_blobs(mask, min_blob_frac * mh * mw)
 
     if scale != 1.0:
         mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)

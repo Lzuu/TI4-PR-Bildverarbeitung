@@ -171,6 +171,24 @@ def test_saving_keeps_other_settings(tmp_path):
     assert json.loads(path.read_text()) == {"anderes": True, "camera_index": 1}
 
 
+def test_background_mode_roundtrip(tmp_path):
+    path = str(tmp_path / "settings.json")
+    cameras.save_background_mode(path, "greenscreen")
+    assert cameras.load_background_mode(path) == "greenscreen"
+
+
+def test_background_mode_missing_or_corrupt_gives_none(tmp_path):
+    assert cameras.load_background_mode(str(tmp_path / "fehlt.json")) is None
+
+
+def test_camera_index_and_background_mode_coexist(tmp_path):
+    path = str(tmp_path / "settings.json")
+    cameras.save_camera_index(path, 2)
+    cameras.save_background_mode(path, "off")
+    assert cameras.load_camera_index(path) == 2          # neither clobbers the other
+    assert cameras.load_background_mode(path) == "off"
+
+
 # --------------------------------------------------------------------------- #
 # Menu layout
 # --------------------------------------------------------------------------- #
