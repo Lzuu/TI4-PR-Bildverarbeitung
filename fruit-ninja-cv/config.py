@@ -44,6 +44,8 @@ BG_DIFF_THRESHOLD = 30           # Per-pixel grey diff above which a pixel is "p
 BG_MORPH_KERNEL = 5              # Open/close kernel to clean the foreground mask
 BG_MIN_BLOB_FRAC = 0.003         # Drop foreground blobs smaller than this frame fraction
 BG_COUNTDOWN_SECONDS = 3.0       # "Step out of frame" countdown before capturing
+SUIT_ENABLED = True              # Dress the cut-out player in a space suit (suit.py)
+SUIT_FACE_DETECT_WIDTH = 320     # Face detection for placing the suit runs at this width
 
 # ---------------------------------------------------------------------------
 # Selection (VR-style dwell: hold the pen in a circle to confirm)

@@ -30,6 +30,7 @@ import cv2
 
 import config
 import background
+import suit
 from marker_tracker import MarkerTracker
 from blade import Blade
 from game import Game
@@ -495,6 +496,8 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     # capture would bake their silhouette into the background. They press 'b'
     # (then step out during the countdown) to grab a clean empty background.
     space_img = background.load_space((config.WIDTH, config.HEIGHT))
+    suit_img = suit.load_suit() if config.SUIT_ENABLED else None
+    suit_smoother = suit.RectSmoother()
     reference = None
     reference_camera = None          # camera the reference was taken with
     bg_capture_at = None
@@ -530,6 +533,11 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
         if config.BG_ENABLED and reference is not None and space_img is not None:
             mask = background.foreground_mask(clean, reference)
             frame = background.composite_space(frame, mask, space_img)
+            if suit_img is not None:
+                # anchor the suit at the face (if one is seen) -- detection only, ~3 ms
+                face_box = (identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
+                            if identifier is not None else None)
+                frame = suit.dress(frame, mask, suit_img, face_box, suit_smoother)
 
         quit_requested = False
 

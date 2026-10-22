@@ -276,6 +276,20 @@ class FaceIdentifier:
         box = tuple(int(round(v / scale)) for v in faces[0][:4])
         return name, score, box, crop
 
+    def largest_face_box(self, frame, width=320):
+        """Box (x, y, w, h) of the largest face in frame coordinates, or None.
+
+        Detection only (no recognition) on a copy downscaled to ``width`` -- cheap
+        enough (~3 ms) to run every frame, e.g. to place the space suit.
+        """
+        scale = min(1.0, width / frame.shape[1])
+        small = frame if scale == 1.0 else cv2.resize(frame, None, fx=scale, fy=scale,
+                                                      interpolation=cv2.INTER_AREA)
+        faces = self.detect(small)
+        if not faces:
+            return None
+        return tuple(int(round(v / scale)) for v in faces[0][:4])
+
     def identify(self, frame):
         """``(name, similarity, box)`` for the largest face, or ``(None, 0.0, None)``."""
         return self.scan(frame)[:3]

@@ -235,6 +235,14 @@ def test_identify_uses_largest_face_and_returns_box_in_frame_coordinates(identif
     assert abs(x - 3 * face_small[0]) < 30 and abs(w - 3 * face_small[2]) < 30
 
 
+def test_largest_face_box_in_frame_coordinates(identifier):
+    big = cv2.resize(_img("armstrong_portrait.jpg"), None, fx=3, fy=3)
+    x, y, w, h = identifier.largest_face_box(big, width=320)
+    face_small = identifier.detect(_img("armstrong_portrait.jpg"))[0]
+    assert abs(x - 3 * face_small[0]) < 40 and abs(w - 3 * face_small[2]) < 40
+    assert identifier.largest_face_box(np.zeros((480, 640, 3), np.uint8)) is None
+
+
 def test_identify_without_face(identifier):
     assert identifier.identify(np.zeros((480, 640, 3), np.uint8)) == (None, 0.0, None)
 
