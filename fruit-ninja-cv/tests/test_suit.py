@@ -90,6 +90,94 @@ def test_smoother_follows_big_jumps_immediately():
 
 
 # --------------------------------------------------------------------------- #
+# Suit fabric on the silhouette: moves with the arms
+# --------------------------------------------------------------------------- #
+FACE = (270, 60, 60, 70)                            # x, y, w, h
+
+
+def _body_with_raised_arm():
+    """Silhouette: head, torso and the left arm raised up and to the side."""
+    mask = blank()
+    mask[40:140, 260:340] = 255                     # head
+    mask[140:400, 220:380] = 255                    # torso
+    mask[60:200, 120:180] = 255                     # raised upper arm, beside the head
+    mask[180:220, 120:240] = 255                    # shoulder joint
+    return mask
+
+
+def test_suit_region_covers_the_raised_arm():
+    region = suit.suit_region(_body_with_raised_arm(), FACE)
+    assert region[100, 150] == 255                  # arm above shoulder height
+    assert region[300, 300] == 255                  # torso
+
+
+def test_suit_region_leaves_the_head_free():
+    region = suit.suit_region(_body_with_raised_arm(), FACE)
+    assert region[90, 300] == 0                     # face
+    assert region[45, 300] == 0                     # hair above the face
+
+
+def test_suit_region_keeps_hands_and_pen_visible():
+    mask = _body_with_raised_arm()
+    keep = blank()
+    keep[60:80, 120:180] = 255                      # hand (skin) or pen at the arm's end
+    region = suit.suit_region(mask, FACE, keep)
+    assert region[70, 150] == 0
+    assert region[120, 150] == 255
+
+
+def test_suit_region_without_face_starts_below_the_head():
+    mask = blank()
+    mask[50:400, 200:400] = 255
+    region = suit.suit_region(mask, None)
+    assert region[60, 300] == 0                     # top of the silhouette = head
+    assert region[350, 300] == 255
+
+
+def test_skin_is_detected_but_suit_fabric_is_not():
+    frame = np.zeros((100, 200, 3), np.uint8)
+    frame[:, :100] = (120, 150, 200)                # BGR skin tone
+    frame[:, 100:] = (200, 60, 40)                  # blue jumper
+    skin = suit.skin_mask(frame)
+    assert skin[50, 50] == 255
+    assert skin[50, 150] == 0
+
+
+def test_fabric_is_light_and_keeps_the_folds():
+    frame = np.full((200, 200, 3), (40, 80, 160), np.uint8)    # dark red shirt
+    frame[:, 95:105] = (20, 40, 80)                            # a fold (darker stripe)
+    region = np.zeros((200, 200), np.uint8)
+    region[20:180, 20:180] = 255
+    out = suit.paint_fabric(frame.copy(), region)
+    assert out[100, 60].mean() > 150                           # suit is light
+    assert abs(int(out[100, 60, 0]) - int(out[100, 60, 2])) < 30   # and nearly grey/white
+    assert out[100, 100].mean() < out[100, 60].mean()          # fold still visible
+    assert (out[5, 5] == frame[5, 5]).all()                    # outside untouched
+
+
+def test_fabric_is_darker_at_the_edge_than_in_the_middle():
+    frame = np.full((200, 200, 3), 120, np.uint8)
+    region = np.zeros((200, 200), np.uint8)
+    region[20:180, 20:180] = 255
+    out = suit.paint_fabric(frame.copy(), region)
+    assert out[100, 22].mean() < out[100, 100].mean()          # rounded, tube-like look
+
+
+def test_dress_moves_with_the_arm():
+    """Same body, arm down vs. arm up: the suit follows the arm."""
+    frame = np.full((400, 600, 3), 60, np.uint8)
+    up = _body_with_raised_arm()
+    down = blank()
+    down[40:140, 260:340] = 255
+    down[140:400, 220:380] = 255
+    down[180:380, 160:220] = 255                    # arm hanging down
+    out_up = suit.dress(frame.copy(), up, suit.load_suit(), FACE)
+    out_down = suit.dress(frame.copy(), down, suit.load_suit(), FACE)
+    assert out_up[100, 150].mean() > 120 and out_down[100, 150].mean() == 60
+    assert out_down[300, 190].mean() > 120 and out_up[300, 190].mean() == 60
+
+
+# --------------------------------------------------------------------------- #
 # Sprite asset
 # --------------------------------------------------------------------------- #
 def test_sprite_is_generated_once_with_alpha(tmp_path):
@@ -99,7 +187,10 @@ def test_sprite_is_generated_once_with_alpha(tmp_path):
     assert sprite.ndim == 3 and sprite.shape[2] == 4
     h, w = sprite.shape[:2]
     assert sprite[0, 0, 3] == 0                     # transparent corner
-    assert sprite[h // 2, w // 2, 3] == 255         # opaque chest
+    assert sprite[190, 200, 3] == 255               # opaque chest panel
+    # the suit fabric itself comes from the silhouette, so the sprite only holds
+    # the details (collar, panel, patch) -- the lower torso is transparent
+    assert sprite[int(h * 0.85), w // 2, 3] == 0
     again = suit.load_suit(str(path))               # loaded from file the second time
     assert np.array_equal(again, sprite)
 

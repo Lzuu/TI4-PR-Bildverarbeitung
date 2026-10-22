@@ -34,7 +34,7 @@ Kamera ─► main (Loop, States, Input)
 | `game.py` | Spielzustand: Spawning (Bursts), Kollision, Punkte, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve, Verlauf+Glanz) für die Leben |
 | `background.py` | Spieler freistellen (Referenz-Differenz) und vor das Weltall setzen |
-| `suit.py` | Raumanzug: Spielerposition aus der Maske, Platzierung am Gesicht, Alpha-Overlay |
+| `suit.py` | Raumanzug: Silhouette wird zu Anzugstoff (folgt den Armen), Kopf/Hände/Stift frei, Details am Gesicht |
 | `cameras.py` | Kameras finden (Indizes durchprobieren), öffnen (1080p MJPG, unter Windows MSMF), wechseln, Auswahl in `settings.json` merken |
 | `highscore.py` | Top-3-Highscore **je Schwierigkeit** mit Spielername (JSON-Persistenz) |
 | `face_id.py` | Spielererkennung per Gesicht: YuNet-Detektion, SFace-Merkmale, Abgleich mit `faces/`, Scan im Kreis (`FaceScanner`), Einlernen |
@@ -178,21 +178,28 @@ Kamera ─► main (Loop, States, Input)
     Silhouette ins Referenzbild „einbrennen". Daher wird die Referenz erst per `b`
     (mit Countdown zum Aus-dem-Bild-Gehen) aufgenommen; bis dahin zeigt das Spiel das
     rohe Kamerabild mit einem dezenten Hinweis.
-- **Raumanzug am Gesicht ausgerichtet (`suit.py`, Issue #27).** Sobald der Spieler
-  freigestellt ist, bekommt er einen Raumanzug. Aus der Vordergrund-Maske wird die
-  größte Fläche als Spieler genommen (Bounding-Box/Schwerpunkt). Den Hals allein aus
-  der Silhouette zu schätzen ist unzuverlässig, daher wird der Anzug am **Gesicht**
-  verankert: YuNet-Detektion (ohne Wiedererkennung) auf 320 px Breite, ~3 ms;
-  Kragen unter dem Kinn, Breite = 3,2 × Gesichtsbreite. Ohne Gesicht dient die
-  Bounding-Box als Rückfall. Der Anzug wird auf die Silhouette zugeschnitten (Alpha ×
-  Maske), ragt also nie über den Spieler hinaus. Gegen Zittern wird die Position
-  geglättet (große Sprünge werden sofort übernommen). Das Sprite wird wie das Weltall
-  beim ersten Start nach `assets/suit.png` (BGRA) generiert und ist durch eine
-  echte Grafik ersetzbar.
-  - **Performance:** Überblenden mit NumPy kostete ~8 ms (viele Zwischen-Arrays);
-    mit `cv2.blendLinear` und zwischengespeichertem, skaliertem Sprite (Größe in
-    8-px-Schritten) ~5 ms inkl. Spielersuche, zusammen mit der Gesichtssuche ~3 ms
-    mehr pro Frame im Spiel gemessen.
+- **Raumanzug aus der eigenen Silhouette (`suit.py`, Issue #27).** Sobald der Spieler
+  freigestellt ist, trägt er einen Raumanzug, der sich **mit Armen und Körper
+  bewegt**. Erster Ansatz war ein festes Anzug-Bild am Gesicht – das bewegt sich
+  aber nicht mit den Armen. Eine Posenerkennung per neuronalem Netz könnte die
+  Arme verfolgen, kostet auf dem Laptop aber ~100–200 ms pro Frame. Entschieden:
+  Die **Vordergrund-Maske selbst wird zum Anzugstoff**. Anzug-Bereich = Silhouette
+  ohne Kopf (Ellipse um das Gesicht + Haare darüber; ohne Gesicht die oberen 30 %
+  der Bounding-Box), ohne Hände (Hautfarbe im YCrCb-Raum) und ohne Stift (Maske des
+  Marker-Trackers). Der Stoff ist hellgrau/weiß, zum Silhouettenrand dunkler
+  (Distanztransformation → Arme wirken rund) und behält die feinen Hell-Dunkel-
+  Details der echten Kleidung (Bild minus Weichzeichnung → Falten bleiben). Kragen,
+  Brustpanel und Abzeichen kommen als Sprite dazu, am **Gesicht** verankert
+  (YuNet-Detektion ohne Wiedererkennung, 320 px, ~3 ms; Kragen unter dem Kinn,
+  Breite 3,2 × Gesichtsbreite, Position geglättet). Das Sprite wird beim ersten
+  Start nach `assets/suit_details.png` generiert (neuer Dateiname, damit ein altes,
+  starres Anzug-Sprite nicht weiterverwendet wird). Grenze: Kleidung in Hauttönen
+  bleibt sichtbar.
+  - **Performance:** Die erste Fassung kostete ~70 ms pro Frame (Weichzeichnen und
+    Gleitkomma-Rechnung in voller Auflösung). Jetzt: Helligkeitskarte auf halber
+    Auflösung und nur im Bildausschnitt des Spielers, Schattierung per Tabelle,
+    Hauterkennung auf halber Auflösung, Überblenden per `cv2.blendLinear` →
+    insgesamt ~9–19 ms pro Frame (je nach CPU-Takt).
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.

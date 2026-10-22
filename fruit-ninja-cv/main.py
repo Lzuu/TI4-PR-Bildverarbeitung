@@ -537,7 +537,11 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                 # anchor the suit at the face (if one is seen) -- detection only, ~3 ms
                 face_box = (identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
                             if identifier is not None else None)
-                frame = suit.dress(frame, mask, suit_img, face_box, suit_smoother)
+                # hands (skin) and the pen stay visible instead of becoming fabric
+                keep = suit.skin_mask(clean)
+                if tracker.last_mask is not None:
+                    keep = cv2.bitwise_or(keep, tracker.last_mask)
+                frame = suit.dress(frame, mask, suit_img, face_box, suit_smoother, keep)
 
         quit_requested = False
 

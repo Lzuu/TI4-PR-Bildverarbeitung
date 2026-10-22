@@ -63,10 +63,12 @@ beim Start gesucht (ca. 1 s je Kamera).
 
 ## Raumanzug
 Ist der Weltraum-Hintergrund aktiv (Taste `b`), trägt der freigestellte Spieler einen
-**Raumanzug**. Er sitzt unter dem Kinn und passt sich der Kopfgröße an; ohne erkanntes
-Gesicht wird er anhand der Silhouette platziert. Das Bild liegt in `assets/suit.png`
-(wird beim ersten Start erzeugt, darf durch eine eigene PNG mit Transparenz ersetzt
-werden). Abschalten: `SUIT_ENABLED = False` in `config.py`.
+**Raumanzug, der sich mit Armen und Körper bewegt**: Die eigene Silhouette wird zu
+weißem Anzugstoff (die Falten der echten Kleidung bleiben sichtbar). Kopf, Hände und
+der Stift bleiben frei. Kragen, Brustpanel und Abzeichen sitzen am Gesicht. Die Details
+liegen in `assets/suit_details.png` (wird beim ersten Start erzeugt, darf durch eine
+eigene PNG mit Transparenz ersetzt werden). Abschalten: `SUIT_ENABLED = False` in
+`config.py`.
 
 ## Installation & Start
 ```bash
@@ -111,7 +113,7 @@ pytest
 | `tests/test_cameras.py` | Kamerasuche, Auswahl/Fallback, Wechsel, Speichern, Menü-Layout (ohne echte Kamera) |
 | `tests/test_highscore.py` | Top-3 je Schwierigkeit, Ranking, Spielername, alte Dateien, defekte Datei |
 | `tests/test_face_id.py` | Gesichtsdetektion, Wiedererkennung auf anderem Foto, Gast, Scan im Kreis, Einlernen, Startablauf |
-| `tests/test_suit.py` | Spieler-Box/Schwerpunkt aus der Maske, Platzierung am Gesicht, Overlay mit Transparenz und Zuschnitt, Glättung, Sprite |
+| `tests/test_suit.py` | Spieler-Box/Schwerpunkt, Anzug folgt dem erhobenen Arm, Kopf/Hände/Stift bleiben frei, Stoff mit Falten und Rundung, Details am Gesicht, Overlay, Glättung, Sprite |
 | `tests/test_keyboard.py` | Bildschirmtastatur: Layout, Großschreibung, Löschen, Leerzeichen, Länge, echte Tastatur |
 
 ## Tuning
@@ -137,7 +139,7 @@ Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.p
 | `game.py` | Spawning, Kollision, Score, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve) für die Lebensanzeige |
 | `background.py` | Spieler freistellen, Weltraum-Hintergrund |
-| `suit.py` | Raumanzug am freigestellten Spieler |
+| `suit.py` | Raumanzug aus der Silhouette (bewegt sich mit) |
 | `cameras.py` | Kameras finden, öffnen, wechseln, Auswahl speichern |
 | `highscore.py` | Top-3 je Schwierigkeit mit Spielername (JSON-Persistenz) |
 | `face_id.py` | Spielererkennung (YuNet + SFace), Scan im Kreis, Einlernen |
