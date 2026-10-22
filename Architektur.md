@@ -178,6 +178,32 @@ Kamera ─► main (Loop, States, Input)
     Silhouette ins Referenzbild „einbrennen". Daher wird die Referenz erst per `b`
     (mit Countdown zum Aus-dem-Bild-Gehen) aufgenommen; bis dahin zeigt das Spiel das
     rohe Kamerabild mit einem dezenten Hinweis.
+  - **Drei Hintergrund-Modi (wählbar im Menü).** Über einen „Hintergrund"-Button
+    (Maus-Klick, links unten über „Stiftfarbe") schaltet man zyklisch zwischen
+    `greenscreen` / `normal` / `off` (`background.MODES`, `next_mode`):
+    - `greenscreen` – **Chroma-Key**, robust gegen ungleichmäßiges Licht, damit nie
+      Grün durchscheint (nicht nur die Ränder weggeschnitten): zwei billige C-Detektoren
+      werden **ver-odert** – `cv2.inRange` über einen großzügigen HSV-Bereich
+      (`config.GREEN_LOWER_HSV`/`GREEN_UPPER_HSV`) **und** eine helligkeitsunabhängige
+      **Grün-Dominanz** `G − max(B,R) ≥ GREEN_DOMINANCE` (sättigende `cv2.subtract`),
+      die auch dunkles/verwaschenes Grün außerhalb der HSV-Box erfasst. Der Backdrop
+      wird per **`MORPH_CLOSE`** zuerst verdichtet (vereinzelte Nicht-Grün-Pixel im
+      Grünfeld werden absorbiert → ganzes Feld keyt aus, nicht nur die Kante), dann
+      `bitwise_not` → `MORPH_OPEN`. Die Silhouette wird **bewusst nicht gefüllt**
+      (anders als beim absdiff-Verfahren): Grün *innerhalb* der Körperkontur – etwa
+      im Kreis der Arme – ist echter Hintergrund und muss ausgekeyt bleiben. Rausch-
+      Blobs entfernt stattdessen `_drop_small_blobs` per `connectedComponentsWithStats`
+      + LUT-Relabeling, **ohne Löcher zu schließen**. Braucht **keine** Referenz-
+      aufnahme und kommt mit bewegtem Spieler klar. Kosten **~5 ms/Frame** (volle
+      Auflösung); Downscaling hilft kaum und macht die Kanten blockig → bewusst volle
+      Auflösung (wie beim absdiff-Verfahren).
+    - `normal` – das oben beschriebene **absdiff-Referenz**-Verfahren (Taste `b`).
+    - `off` – kein Compositing, rohes Kamerabild.
+    Beide Masken-Verfahren teilen sich dieselbe Nachbearbeitung (`_refine_mask`:
+    Morphologie + gefüllte Silhouette) und dasselbe `composite_space`, nur die
+    Segmentierung unterscheidet sich. Die Wahl wird in `settings.json`
+    (`background_mode`, via `cameras.load/save_background_mode`) **persistiert** –
+    analog zur Kamerawahl. Default ist `normal` (unverändertes Verhalten).
 - **Raumanzug aus der eigenen Silhouette (`suit.py`, Issue #27).** Sobald der Spieler
   freigestellt ist, trägt er einen Raumanzug, der sich **mit Armen und Körper
   bewegt**. Erster Ansatz war ein festes Anzug-Bild am Gesicht – das bewegt sich

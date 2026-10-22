@@ -7,7 +7,9 @@ camera images.
 import cv2
 import numpy as np
 
-from background import foreground_mask, composite_space, load_space
+from background import (foreground_mask, composite_space, load_space,
+                        greenscreen_mask, next_mode, MODES,
+                        MODE_GREENSCREEN, MODE_NORMAL, MODE_OFF)
 
 H, W = 120, 160
 
@@ -100,3 +102,70 @@ def test_load_space_resizes_existing(tmp_path):
     cv2.imwrite(path, np.full((10, 10, 3), 7, np.uint8))
     img = load_space((W, H), path=path)
     assert img is not None and img.shape == (H, W, 3)
+
+
+# --------------------------------------------------------------------------- #
+# Green-screen chroma key
+# --------------------------------------------------------------------------- #
+def test_greenscreen_keys_out_green_keeps_player():
+    frame = _solid((0, 255, 0))                                 # green screen (BGR)
+    cv2.rectangle(frame, (40, 30), (120, 90), (0, 0, 255), -1)  # red "player"
+    mask = greenscreen_mask(frame)
+    assert mask.shape == (H, W)
+    assert mask[60, 80] == 255      # player region kept
+    assert mask[5, 5] == 0          # green keyed out -> background
+
+
+def test_greenscreen_scaled_still_detects_player():
+    frame = _solid((0, 255, 0))
+    cv2.rectangle(frame, (40, 30), (120, 90), (0, 0, 255), -1)
+    mask = greenscreen_mask(frame, scale=0.5)   # segment downscaled, upscale back
+    assert mask.shape == (H, W)
+    assert mask[60, 80] == 255
+    assert mask[5, 5] == 0
+
+
+def test_greenscreen_keeps_enclosed_green_hole_as_background():
+    # Player loops their arms into a ring; the green *inside* the loop must stay
+    # keyed out, not filled in. Regression: silhouette filling closed real holes.
+    frame = _solid((0, 255, 0))                         # all green
+    cv2.circle(frame, (80, 60), 40, (0, 0, 255), 18)    # red ring = the looped arms
+    mask = greenscreen_mask(frame)
+    assert mask[60, 80] == 0        # centre of the loop = enclosed green -> background
+    assert mask[60, 40] == 255      # on the ring = player
+
+
+def test_greenscreen_full_green_frame_is_all_background():
+    # The whole point: a pure green field must be keyed out completely, never
+    # left showing through.
+    mask = greenscreen_mask(_solid((0, 255, 0)))
+    assert mask.max() == 0
+
+
+def test_greenscreen_keys_out_off_shade_and_shadowed_green():
+    # Uneven lighting makes the green vary in brightness/saturation; all of it
+    # must still be removed, not just the pixels in a narrow hue band.
+    frame = _solid((0, 255, 0))
+    cv2.rectangle(frame, (0, 0), (W, 40), (30, 150, 40), -1)      # darker, less sat. green
+    cv2.rectangle(frame, (0, 80), (W, H), (60, 90, 30), -1)       # shadowed green
+    cv2.rectangle(frame, (50, 45), (110, 75), (0, 0, 255), -1)    # red player in the middle band
+    mask = greenscreen_mask(frame)
+    assert mask[10, 80] == 0       # off-shade green -> background
+    assert mask[110, 80] == 0      # shadowed green -> background
+    assert mask[60, 80] == 255     # player kept
+
+
+# --------------------------------------------------------------------------- #
+# Background mode selection
+# --------------------------------------------------------------------------- #
+def test_modes_are_the_three_options():
+    assert set(MODES) == {MODE_GREENSCREEN, MODE_NORMAL, MODE_OFF}
+
+
+def test_next_mode_cycles_through_all_and_wraps():
+    seen, mode = [], MODES[0]
+    for _ in range(len(MODES)):
+        seen.append(mode)
+        mode = next_mode(mode)
+    assert seen == list(MODES)       # visits every mode in order
+    assert mode == MODES[0]          # wraps back to the first

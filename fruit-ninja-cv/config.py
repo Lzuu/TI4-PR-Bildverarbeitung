@@ -39,11 +39,19 @@ MORPH_KERNEL = 5                 # Kernel size for open/close morphology
 # A reference frame of the *empty* background is captured once (press 'b', or
 # the startup countdown). Each live frame is diffed against it to segment the
 # player; the rest is replaced by assets/space.png (generated if missing).
-BG_ENABLED = True
+BG_ENABLED = True                # Master switch; the menu "Aus" mode disables it per run
+BG_MODE = "normal"               # Default mode: "greenscreen" | "normal" (absdiff) | "off"
 BG_DIFF_THRESHOLD = 30           # Per-pixel grey diff above which a pixel is "player"
 BG_MORPH_KERNEL = 5              # Open/close kernel to clean the foreground mask
 BG_MIN_BLOB_FRAC = 0.003         # Drop foreground blobs smaller than this frame fraction
 BG_COUNTDOWN_SECONDS = 3.0       # "Step out of frame" countdown before capturing
+# Green-screen chroma key. Two detectors are OR-ed so uneven lighting never
+# leaves green showing: a generous HSV range AND a lighting-invariant
+# "green-dominance" test (green channel exceeds both others by a margin).
+GREEN_LOWER_HSV = (30, 35, 25)   # OpenCV HSV: H 0-179, S/V 0-255
+GREEN_UPPER_HSV = (95, 255, 255)
+GREEN_DOMINANCE = 18             # G must beat max(B, R) by this to count as backdrop
+GREEN_SCALE = 1.0                # Full res: ~5 ms/frame; downscaling barely helps but blocks edges
 SUIT_ENABLED = True              # Dress the cut-out player in a space suit (suit.py)
 SUIT_FACE_DETECT_WIDTH = 320     # Face detection for placing the suit runs at this width
 

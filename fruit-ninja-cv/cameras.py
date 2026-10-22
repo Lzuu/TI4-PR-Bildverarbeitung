@@ -139,16 +139,29 @@ def _load_settings(path):
         return {}
 
 
+def _update_setting(path, key, value):
+    settings = _load_settings(path)
+    settings[key] = value
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(settings, f)
+    except OSError:
+        logger.warning("Could not write settings file: %s", path)
+
+
 def load_camera_index(path=config.SETTINGS_FILE):
     value = _load_settings(path).get("camera_index")
     return value if isinstance(value, int) else None
 
 
 def save_camera_index(path, index):
-    settings = _load_settings(path)
-    settings["camera_index"] = index
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(settings, f)
-    except OSError:
-        logger.warning("Could not write settings file: %s", path)
+    _update_setting(path, "camera_index", index)
+
+
+def load_background_mode(path=config.SETTINGS_FILE):
+    value = _load_settings(path).get("background_mode")
+    return value if isinstance(value, str) else None
+
+
+def save_background_mode(path, mode):
+    _update_setting(path, "background_mode", mode)

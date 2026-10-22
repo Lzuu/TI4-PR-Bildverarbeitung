@@ -142,6 +142,18 @@ def settings_button(w, h):
     return (_s(20), h - _s(70), _s(260), _s(48))
 
 
+def background_button(w, h):
+    """Bottom-left button stacked above 'Stiftfarbe'; cycles the background mode."""
+    return (_s(20), h - _s(70) - _s(58), _s(260), _s(48))
+
+
+def handle_background_click(click, mode, w, h):
+    """Mouse click on the background button cycles the mode; else returns it unchanged."""
+    if _in_rect(click, background_button(w, h)):
+        return background.next_mode(mode)
+    return mode
+
+
 def initial_state(identifier):
     """Start with the face scan -- unless face identification is unavailable."""
     return STATE_FACE_SCAN if identifier is not None else STATE_MENU
@@ -295,6 +307,14 @@ def _draw_camera_button(frame, rect, index, is_open):
     cv2.rectangle(frame, (x, y), (x + bw, y + bh), bg, -1, cv2.LINE_AA)
     cv2.rectangle(frame, (x, y), (x + bw, y + bh), (200, 200, 200), 1, cv2.LINE_AA)
     draw_text(frame, f"Kamera: {index}", (x + _s(16), y + bh // 2 + _s(7)), scale=0.6)
+
+
+def _draw_background_button(frame, rect, mode):
+    x, y, bw, bh = rect
+    cv2.rectangle(frame, (x, y), (x + bw, y + bh), (55, 55, 55), -1, cv2.LINE_AA)
+    cv2.rectangle(frame, (x, y), (x + bw, y + bh), (200, 200, 200), 1, cv2.LINE_AA)
+    draw_text(frame, f"Hintergrund: {background.MODE_LABELS.get(mode, mode)}",
+              (x + _s(16), y + bh // 2 + _s(7)), scale=0.6)
 
 
 def draw_camera_panel(frame, tiles, indices, current, previews):
@@ -502,6 +522,10 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     reference = None
     reference_camera = None          # camera the reference was taken with
     bg_capture_at = None
+    bg_mode = cameras.load_background_mode(config.SETTINGS_FILE) or config.BG_MODE
+    if bg_mode not in background.MODES:
+        bg_mode = config.BG_MODE
+    logger.info("Background mode: %s", bg_mode)
 
     while True:
         ok, frame = cap.read()
@@ -531,19 +555,24 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
         if reference is not None and not reference_still_valid(reference_camera, cap.index):
             reference = None
             logger.info("Camera changed -- space background off until 'b' is pressed again")
-        if config.BG_ENABLED and reference is not None and space_img is not None:
-            mask = background.foreground_mask(clean, reference)
-            frame = background.composite_space(frame, mask, space_img)
-            if suit_img is not None:
-                # anchor the suit at the face (if one is seen) -- detection only, ~3 ms
-                face_box = (identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
-                            if identifier is not None else None)
-                # hands (skin) and the pen stay visible instead of becoming fabric
-                keep = suit.skin_mask(clean)
-                if tracker.last_mask is not None:
-                    keep = cv2.bitwise_or(keep, tracker.last_mask)
-                frame = suit.dress(frame, mask, suit_img, face_box, suit_smoother, keep,
-                                   suit_texture)
+        if config.BG_ENABLED and space_img is not None and bg_mode != background.MODE_OFF:
+            mask = None
+            if bg_mode == background.MODE_GREENSCREEN:
+                mask = background.greenscreen_mask(clean, scale=config.GREEN_SCALE)
+            elif reference is not None:          # normal mode needs the empty reference
+                mask = background.foreground_mask(clean, reference)
+            if mask is not None:
+                frame = background.composite_space(frame, mask, space_img)
+                if suit_img is not None:
+                    # anchor the suit at the face (if one is seen) -- detection only, ~3 ms
+                    face_box = (identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
+                                if identifier is not None else None)
+                    # hands (skin) and the pen stay visible instead of becoming fabric
+                    keep = suit.skin_mask(clean)
+                    if tracker.last_mask is not None:
+                        keep = cv2.bitwise_or(keep, tracker.last_mask)
+                    frame = suit.dress(frame, mask, suit_img, face_box, suit_smoother, keep,
+                                       suit_texture)
 
         quit_requested = False
 
@@ -563,6 +592,17 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                 camera_open = handle_camera_click(click[0], camera_open, available, cap,
                                                   config.WIDTH, config.HEIGHT)
                 if was_open or camera_open:  # click belonged to the camera selection
+                    settings_open = False
+                    dwell.reset()
+                    click[0] = None
+
+            if click[0] is not None:
+                new_mode = handle_background_click(click[0], bg_mode,
+                                                   config.WIDTH, config.HEIGHT)
+                if new_mode != bg_mode:          # click cycled the background mode
+                    bg_mode = new_mode
+                    cameras.save_background_mode(config.SETTINGS_FILE, bg_mode)
+                    logger.info("Background mode set to %s (mouse)", bg_mode)
                     settings_open = False
                     dwell.reset()
                     click[0] = None
@@ -593,6 +633,9 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             draw_menu(frame, start_t, quit_t, sbtn, swatches, pen_color,
                       settings_open, active, progress, point, player_t,
                       player if identifier else None)
+            if not settings_open and not camera_open:
+                _draw_background_button(frame, background_button(config.WIDTH, config.HEIGHT),
+                                        bg_mode)
             if show_camera_button(available):
                 _draw_camera_button(frame, cbtn, cap.index, camera_open)
             if camera_open:
@@ -743,6 +786,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                       (config.WIDTH // 2, int(config.HEIGHT * 0.12)),
                       scale=1.0, center=True)
         elif (config.BG_ENABLED and space_img is not None and reference is None
+              and bg_mode == background.MODE_NORMAL          # greenscreen needs no reference
               and state != STATE_NAME_ENTRY):        # there 'b' types a letter
             draw_text(frame, "Taste b: Weltall-Hintergrund",
                       (config.WIDTH // 2, int(config.HEIGHT * 0.96)),
