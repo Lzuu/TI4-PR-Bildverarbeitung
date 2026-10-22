@@ -517,9 +517,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     # capture would bake their silhouette into the background. They press 'b'
     # (then step out during the countdown) to grab a clean empty background.
     space_img = background.load_space((config.WIDTH, config.HEIGHT))
-    suit_img = suit.load_suit() if config.SUIT_ENABLED else None
     suit_smoother = suit.RectSmoother()
-    suit_texture = suit.load_texture() if config.SUIT_ENABLED else None   # textures/suit.png
     reference = None
     reference_camera = None          # camera the reference was taken with
     bg_capture_at = None
@@ -569,16 +567,13 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                 mask = background.foreground_mask(clean, reference)
             if mask is not None:
                 frame = background.composite_space(frame, mask, space_img)
-                if suit_img is not None:
-                    # anchor the suit at the face (if one is seen) -- detection only, ~3 ms
+                if config.SUIT_ENABLED:
+                    # place the helmet at the face (if one is seen) -- detection only, ~3 ms
                     face_box = (identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
                                 if identifier is not None else None)
-                    # hands (skin) and the pen stay visible instead of becoming fabric
-                    keep = suit.skin_mask(clean)
-                    if tracker.last_mask is not None:
-                        keep = cv2.bitwise_or(keep, tracker.last_mask)
-                    frame = suit.dress(frame, mask, suit_img, face_box, suit_smoother, keep,
-                                       suit_texture)
+                    # the whole body becomes the suit; only the pen stays visible
+                    frame = suit.dress(frame, mask, face_box, tracker.last_mask,
+                                       time.monotonic(), suit_smoother)
 
         quit_requested = False
 

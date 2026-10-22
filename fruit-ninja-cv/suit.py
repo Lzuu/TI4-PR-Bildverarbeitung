@@ -1,38 +1,37 @@
-"""Space suit: dress the cut-out player in a suit (on top of the space background).
+"""Space suit: turn the whole cut-out player into an animated space suit.
 
-The suit is not a static picture: the player's own silhouette is turned into
-suit fabric, so it moves with the arms and the body. Per frame (only while the
-space background is active):
+Unlike the first version (only the torso became fabric, head and hands stayed
+free), the *entire* silhouette is dressed: body, arms and hands become suit
+fabric (the hands read as gloves), the head gets a rendered **helmet** with a
+dark visor, and small details are **animated** over time. Only the pen stays
+visible (it is the controller). Per frame, on top of the space background:
 
-  foreground mask (background.py)
-  -> suit region = silhouette minus head (around the face), hands (skin colour)
-     and the pen
-  -> fabric: light grey/white, darker towards the silhouette edge (rounded,
-     tube-like arms) and keeping the folds of the real clothes
-  -> details on top (collar ring, chest panel, patch) anchored at the face.
+  player mask (background.py / yolo_seg.py)
+  -> full-body region (silhouette minus the pen)
+  -> fabric: cool white, darker towards the edge (rounded, tube-like limbs),
+     keeping a little of the real clothes' folds
+  -> animated helmet over the head (shell + visor with a moving sheen, blinking
+     antenna light) and an animated chest panel (blinking LEDs)
 
-Classical image processing only (masks, distance transform, blur) -- a pose
-network would follow the arms too, but costs ~100-200 ms per frame on a laptop.
-
-The details sprite is generated once into ``assets/suit_details.png`` (BGRA) if it is
-missing; replace the file with real artwork to change the look.
+Classical image processing only (masks, distance transform, blur, draw) -- no
+pose network. ``phase`` (seconds) drives the animation.
 """
 
 import logging
-import os
 
 import cv2
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
-ASSET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
-TEXTURE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "textures", "suit.png")
-SUIT_PATH = os.path.join(ASSET_DIR, "suit_details.png")   # new name: old torso sprite is stale
-
-SUIT_WIDTH_PER_FACE = 3.2        # suit width = face width * this
-SPRITE_W, SPRITE_H = 400, 480    # generated sprite size (aspect used for placement)
 MIN_PLAYER_FRAC = 0.01           # blobs smaller than this frame fraction are noise
+SUIT_WIDTH_PER_FACE = 3.2        # chest-panel reference width = face width * this
+SPRITE_H, SPRITE_W = 480, 400    # aspect used when placing the chest panel from a bbox
+FOLD_STRENGTH = 0.3              # how much of the real clothes' folds shows (opaque!)
+FOLD_LIMIT = 30                  # strong patterns (stripes, prints) are capped
+
+EDGE_COLOR = (90, 90, 95)        # silhouette outline
+FABRIC_COOL = 0.96               # red factor -> slightly cool white fabric
 
 
 # --------------------------------------------------------------------------- #
@@ -65,39 +64,30 @@ def player_centroid(mask, min_frac=MIN_PLAYER_FRAC):
     return m["m10"] / m["m00"], m["m01"] / m["m00"]
 
 
-def head_mask(shape, face=None, bbox=None):
-    """Mask of the head (kept free of fabric).
-
-    With a face: an ellipse around face and neck plus the area above it (hair).
-    Without a face: the top 30 % of the player's bounding box.
-    """
-    head = np.zeros(shape[:2], np.uint8)
-    if face is not None:
-        fx, fy, fw, fh = face
-        center = (int(fx + fw / 2), int(fy + fh * 0.45))
-        cv2.ellipse(head, center, (int(fw * 0.75), int(fh * 0.85)), 0, 0, 360, 255, -1)
-        cv2.rectangle(head, (int(fx - fw * 0.15), 0), (int(fx + fw * 1.15), int(fy + fh * 0.3)),
-                      255, -1)
-    elif bbox is not None:
-        bx, by, bw, bh = bbox
-        head[:int(by + bh * 0.3)] = 255
-    return head
-
-
-def suit_region(mask, face=None, keep=None):
-    """Pixels that become suit: the silhouette without head and ``keep`` (hands, pen)."""
-    bbox = player_bbox(mask)
-    if bbox is None:
+def full_body_region(mask, keep=None):
+    """Pixels that become suit: the whole silhouette, minus ``keep`` (the pen)."""
+    if player_bbox(mask) is None:
         return np.zeros(mask.shape[:2], np.uint8)
-    region = cv2.bitwise_and(mask, cv2.bitwise_not(head_mask(mask.shape, face, bbox)))
+    region = mask.copy()
     if keep is not None:
         region = cv2.bitwise_and(region, cv2.bitwise_not(keep))
     return region
 
 
-_SKIN_KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+def head_box(face=None, bbox=None):
+    """Head region (x, y, w, h) for the helmet: the face box, or the top of the bbox."""
+    if face is not None:
+        return tuple(int(v) for v in face)
+    if bbox is not None:
+        bx, by, bw, bh = bbox
+        hw, hh = int(bw * 0.5), int(bh * 0.28)
+        return int(bx + bw / 2 - hw / 2), int(by), hw, hh
+    return None
 
 
+# --------------------------------------------------------------------------- #
+# Fabric (silhouette -> suit cloth)
+# --------------------------------------------------------------------------- #
 def _half(img, interpolation=cv2.INTER_AREA):
     return cv2.resize(img, (img.shape[1] // 2, img.shape[0] // 2), interpolation=interpolation)
 
@@ -106,38 +96,23 @@ def _full(img, shape, interpolation=cv2.INTER_LINEAR):
     return cv2.resize(img, (shape[1], shape[0]), interpolation=interpolation)
 
 
-def skin_mask(frame):
-    """Skin-coloured pixels (YCrCb range) -- hands stay visible instead of fabric.
-
-    Computed at half resolution (4x fewer pixels, the mask is coarse anyway).
-    Clothes in skin tones are kept visible too (known limitation).
-    """
-    ycrcb = cv2.cvtColor(_half(frame), cv2.COLOR_BGR2YCrCb)
-    skin = cv2.inRange(ycrcb, (0, 133, 77), (255, 173, 127))
-    skin = cv2.morphologyEx(skin, cv2.MORPH_OPEN, _SKIN_KERNEL)
-    return _full(cv2.dilate(skin, _SKIN_KERNEL), frame.shape, cv2.INTER_NEAREST)
+# brightness by distance to the silhouette edge: dark rim, bright middle (tube look)
+_SHADE_LUT = (150.0 + 90.0 * (1.0 - np.exp(-np.arange(256) / 12.0))).astype(np.float32)
 
 
-FOLD_STRENGTH = 0.3              # how much of the real clothes' folds shows (opaque!)
-FOLD_LIMIT = 30                  # strong patterns (stripes, prints) are capped
+def paint_fabric(frame, region):
+    """Turn ``region`` of ``frame`` into cool-white suit fabric (in place).
 
-
-def paint_fabric(frame, region, texture=None, top=None):
-    """Turn ``region`` of ``frame`` into suit fabric (in place).
-
-    Brightness: high in the middle, darker towards the edge of the silhouette
-    (distance transform -> arms look round), plus a little of the fine light/dark
-    detail of the real clothes (capped, so the fabric stays opaque and prints do
-    not shine through). With ``texture`` (BGR image of a suit) the colours come
-    from that image, stretched over the player from ``top`` (the chin, if known)
-    down; above it (e.g. raised arms) the suit's average colour is used.
-    Otherwise the fabric is white.
+    Brightness is high in the middle and darker towards the silhouette edge
+    (distance transform -> rounded limbs), plus a little of the fine light/dark
+    detail of the real clothes (capped, so the fabric stays opaque). The
+    silhouette gets a thin dark outline so the suit shape reads clearly.
     """
     if cv2.countNonZero(region) == 0:
         return frame
-    # Only the part of the frame the player occupies is processed (with a margin
-    # so the blur sees the surroundings), at half resolution: the brightness map
-    # is smooth; the sharp silhouette edge comes from the full-res region.
+    # Process only the player's bounding area (plus a margin so the blur sees the
+    # surroundings), at half resolution: the brightness map is smooth; the sharp
+    # edge comes from the full-res region mask.
     x, y, w, h = cv2.boundingRect(region)
     pad = 16
     x0, y0 = max(x - pad, 0) & ~1, max(y - pad, 0) & ~1
@@ -150,103 +125,126 @@ def paint_fabric(frame, region, texture=None, top=None):
     dist = cv2.distanceTransform(small_region, cv2.DIST_L2, 3)
     shade = _SHADE_LUT[np.minimum(dist * 2, 255).astype(np.uint8)]   # dist in full-res px
     value = np.clip(cv2.scaleAdd(detail, FOLD_STRENGTH, shade), 0, 255)
-    if texture is None:
-        v = value.astype(np.uint8)
-        small_fabric = cv2.merge([v, v, cv2.multiply(v, 0.96)])      # slightly cool white
-    else:
-        # suit image stretched over the player's bounding box, shaded like the fabric
-        bx, by, bw, bh = cv2.boundingRect(small_region)
-        if top is not None:              # image starts at the neck, not at raised hands
-            neck = min(max((top - y0) // 2, by), by + bh - 1)
-            bh, by = by + bh - neck, neck
-        canvas = np.empty(small_region.shape + (3,), np.uint8)
-        canvas[:] = texture.reshape(-1, 3).mean(axis=0)
-        canvas[by:by + bh, bx:bx + bw] = cv2.resize(texture, (bw, bh), interpolation=cv2.INTER_AREA)
-        factor = cv2.merge([value * (1.0 / 240.0)] * 3)
-        small_fabric = np.clip(canvas * factor, 0, 255).astype(np.uint8)
+    v = value.astype(np.uint8)
+    small_fabric = cv2.merge([v, v, cv2.multiply(v, FABRIC_COOL)])    # slightly cool white
     fabric = _full(small_fabric, roi.shape)
-    cv2.copyTo(fabric, roi_region, roi)              # slightly cool white, in place
+    cv2.copyTo(fabric, roi_region, roi)
     contours, _ = cv2.findContours(small_region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    cv2.drawContours(roi, [c * 2 for c in contours], -1, (90, 90, 95), 2)
+    cv2.drawContours(roi, [c * 2 for c in contours], -1, EDGE_COLOR, 2)
     return frame
 
 
-# brightness by distance to the silhouette edge: dark rim, bright middle (tube look)
-_SHADE_LUT = (150.0 + 90.0 * (1.0 - np.exp(-np.arange(256) / 12.0))).astype(np.float32)
+# --------------------------------------------------------------------------- #
+# Animated helmet
+# --------------------------------------------------------------------------- #
+def _draw_visor(frame, center, axes, phase):
+    """Dark glass visor with a vertical gradient and a horizontally sweeping sheen."""
+    cx, cy = center
+    ax, ay = axes
+    x0, y0 = max(cx - ax, 0), max(cy - ay, 0)
+    x1, y1 = min(cx + ax, frame.shape[1]), min(cy + ay, frame.shape[0])
+    if x1 <= x0 or y1 <= y0:
+        return
+    roi = frame[y0:y1, x0:x1]
+    h, w = roi.shape[:2]
+    vis = np.zeros((h, w), np.uint8)
+    cv2.ellipse(vis, (cx - x0, cy - y0), (ax, ay), 0, 0, 360, 255, -1, cv2.LINE_AA)
+
+    grad = np.linspace(58, 14, h, dtype=np.float32)[:, None]     # lighter at the top
+    glass = np.empty((h, w, 3), np.float32)
+    glass[..., 0] = grad * 1.7            # B (bluish dark glass)
+    glass[..., 1] = grad * 1.1            # G
+    glass[..., 2] = grad * 0.7            # R
+    xs = np.arange(w, dtype=np.float32)[None, :]
+    ys = np.arange(h, dtype=np.float32)[:, None]
+    band = (xs - ys * 0.5) / max(w, 1)
+    pos = np.sin(phase * 1.6) * 0.5 + 0.5                        # sweeps 0..1 over time
+    glass += np.exp(-((band - pos) ** 2) / (2 * 0.02 ** 2))[..., None] * 130.0
+    cv2.copyTo(np.clip(glass, 0, 255).astype(np.uint8), vis, roi)
+    cv2.ellipse(frame, center, axes, 0, 0, 360, (170, 170, 180), max(2, ax // 14), cv2.LINE_AA)
 
 
-def suit_rect(bbox, face=None):
-    """Where the suit goes: (x, y, w, h), or None without a player.
+def draw_helmet(frame, head, phase=0.0):
+    """Draw an animated astronaut helmet over the ``head`` box (x, y, w, h), in place."""
+    if head is None:
+        return frame
+    hx, hy, hw, hh = head
+    cx, cy = int(hx + hw / 2), int(hy + hh * 0.42)
+    rx, ry = max(6, int(hw * 0.9)), max(6, int(hh * 1.0))
 
-    With a face (x, y, w, h) the suit hangs below the chin, centred on the face
-    and scaled to it; otherwise it covers the upper body of the bounding box.
-    """
+    cv2.ellipse(frame, (cx, cy), (rx, ry), 0, 0, 360, (228, 228, 232), -1, cv2.LINE_AA)
+    cv2.ellipse(frame, (cx, int(cy - ry * 0.45)), (int(rx * 0.5), int(ry * 0.28)),
+                0, 0, 360, (246, 246, 250), -1, cv2.LINE_AA)        # soft top highlight
+    cv2.ellipse(frame, (cx, cy), (rx, ry), 0, 0, 360, (140, 140, 150),
+                max(2, rx // 11), cv2.LINE_AA)                      # rim
+
+    _draw_visor(frame, (cx, int(cy + ry * 0.16)), (int(rx * 0.66), int(ry * 0.52)), phase)
+
+    pod = max(3, rx // 7)
+    cv2.circle(frame, (cx - rx, cy), pod, (120, 120, 132), -1, cv2.LINE_AA)
+    cv2.circle(frame, (cx + rx, cy), pod, (120, 120, 132), -1, cv2.LINE_AA)
+    blink = 0.5 + 0.5 * np.sin(phase * 6.0)                        # antenna light
+    cv2.circle(frame, (cx, int(cy - ry)), max(2, rx // 13),
+               (60, int(60 + 150 * blink), 230), -1, cv2.LINE_AA)
+    return frame
+
+
+# --------------------------------------------------------------------------- #
+# Animated chest panel
+# --------------------------------------------------------------------------- #
+def chest_rect(bbox, face=None):
+    """Reference box (x, y, w, h) used to place the chest panel, or None."""
     aspect = SPRITE_H / SPRITE_W
     if face is not None:
         fx, fy, fw, fh = face
         w = round(fw * SUIT_WIDTH_PER_FACE)
         cx = fx + fw / 2
-        top = fy + fh * 0.85                 # collar ring right under the chin
+        top = fy + fh * 0.85
     elif bbox is not None:
         bx, by, bw, bh = bbox
         w = round(bw * 0.9)
         cx = bx + bw / 2
-        top = by + bh * 0.3                  # below the head
+        top = by + bh * 0.3
     else:
         return None
-    w = max(8, 8 * round(w / 8))             # size in 8 px steps: fewer re-scalings
+    w = max(8, 8 * round(w / 8))
     return round(cx - w / 2), round(top), w, round(w * aspect)
 
 
-# --------------------------------------------------------------------------- #
-# Overlay
-# --------------------------------------------------------------------------- #
-def overlay_suit(frame, sprite, rect, mask=None):
-    """Alpha-blend ``sprite`` (BGRA) into ``rect`` of ``frame`` (in place).
+_LED_COLORS = [(40, 40, 220), (60, 200, 60), (220, 150, 40)]
 
-    Parts outside the frame are clipped; with ``mask`` the suit only covers the
-    player's silhouette, never the background next to them.
-    """
-    if rect is None or sprite is None:
+
+def draw_chest_panel(frame, rect, phase=0.0):
+    """Draw an animated control panel (blinking LEDs) on the chest, in place."""
+    if rect is None:
         return frame
     x, y, w, h = rect
-    if w <= 0 or h <= 0:
-        return frame
-    fh, fw = frame.shape[:2]
-    x0, y0, x1, y1 = max(x, 0), max(y, 0), min(x + w, fw), min(y + h, fh)
-    if x0 >= x1 or y0 >= y1:
-        return frame
-    part = _scaled(sprite, w, h)[y0 - y:y1 - y, x0 - x:x1 - x]
-    alpha = part[:, :, 3]
-    if mask is not None:
-        alpha = cv2.bitwise_and(alpha, mask[y0:y1, x0:x1])   # masks are 0/255
-    # cv2.blendLinear blends in one C++ pass (NumPy needs several temporary arrays)
-    weight = alpha.astype(np.float32) * (1.0 / 255.0)
-    region = frame[y0:y1, x0:x1]
-    frame[y0:y1, x0:x1] = cv2.blendLinear(np.ascontiguousarray(part[:, :, :3]), region,
-                                          weight, 1.0 - weight)
+    pw = max(8, int(w * 0.34))
+    ph = max(6, int(pw * 0.62))
+    px, py = int(x + w / 2 - pw / 2), int(y + h * 0.13)
+
+    cv2.rectangle(frame, (px, py), (px + pw, py + ph), (72, 72, 80), -1, cv2.LINE_AA)
+    cv2.rectangle(frame, (px, py), (px + pw, py + ph), (45, 45, 50), max(1, pw // 28), cv2.LINE_AA)
+    for i, base in enumerate(_LED_COLORS):
+        blink = 0.35 + 0.65 * (0.5 + 0.5 * np.sin(phase * 3.0 + i * 2.1))
+        col = tuple(int(c * blink) for c in base)
+        lx = px + int(pw * (0.24 + 0.26 * i))
+        cv2.circle(frame, (lx, py + int(ph * 0.33)), max(2, pw // 13), col, -1, cv2.LINE_AA)
+    for i in range(3):
+        ly = py + int(ph * (0.6 + 0.12 * i))
+        cv2.line(frame, (px + int(pw * 0.15), ly), (px + int(pw * 0.85), ly),
+                 (155, 155, 165), max(1, pw // 36), cv2.LINE_AA)
     return frame
 
 
-_SCALE_CACHE = {}
-
-
-def _scaled(sprite, w, h):
-    """Resized sprite, cached per size (the suit size barely changes between frames)."""
-    key = (id(sprite), w, h)
-    if key not in _SCALE_CACHE:
-        if len(_SCALE_CACHE) > 64:
-            _SCALE_CACHE.clear()
-        _SCALE_CACHE[key] = cv2.resize(sprite, (w, h), interpolation=cv2.INTER_AREA)
-    return _SCALE_CACHE[key]
-
-
+# --------------------------------------------------------------------------- #
+# Position smoothing + top-level
+# --------------------------------------------------------------------------- #
 class RectSmoother:
-    """Damps frame-to-frame jitter of the suit position (exponential smoothing).
+    """Damps frame-to-frame jitter of the chest-panel position (exponential).
 
-    Only x/y are smoothed; the size already moves in 8 px steps. A jump of more
-    than half the suit width (another player, re-entering the frame) is taken
-    over immediately instead of sliding across the screen.
+    A jump of more than half the width (another player entering the frame) is
+    taken over immediately instead of sliding across the screen.
     """
 
     def __init__(self, factor=0.5):
@@ -267,108 +265,23 @@ class RectSmoother:
         return round(x), round(y), w, h
 
 
-def load_texture(path=TEXTURE_PATH):
-    """Suit image (BGR) to use as fabric, or None if there is none.
+def dress(frame, mask, face=None, keep=None, phase=0.0, smoother=None):
+    """Dress the whole player found in ``mask`` as a space suit (no player -> unchanged).
 
-    Transparent parts of a PNG are filled with the suit's average colour, so a
-    cut-out suit picture works as well as a plain fabric texture.
+    The entire silhouette becomes fabric (arms and hands too); ``keep`` (the pen)
+    stays visible. A helmet is drawn over the head (``face`` box if known, else
+    the top of the bounding box) and an animated chest panel on the torso.
+    ``phase`` (seconds) drives the helmet sheen and the blinking lights.
     """
-    if not os.path.exists(path):
-        return None
-    img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
-    if img is None:
-        logger.warning("Could not read suit texture %s", path)
-        return None
-    if img.ndim == 2:
-        return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-    if img.shape[2] == 4:
-        alpha = img[:, :, 3:4].astype(np.float32) / 255.0
-        colour = img[:, :, :3].astype(np.float32)
-        visible = img[:, :, 3] > 0
-        mean = colour[visible].mean(axis=0) if visible.any() else np.full(3, 200, np.float32)
-        img = (colour * alpha + mean * (1.0 - alpha)).astype(np.uint8)
-    logger.info("Using suit texture %s", path)
-    return img
-
-
-def dress(frame, mask, sprite, face=None, smoother=None, keep=None, texture=None):
-    """Put the suit on the player found in ``mask`` (no player -> frame unchanged).
-
-    The fabric follows the silhouette (arms included); ``keep`` (hands, pen)
-    stays visible. Collar, panel and patch come from ``sprite`` at the face.
-    """
-    region = suit_region(mask, face, keep)
-    if cv2.countNonZero(region) == 0:
+    bbox = player_bbox(mask)
+    if bbox is None:
         if smoother is not None:
             smoother.update(None)
         return frame
-    chin = face[1] + face[3] if face is not None else None
-    paint_fabric(frame, region, texture, top=chin)
-    if texture is not None:
-        return frame                 # a custom suit brings its own details
-    rect = suit_rect(player_bbox(mask), face)
+    paint_fabric(frame, full_body_region(mask, keep))
+    rect = chest_rect(bbox, face)
     if smoother is not None:
         rect = smoother.update(rect)
-    return overlay_suit(frame, sprite, rect, mask)
-
-
-# --------------------------------------------------------------------------- #
-# Sprite asset (generated once if missing)
-# --------------------------------------------------------------------------- #
-def _generate_suit(w=SPRITE_W, h=SPRITE_H):
-    """Suit details (BGRA): collar ring, chest panel, mission patch.
-
-    The fabric itself comes from the player's silhouette (``paint_fabric``), so
-    everything else in the sprite is transparent.
-    """
-    ss = 3                                         # supersampling for smooth edges
-    W, H = w * ss, h * ss
-    color = np.zeros((H, W, 3), np.uint8)
-    alpha = np.zeros((H, W), np.uint8)
-
-    def s(v):
-        return int(round(v * ss))
-
-    # collar ring around the neck (the neck itself stays transparent)
-    cv2.ellipse(alpha, (s(200), s(40)), (s(93), s(42)), 0, 0, 360, 255, -1)
-    cv2.ellipse(alpha, (s(200), s(40)), (s(70), s(22)), 0, 0, 360, 0, -1)
-    cv2.ellipse(color, (s(200), s(40)), (s(82), s(32)), 0, 0, 360, (190, 190, 200), s(20))
-    cv2.ellipse(color, (s(200), s(40)), (s(82), s(32)), 0, 0, 360, (200, 120, 40), s(6))
-
-    # chest control panel with buttons
-    cv2.rectangle(alpha, (s(140), s(150)), (s(260), s(230)), 255, -1)
-    cv2.rectangle(color, (s(140), s(150)), (s(260), s(230)), (90, 90, 95), -1)
-    cv2.rectangle(color, (s(140), s(150)), (s(260), s(230)), (60, 60, 60), s(3))
-    for i, c in enumerate([(40, 40, 220), (60, 200, 60), (220, 140, 40)]):
-        cv2.circle(color, (s(165 + i * 35), s(175)), s(10), c, -1)
-    for i in range(3):
-        cv2.line(color, (s(155), s(200 + i * 10)), (s(245), s(200 + i * 10)), (160, 160, 160), s(2))
-
-    # round mission patch on the shoulder (generic, no logo)
-    cv2.circle(alpha, (s(300), s(130)), s(26), 255, -1)
-    cv2.circle(color, (s(300), s(130)), s(24), (160, 80, 30), -1)
-    cv2.circle(color, (s(300), s(130)), s(24), (255, 255, 255), s(3))
-    cv2.circle(color, (s(300), s(130)), s(8), (255, 255, 255), -1)
-
-    sprite = np.dstack([color, alpha])
-    return cv2.resize(sprite, (w, h), interpolation=cv2.INTER_AREA)
-
-
-def load_suit(path=SUIT_PATH):
-    """Load the suit sprite (BGRA); generate and save it first if it is missing.
-
-    Returns None if it can neither be loaded nor generated (no suit is drawn then).
-    """
-    if not os.path.exists(path):
-        try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            cv2.imwrite(path, _generate_suit())
-            logger.info("Generated space suit sprite -> %s", path)
-        except Exception:
-            logger.warning("Could not generate space suit sprite", exc_info=True)
-            return None
-    sprite = cv2.imread(path, cv2.IMREAD_UNCHANGED)
-    if sprite is None or sprite.ndim != 3 or sprite.shape[2] != 4:
-        logger.warning("Suit sprite at %s missing or without alpha channel", path)
-        return None
-    return sprite
+    draw_chest_panel(frame, rect, phase)
+    draw_helmet(frame, head_box(face, bbox), phase)
+    return frame

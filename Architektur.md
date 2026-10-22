@@ -34,7 +34,7 @@ Kamera ─► main (Loop, States, Input)
 | `game.py` | Spielzustand: Spawning (Bursts), Kollision, Punkte, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve, Verlauf+Glanz) für die Leben |
 | `background.py` | Spieler freistellen (Referenz-Differenz) und vor das Weltall setzen |
-| `suit.py` | Raumanzug: Silhouette wird zu Anzugstoff (folgt den Armen), Kopf/Hände/Stift frei, Details am Gesicht |
+| `suit.py` | Animierter Ganzkörper-Raumanzug: Silhouette → Stoff, Helm mit Visier-Glanz, Brust-LEDs |
 | `cameras.py` | Kameras finden (Indizes durchprobieren), öffnen (1080p MJPG, unter Windows MSMF), wechseln, Auswahl in `settings.json` merken |
 | `highscore.py` | Top-3-Highscore **je Schwierigkeit** mit Spielername (JSON-Persistenz) |
 | `face_id.py` | Spielererkennung per Gesicht: YuNet-Detektion, SFace-Merkmale, Abgleich mit `faces/`, Scan im Kreis (`FaceScanner`), Einlernen |
@@ -207,8 +207,8 @@ Kamera ─► main (Loop, States, Input)
       (Boxen + 32 Masken-Koeffizienten × 32 Prototyp-Masken, Person-Klasse, NMS) liegt in
       **reinen, headless getesteten** Funktionen. Inferenz (~15 ms) läuft nur jeden
       `YOLO_EVERY_N`-ten Frame auf 320px-Letterbox, die Maske wird dazwischen gehalten →
-      **~5 ms/Frame** im Schnitt. Diese Maske speist Freistellung **und** Anzug; die
-      `suit.py`-Pipeline bleibt unverändert. (Modell exportiert aus Ultralytics
+      **~5 ms/Frame** im Schnitt. Diese Maske speist Freistellung **und** den
+      Ganzkörper-Anzug (`suit.py`). (Modell exportiert aus Ultralytics
       YOLOv8n-seg, AGPL-3.0, als Release-Asset gehostet.)
     - `off` – kein Compositing, rohes Kamerabild.
     Alle Modi nutzen dasselbe `composite_space`; nur die Maskenquelle unterscheidet
@@ -216,38 +216,32 @@ Kamera ─► main (Loop, States, Input)
     Die Wahl wird in `settings.json`
     (`background_mode`, via `cameras.load/save_background_mode`) **persistiert** –
     analog zur Kamerawahl. Default ist `normal` (unverändertes Verhalten).
-- **Raumanzug aus der eigenen Silhouette (`suit.py`, Issue #27).** Sobald der Spieler
-  freigestellt ist, trägt er einen Raumanzug, der sich **mit Armen und Körper
-  bewegt**. Erster Ansatz war ein festes Anzug-Bild am Gesicht – das bewegt sich
-  aber nicht mit den Armen. Eine Posenerkennung per neuronalem Netz könnte die
-  Arme verfolgen, kostet auf dem Laptop aber ~100–200 ms pro Frame. Entschieden:
-  Die **Vordergrund-Maske selbst wird zum Anzugstoff**. Anzug-Bereich = Silhouette
-  ohne Kopf (Ellipse um das Gesicht + Haare darüber; ohne Gesicht die oberen 30 %
-  der Bounding-Box), ohne Hände (Hautfarbe im YCrCb-Raum) und ohne Stift (Maske des
-  Marker-Trackers). Der Stoff ist hellgrau/weiß, zum Silhouettenrand dunkler
-  (Distanztransformation → Arme wirken rund) und behält die feinen Hell-Dunkel-
-  Details der echten Kleidung (Bild minus Weichzeichnung → Falten bleiben). Kragen,
-  Brustpanel und Abzeichen kommen als Sprite dazu, am **Gesicht** verankert
-  (YuNet-Detektion ohne Wiedererkennung, 320 px, ~3 ms; Kragen unter dem Kinn,
-  Breite 3,2 × Gesichtsbreite, Position geglättet). Das Sprite wird beim ersten
-  Start nach `assets/suit_details.png` generiert (neuer Dateiname, damit ein altes,
-  starres Anzug-Sprite nicht weiterverwendet wird). Grenze: Kleidung in Hauttönen
-  bleibt sichtbar.
-  - **Deckender Stoff, eigenes Anzugbild:** Die Falten der echten Kleidung fließen
-    nur noch schwach und begrenzt ein (Faktor 0,3, max. ±30 Graustufen) – mit
-    Faktor 1,2 schienen Muster des Shirts durch. Liegt `textures/suit.png` vor,
-    wird dieses Bild über den Körper gestreckt – oben am **Kinn** verankert, nicht
-    an der Oberkante der Silhouette (sonst rutscht z. B. der Gürtel auf die Brust,
-    sobald die Arme gehoben werden); darüber liegt die Durchschnittsfarbe des
-    Anzugs. Es folgt dem Körper, die Ärmel im Bild treffen aber nicht exakt die
-    echten Arme. Mit eigenem Bild entfallen Kragen/Panel/Abzeichen. Das Bild selbst
-    wird nicht eingecheckt (`.gitignore`), weil Anzugbilder oft urheberrechtlich
-    geschützt sind.
-  - **Performance:** Die erste Fassung kostete ~70 ms pro Frame (Weichzeichnen und
-    Gleitkomma-Rechnung in voller Auflösung). Jetzt: Helligkeitskarte auf halber
-    Auflösung und nur im Bildausschnitt des Spielers, Schattierung per Tabelle,
-    Hauterkennung auf halber Auflösung, Überblenden per `cv2.blendLinear` →
-    insgesamt ~9–19 ms pro Frame (je nach CPU-Takt).
+- **Animierter Ganzkörper-Raumanzug (`suit.py`, Issues #27/#38).** Sobald der Spieler
+  freigestellt ist, wird er zum **animierten Astronauten**. Frühere Ansätze (festes
+  Anzug-Bild am Gesicht; nur der Torso wird Stoff, Kopf/Hände bleiben frei; optionales
+  Textur-Bild `textures/suit.png`) sind **ersetzt**: ein Filmfiguren-Foto über den
+  Körper zu strecken sah schlecht aus und deckte Löcher (Arm-Kreis) falsch ab, und der
+  „nur Kleidung"-Ansatz ließ Kopf/Hände nackt. Entschieden – **der ganze Körper wird
+  Anzug**, rein prozedural:
+  - **Stoff:** Die **komplette Silhouette** (Rumpf, Arme, Hände = Handschuhe) wird zu
+    kühlem Weiß, zum Rand hin dunkler (Distanztransformation → runde, schlauchartige
+    Gliedmaßen), mit einem Hauch der echten Falten (Bild minus Weichzeichnung, Faktor
+    0,3, max. ±30). Nur der **Stift** bleibt sichtbar (Maske des Marker-Trackers als
+    `keep`). Keine Haut-/Kopf-Ausnahme mehr.
+  - **Helm (animiert):** über dem Kopf (Gesichts-Box von YuNet, 320 px, ~3 ms; ohne
+    Gesicht die Kopfregion der Bounding-Box) eine metallische Schale mit dunklem,
+    bläulichem **Visier**. Über das Visier wandert ein **Glanz-Reflex** (Gauß-Streifen,
+    dessen Position per `sin(phase)` läuft); oben blinkt ein Antennenlicht.
+  - **Brustpanel (animiert):** Steuerpanel mit **blinkenden LEDs** (Helligkeit per
+    `sin(phase + i)`), am Gesicht/Torso verankert, Position geglättet (`RectSmoother`).
+  - **Animation** läuft über `phase = time.monotonic()`, das `dress()` übergeben wird.
+  - **Masken-Quelle:** `dress()` nimmt die Spielermaske eines beliebigen Hintergrund-
+    Modus (greenscheen/normal/**yolo**) entgegen; mit der präzisen YOLO-Maske sitzt der
+    Anzug am saubersten (ohne Greenscreen). Rein klassische Bildverarbeitung (Masken,
+    Distanztransformation, Zeichnen), keine Posenerkennung (die kostete ~100–200 ms).
+  - **Performance:** Helligkeitskarte auf halber Auflösung und nur im Bildausschnitt
+    des Spielers, Schattierung per Tabelle, Visier/Panel auf kleinen ROIs → wenige
+    ms/Frame zusätzlich zum Compositing.
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.
