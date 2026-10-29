@@ -1,0 +1,8 @@
+{
+  "requested_index": 2,
+  "camera_opened": false,
+  "frames_saved": false,
+  "display": false,
+  "observed_message": "MSMF backend available but cannot capture by requested index; no readable device.",
+  "conclusion": "Live processing speed and movement scenarios cannot be validated in this session."
+}

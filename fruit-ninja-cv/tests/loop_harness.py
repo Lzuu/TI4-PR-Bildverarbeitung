@@ -44,7 +44,7 @@ def run_loop(monkeypatch, tmp_path, camera, frames_to_run, keys=None, on_frame=N
     """
     settings = dict(SETTINGS_FILE=str(tmp_path / "settings.json"),
                     HIGHSCORE_FILE=str(tmp_path / "hs.json"),
-                    YOLO_ENABLED=False, MIRROR=False, FULLSCREEN=False)
+                    YOLO_ENABLED=False, POSE_ENABLED=False, MIRROR=False, FULLSCREEN=False)
     settings.update(cfg)
     for name, value in settings.items():
         monkeypatch.setattr(config, name, value)

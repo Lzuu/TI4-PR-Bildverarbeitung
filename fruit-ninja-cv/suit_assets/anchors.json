@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "coordinates": "normalized image coordinates; proximal to distal",
+  "parts": {
+    "upper_arm": {"anchors": [[0.5, 0.13], [0.5, 0.86]], "width": 0.52},
+    "forearm": {"anchors": [[0.5, 0.12], [0.5, 0.88]], "width": 0.46},
+    "glove": {"anchors": [[0.5, 0.15], [0.5, 0.86]], "width": 0.50},
+    "thigh": {"anchors": [[0.5, 0.12], [0.5, 0.88]], "width": 0.50},
+    "shin": {"anchors": [[0.5, 0.12], [0.5, 0.88]], "width": 0.46},
+    "boot": {"anchors": [[0.5, 0.22], [0.5, 0.85]], "width": 0.52},
+    "torso": {"quad": [[0.16, 0.21], [0.84, 0.21], [0.23, 0.91], [0.77, 0.91]]},
+    "helmet": {"opening_center": [0.5, 0.46], "opening_axes": [0.33, 0.29]}
+  }
+}

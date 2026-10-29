@@ -11,9 +11,9 @@ def _record_dress(monkeypatch):
     calls = []
     original = m.suit.dress
 
-    def recording(frame, mask, face=None, keep=None, phase=0.0, smoother=None):
+    def recording(frame, mask, face=None, keep=None, phase=0.0, smoother=None, **kwargs):
         calls.append(None if keep is None else keep.copy())
-        return original(frame, mask, face, keep, phase, smoother)
+        return original(frame, mask, face, keep, phase, smoother, **kwargs)
 
     monkeypatch.setattr(m.suit, "dress", recording)
     return calls
@@ -30,6 +30,19 @@ def test_suit_gets_the_pen_mask_of_the_current_frame(monkeypatch, tmp_path):
     assert first is not None and first[300, 75] > 0         # first frame already protected
     assert second[300, 210] > 0                             # new pen position protected
     assert second[300, 75] == 0                             # not the old one
+
+
+def test_suit_receives_pristine_current_camera_image(monkeypatch, tmp_path):
+    seen=[]
+    original=m.suit.dress
+    def recording(frame, mask, *args, **kwargs):
+        seen.append(kwargs['original'].copy())
+        return original(frame,mask,*args,**kwargs)
+    monkeypatch.setattr(m.suit,'dress',recording)
+    frames=[with_pen(green_frame(),75),with_pen(green_frame(),210)]
+    run_loop(monkeypatch,tmp_path,FakeCamera(frames),2,BG_MODE='greenscreen',SUIT_ENABLED=True)
+    assert np.array_equal(seen[0],frames[0])
+    assert np.array_equal(seen[1],frames[1])
 
 
 # -- CR-09 / CR-10: YOLO in the real loop ------------------------------------

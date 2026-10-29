@@ -1,0 +1,21 @@
+{
+  "opencv": "4.13.0",
+  "numpy": "2.5.4",
+  "image_size": [
+    480,
+    600
+  ],
+  "camera": false,
+  "display": false,
+  "limitations": "Static public portrait; short headless series, no live FPS or thermal endurance test.",
+  "measurements": [
+    {
+      "stage": "cadenced_pipeline_public_portrait",
+      "iterations": 24,
+      "median_ms": 37.496,
+      "p95_ms": 89.366,
+      "mean_ms": 47.807,
+      "opencv_threads": 16
+    }
+  ]
+}

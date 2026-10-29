@@ -195,14 +195,20 @@ def greenscreen_mask(frame, lower=None, upper=None, kernel_size=None, scale=1.0,
     return mask
 
 
-def composite_space(frame, mask, space_img):
+def composite_space(frame, mask, space_img, feather=0.):
     """Show ``space_img`` wherever ``mask`` is 0, keep ``frame`` where it is set.
 
     Uses ``cv2.copyTo`` (OpenCV's optimised masked copy) to write the backdrop
     into ``frame`` *in place* -- far cheaper than ``np.where`` on a full frame,
     which is the per-frame hot path. ``space_img`` must match the frame size.
     """
-    cv2.copyTo(space_img, cv2.bitwise_not(mask), frame)
+    if feather > 0:
+        # Inward feathering avoids expanding a person into the background.
+        distance=cv2.distanceTransform(mask,cv2.DIST_L2,3)
+        weight=np.minimum(distance/max(float(feather),.1),1).astype(np.float32)
+        frame[:]=cv2.blendLinear(frame,space_img,weight,1-weight)
+    else:
+        cv2.copyTo(space_img, cv2.bitwise_not(mask), frame)
     return frame
 
 
