@@ -1,9 +1,10 @@
 """Draw a lightsaber at the tracked pen point.
 
-The saber always has the same length and stays at the pen: the tip of the
-blade is the point that cuts the fruit (the pen tip). The hand holding the pen
-only decides the *direction* the saber points to -- never its length -- so a
-noisy hand detection cannot stretch or squash it. Against jitter the direction
+The saber stays at the pen: the tip of the blade is the point that cuts the
+fruit (the pen tip). The hand holding the pen decides the direction; the blade
+length settles slowly (5 % per frame) so that the hilt ends up on the hand and
+then stays practically constant -- jitter of the hand detection averages out
+instead of stretching or squashing the saber. Against jitter the direction
 is smoothed, a sudden large change is only taken over once it lasts a few
 frames, the tilt is limited to MAX_TILT from vertical (skin above the tip, e.g.
 the face, is never the hand), and without a hand the saber swings back to
@@ -102,9 +103,13 @@ class SaberTracker:
     """Saber direction frame by frame: towards the hand, steady, fixed length."""
 
     def __init__(self, smoothing=0.6, blade_length=None, hilt_length=None, radius=None,
-                 confirm_frames=4, jump_angle=45, keep_frames=4, return_rate=0.15):
+                 confirm_frames=4, jump_angle=45, keep_frames=4, return_rate=0.15,
+                 adapt_rate=0.05, min_blade=None, max_blade=None):
         self.smoothing = smoothing
-        self.blade_length = blade_length
+        self.blade_length = blade_length             # start value (config if None)
+        self.adapt_rate = adapt_rate                 # how fast the length follows the hand
+        self.min_blade = min_blade
+        self.max_blade = max_blade
         self.hilt_length = hilt_length
         self.radius = radius
         self.confirm_frames = confirm_frames         # frames a big change must last
@@ -115,6 +120,7 @@ class SaberTracker:
 
     def _reset(self):
         self.angle = 0.0                             # 0 = straight down, + = hilt to the right
+        self.length = None                           # current blade length (settles on the hand)
         self._pending = 0
         self._missing = 0
 
@@ -127,13 +133,27 @@ class SaberTracker:
         if dy <= 0:                                  # hand above the tip: not the hand
             return None
         angle = math.atan2(dx, dy)
-        return angle if abs(angle) <= MAX_TILT else None
+        return (angle, math.hypot(dx, dy)) if abs(angle) <= MAX_TILT else None
+
+    def _adapt_length(self, hand_dist, hilt):
+        """Let the blade grow/shrink slowly so the hilt centre ends up on the hand."""
+        s = config.SCALE
+        lo = self.min_blade if self.min_blade is not None else 60 * s
+        hi = self.max_blade if self.max_blade is not None else 320 * s
+        wanted = min(max(hand_dist - hilt / 2, lo), hi)
+        self.length += (wanted - self.length) * self.adapt_rate
 
     def update(self, tip, skin, face=None):
         if tip is None:
             self._reset()
             return None
-        target = self._target(tip, skin, face)
+        hilt = self.hilt_length if self.hilt_length is not None else \
+            config.SABER_HILT_LENGTH * config.SCALE
+        if self.length is None:
+            self.length = self.blade_length if self.blade_length is not None else \
+                config.SABER_LENGTH * config.SCALE
+        found = self._target(tip, skin, face)
+        target = found[0] if found is not None else None
         if target is None:
             self._pending = 0
             self._missing += 1
@@ -145,12 +165,14 @@ class SaberTracker:
                 self._pending += 1                   # big change: only if it lasts
                 if self._pending >= self.confirm_frames:
                     self.angle, self._pending = target, 0
+                    self._adapt_length(found[1], hilt)
             else:
                 self._pending = 0
                 k = self.smoothing
                 self.angle = k * self.angle + (1 - k) * target
+                self._adapt_length(found[1], hilt)   # only for accepted, not outlier frames
         direction = (math.sin(self.angle), math.cos(self.angle))
-        return saber_toward(tip, direction, self.blade_length, self.hilt_length)
+        return saber_toward(tip, direction, self.length, hilt)
 
 
 def _add_glow(frame, a, b, color, thickness, sigma):

@@ -121,13 +121,42 @@ def _tracker(**kw):
     return lightsaber.SaberTracker(**kw)
 
 
-def test_saber_always_has_the_same_length():
-    near = _tracker(smoothing=0.0).update(POINT, skin_with(((310, 210), 30)))
-    far = _tracker(smoothing=0.0).update(POINT, skin_with(((420, 360), 30)))
-    for s in (near, far):
-        assert s.tip == POINT                                      # stays at the pen
-        assert abs(math.dist(s.tip, s.hilt_top) - 120) < 2         # fixed blade
-        assert abs(math.dist(s.hilt_top, s.hilt_bottom) - 50) < 2  # fixed hilt
+def test_saber_stays_at_the_pen_and_changes_length_only_slowly():
+    t = _tracker(smoothing=0.0)
+    s = t.update(POINT, skin_with(((300, 420), 30)))               # hand far below
+    assert s.tip == POINT                                          # stays at the pen
+    assert abs(math.dist(s.tip, s.hilt_top) - 120) < 12            # barely changed in one frame
+    assert abs(math.dist(s.hilt_top, s.hilt_bottom) - 50) < 2      # hilt length fixed
+
+
+def test_hilt_settles_on_the_hand():
+    t = _tracker(smoothing=0.0)
+    hand = (300, 340)                                              # within SABER_HAND_RADIUS
+    for _ in range(120):                                           # ~4 s at 30 fps
+        s = t.update(POINT, skin_with((hand, 30)))
+    assert math.dist(_mid(s.hilt_top, s.hilt_bottom), hand) < 6
+
+
+def test_length_ignores_jitter_of_the_hand_detection():
+    t = _tracker(smoothing=0.0)
+    lengths = []
+    for i in range(150):
+        y = 360 + (25 if i % 2 else -25)                           # detection jumps +-25 px
+        s = t.update(POINT, skin_with(((300, y), 30)))
+        lengths.append(math.dist(s.tip, s.hilt_top))
+    late = lengths[100:]
+    assert max(late) - min(late) < 4                               # practically constant
+
+
+def test_blade_length_has_limits():
+    t = _tracker(smoothing=0.0, min_blade=80, max_blade=200)
+    for _ in range(200):
+        s = t.update(POINT, skin_with(((300, 175), 20)))           # hand right at the tip
+    assert math.dist(s.tip, s.hilt_top) >= 79
+    t = _tracker(smoothing=0.0, min_blade=80, max_blade=200, radius=500)
+    for _ in range(200):
+        s = t.update(POINT, skin_with(((300, 495), 25)))           # hand very far away
+    assert math.dist(s.tip, s.hilt_top) <= 201
 
 
 def test_saber_points_towards_the_hand():

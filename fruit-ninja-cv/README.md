@@ -73,7 +73,8 @@ eigene PNG mit Transparenz ersetzt werden). Abschalten: `SUIT_ENABLED = False` i
 `config.py`.
 
 ## Lichtschwert
-Am Stift erscheint ein **Lichtschwert** mit immer gleicher Länge: Die Spitze der Klinge ist
+Am Stift erscheint ein **Lichtschwert**. Seine Länge pendelt sich in den ersten Sekunden so
+ein, dass der Griff auf der Hand sitzt, und bleibt dann ruhig. Die Spitze der Klinge ist
 die Stiftspitze – der Punkt, der die Früchte schneidet (`PEN_POINT = "tip"`). Das Schwert
 zeigt in Richtung der Hand, die den Stift hält (über die Hautfarbe erkannt), ruhig
 geglättet und höchstens 75° geneigt. Ohne erkannte Hand schwenkt es langsam in die

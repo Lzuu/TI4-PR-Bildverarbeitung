@@ -246,7 +246,10 @@ Kamera ─► main (Loop, States, Input)
   2. Statisch senkrecht nach unten → ruhig, aber unrealistisch.
   3. Klinge von der Spitze bis zur erkannten Hand → Länge und Richtung sprangen mit
      jeder Ungenauigkeit der Handerkennung, im Live-Test verworfen.
-  4. Jetzt: **feste Länge, Spitze am Stift**; die Hand bestimmt nur die **Richtung**.
+  4. Jetzt: **Spitze am Stift**; die Hand bestimmt die **Richtung**, und die
+     Klingenlänge pendelt sich langsam (5 % pro Frame, nur in übernommenen Frames,
+     begrenzt) so ein, dass der Griff auf der Hand sitzt – danach praktisch konstant,
+     Zittern der Handerkennung mittelt sich heraus.
      Hand = die zur Spitze nächste ausreichend große Hautfläche (YCrCb,
      `suit.skin_mask`) innerhalb `SABER_HAND_RADIUS`, Gesicht ausgeschlossen, davon nur
      der Teil in Handgröße direkt am Stift. Gegen Zappeln: Richtung stark geglättet;
