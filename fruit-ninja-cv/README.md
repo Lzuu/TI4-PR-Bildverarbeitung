@@ -73,11 +73,11 @@ eigene PNG mit Transparenz ersetzt werden). Abschalten: `SUIT_ENABLED = False` i
 `config.py`.
 
 ## Lichtschwert
-Am Stift erscheint ein **Lichtschwert**: Die Spitze der Klinge ist die Stiftspitze –
-der Punkt, der die Früchte schneidet (`PEN_POINT = "tip"`). Der **Griff liegt auf der
-Hand**, die den Stift hält (über die Hautfarbe erkannt), und bewegt sich mit ihr; die
-Klinge kippt entsprechend. Ohne erkannte Hand hängt das Schwert senkrecht nach unten.
-Abschalten: `SABER_ENABLED = False`; Einstellungen: `SABER_LENGTH`,
+Am Stift erscheint ein **Lichtschwert** mit immer gleicher Länge: Die Spitze der Klinge ist
+die Stiftspitze – der Punkt, der die Früchte schneidet (`PEN_POINT = "tip"`). Das Schwert
+zeigt in Richtung der Hand, die den Stift hält (über die Hautfarbe erkannt), ruhig
+geglättet und höchstens 75° geneigt. Ohne erkannte Hand schwenkt es langsam in die
+Senkrechte. Abschalten: `SABER_ENABLED = False`; Einstellungen: `SABER_LENGTH`,
 `SABER_HILT_LENGTH`, `SABER_HAND_RADIUS` in `config.py`.
 
 ## Installation & Start
@@ -123,7 +123,7 @@ pytest
 | `tests/test_cameras.py` | Kamerasuche, Auswahl/Fallback, Wechsel, Speichern, Menü-Layout (ohne echte Kamera) |
 | `tests/test_highscore.py` | Top-3 je Schwierigkeit, Ranking, Spielername, alte Dateien, defekte Datei |
 | `tests/test_face_id.py` | Gesichtsdetektion, Wiedererkennung auf anderem Foto, Gast, Scan im Kreis, Einlernen, Startablauf |
-| `tests/test_lightsaber.py` | Spitze am Schnittpunkt, Handsuche (nächste Hautfläche, Gesicht ignoriert), Griff auf der Hand, Glättung, Aussetzer, dicker Strahl |
+| `tests/test_lightsaber.py` | Feste Länge, Spitze am Stift, Richtung zur Hand, Handsuche (Gesicht ignoriert), kein Springen bei Ausreißern, sanfte Rückkehr, dicker Strahl |
 | `tests/test_suit.py` | Spieler-Box/Schwerpunkt, Anzug folgt dem erhobenen Arm, Kopf/Hände/Stift bleiben frei, Stoff mit Falten und Rundung, Details am Gesicht, Overlay, Glättung, Sprite |
 | `tests/test_keyboard.py` | Bildschirmtastatur: Layout, Großschreibung, Löschen, Leerzeichen, Länge, echte Tastatur |
 

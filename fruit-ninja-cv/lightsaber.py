@@ -1,12 +1,13 @@
 """Draw a lightsaber at the tracked pen point.
 
-The tip of the blade is the point that cuts the fruit (the pen tip). The hilt
-sits on the hand holding the pen, so the blade runs from the tip to the hand
-and tilts with it. The hand is the nearest sizeable skin-coloured blob around
-the tip (the face is excluded). Its offset to the tip is smoothed, and a hand
-missed for a few frames keeps its last position; without a hand the saber
-hangs straight down from the tip. Drawing only -- the cutting still uses the
-pen point alone.
+The saber always has the same length and stays at the pen: the tip of the
+blade is the point that cuts the fruit (the pen tip). The hand holding the pen
+only decides the *direction* the saber points to -- never its length -- so a
+noisy hand detection cannot stretch or squash it. Against jitter the direction
+is smoothed, a sudden large change is only taken over once it lasts a few
+frames, the tilt is limited to MAX_TILT from vertical (skin above the tip, e.g.
+the face, is never the hand), and without a hand the saber swings back to
+vertical gradually. Drawing only -- the cutting still uses the pen point alone.
 """
 
 import math
@@ -81,57 +82,75 @@ def find_hand(skin, tip, radius, exclude=None, min_area=None, hand_size=None):
     return float(xs[part].mean()), float(ys[part].mean())
 
 
-def saber_to_hand(tip, hand, hilt_length=None, min_blade=None):
-    """Saber from ``tip`` to the hilt centred on ``hand`` (blade at least ``min_blade``)."""
+def saber_toward(tip, direction, blade_length=None, hilt_length=None):
+    """Saber of fixed length from ``tip`` along ``direction`` (unit vector, blade then hilt)."""
+    if blade_length is None:
+        blade_length = config.SABER_LENGTH * config.SCALE
     if hilt_length is None:
         hilt_length = config.SABER_HILT_LENGTH * config.SCALE
-    if min_blade is None:
-        min_blade = 40 * config.SCALE
-    dx, dy = hand[0] - tip[0], hand[1] - tip[1]
-    dist = math.hypot(dx, dy)
-    d = (dx / dist, dy / dist) if dist > 0 else (0.0, 1.0)
-    needed = min_blade + hilt_length / 2
-    if dist < needed:                        # hand right at the tip: keep a visible blade
-        hand = (tip[0] + d[0] * needed, tip[1] + d[1] * needed)
-    half = hilt_length / 2
+    dx, dy = direction
     as_int = lambda q: (int(round(q[0])), int(round(q[1])))
-    return Saber((int(tip[0]), int(tip[1])),
-                 as_int((hand[0] - d[0] * half, hand[1] - d[1] * half)),
-                 as_int((hand[0] + d[0] * half, hand[1] + d[1] * half)))
+    top = (tip[0] + dx * blade_length, tip[1] + dy * blade_length)
+    bottom = (top[0] + dx * hilt_length, top[1] + dy * hilt_length)
+    return Saber((int(tip[0]), int(tip[1])), as_int(top), as_int(bottom))
+
+
+MAX_TILT = math.radians(75)      # largest tilt from straight down
 
 
 class SaberTracker:
-    """Saber geometry frame by frame: tip at the pen point, hilt on the hand."""
+    """Saber direction frame by frame: towards the hand, steady, fixed length."""
 
-    def __init__(self, smoothing=0.5, hilt_length=None, keep_frames=5, radius=None):
+    def __init__(self, smoothing=0.6, blade_length=None, hilt_length=None, radius=None,
+                 confirm_frames=4, jump_angle=45, keep_frames=4, return_rate=0.15):
         self.smoothing = smoothing
+        self.blade_length = blade_length
         self.hilt_length = hilt_length
-        self.keep_frames = keep_frames
         self.radius = radius
-        self._offset = None          # hand position relative to the tip (smoothed)
+        self.confirm_frames = confirm_frames         # frames a big change must last
+        self.jump = math.radians(jump_angle)         # what counts as a big change
+        self.keep_frames = keep_frames               # hold the direction while the hand is missed
+        self.return_rate = return_rate               # then ease back to vertical per frame
+        self._reset()
+
+    def _reset(self):
+        self.angle = 0.0                             # 0 = straight down, + = hilt to the right
+        self._pending = 0
         self._missing = 0
+
+    def _target(self, tip, skin, face):
+        radius = self.radius if self.radius is not None else config.SABER_HAND_RADIUS * config.SCALE
+        hand = find_hand(skin, tip, radius, face)
+        if hand is None:
+            return None
+        dx, dy = hand[0] - tip[0], hand[1] - tip[1]
+        if dy <= 0:                                  # hand above the tip: not the hand
+            return None
+        angle = math.atan2(dx, dy)
+        return angle if abs(angle) <= MAX_TILT else None
 
     def update(self, tip, skin, face=None):
         if tip is None:
-            self._offset, self._missing = None, 0
+            self._reset()
             return None
-        radius = self.radius if self.radius is not None else config.SABER_HAND_RADIUS * config.SCALE
-        hand = find_hand(skin, tip, radius, face)
-        if hand is not None:
-            offset = (hand[0] - tip[0], hand[1] - tip[1])
-            if self._offset is not None:     # smooth the offset: moving pen and hand together
-                k = self.smoothing           # does not lag, only jitter is damped
-                offset = (k * self._offset[0] + (1 - k) * offset[0],
-                          k * self._offset[1] + (1 - k) * offset[1])
-            self._offset, self._missing = offset, 0
-        else:
+        target = self._target(tip, skin, face)
+        if target is None:
+            self._pending = 0
             self._missing += 1
-            if self._missing > self.keep_frames:
-                self._offset = None
-        if self._offset is None:
-            return saber_at(tip, hilt_length=self.hilt_length)
-        hand = (tip[0] + self._offset[0], tip[1] + self._offset[1])
-        return saber_to_hand(tip, hand, self.hilt_length)
+            if self._missing > self.keep_frames:     # no hand: swing back slowly
+                self.angle -= self.angle * self.return_rate
+        else:
+            self._missing = 0
+            if abs(target - self.angle) > self.jump:
+                self._pending += 1                   # big change: only if it lasts
+                if self._pending >= self.confirm_frames:
+                    self.angle, self._pending = target, 0
+            else:
+                self._pending = 0
+                k = self.smoothing
+                self.angle = k * self.angle + (1 - k) * target
+        direction = (math.sin(self.angle), math.cos(self.angle))
+        return saber_toward(tip, direction, self.blade_length, self.hilt_length)
 
 
 def _add_glow(frame, a, b, color, thickness, sigma):

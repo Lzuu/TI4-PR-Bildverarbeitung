@@ -101,56 +101,86 @@ def test_find_hand_ignores_the_face():
     assert math.dist(hand, (330, 300)) < 3
 
 
-def test_saber_runs_from_the_tip_to_the_hand():
-    hand = (380, 290)
-    s = lightsaber.saber_to_hand(POINT, hand, hilt_length=60)
-    assert s.tip == POINT
-    assert math.dist(_mid(s.hilt_top, s.hilt_bottom), hand) < 2   # hilt centred on the hand
-    assert math.dist(POINT, s.hilt_top) < math.dist(POINT, s.hilt_bottom)   # blade side up
-
-
-def test_saber_keeps_a_minimum_blade_when_the_hand_is_very_close():
-    s = lightsaber.saber_to_hand(POINT, (300, 160), hilt_length=60, min_blade=50)
-    assert math.dist(s.tip, s.hilt_top) >= 49
-
-
-def test_tracker_follows_the_hand_smoothly():
-    t = lightsaber.SaberTracker(smoothing=0.5, hilt_length=60)
-    t.update(POINT, skin_with(((300, 300), 30)))
-    s = t.update(POINT, skin_with(((340, 300), 30)))               # hand moved 40 px
-    hx, _ = _mid(s.hilt_top, s.hilt_bottom)
-    assert 310 < hx < 330                                          # halfway, no jump
-
-
-def test_tracker_keeps_the_hand_through_a_short_dropout():
-    t = lightsaber.SaberTracker(smoothing=0.0, hilt_length=60, keep_frames=3)
-    t.update(POINT, skin_with(((380, 290), 30)))
-    s = t.update(POINT, np.zeros((500, 600), np.uint8))            # hand missed for one frame
-    assert math.dist(_mid(s.hilt_top, s.hilt_bottom), (380, 290)) < 2
-
-
-def test_tracker_falls_back_to_hanging_straight_down_without_a_hand():
-    t = lightsaber.SaberTracker(smoothing=0.0, hilt_length=60, keep_frames=2)
-    t.update(POINT, skin_with(((380, 290), 30)))
-    for _ in range(3):
-        s = t.update(POINT, np.zeros((500, 600), np.uint8))
-    assert s.hilt_top[0] == POINT[0] and s.hilt_top[1] > POINT[1]  # vertical again
-    assert t.update(None, None) is None                            # no pen, no saber
-
-
-def test_draw_tilted_saber_hilt_on_the_hand():
-    frame = np.full((500, 600, 3), 200, np.uint8)
-    s = lightsaber.saber_to_hand(POINT, (420, 330), hilt_length=70)
-    lightsaber.draw_saber(frame, s, (255, 0, 0))
-    hx, hy = _mid(s.hilt_top, s.hilt_bottom)
-    assert frame[int(hy), int(hx)].mean() < 120                    # dark hilt at the hand
-    bx, by = _mid(s.tip, s.hilt_top)
-    assert frame[int(by), int(bx)].min() > 200                     # bright blade towards the tip
-
-
 def test_hand_merged_with_a_big_skin_area_uses_the_part_next_to_the_pen():
     """Hand touching a bare arm or a skin-coloured object: not the centre of it all."""
     skin = skin_with(((330, 260), 30))
     cv2.rectangle(skin, (250, 280), (560, 480), 255, -1)           # large skin area attached below
     hand = lightsaber.find_hand(skin, POINT, radius=400)
     assert math.dist(hand, (330, 260)) < 45                        # near the hand, not ~(400, 380)
+
+
+def _angle_deg(s):
+    """Saber tilt in degrees: 0 = straight down, positive = hilt to the right."""
+    dx, dy = s.hilt_top[0] - s.tip[0], s.hilt_top[1] - s.tip[1]
+    return math.degrees(math.atan2(dx, dy))
+
+
+def _tracker(**kw):
+    kw.setdefault("blade_length", 120)
+    kw.setdefault("hilt_length", 50)
+    return lightsaber.SaberTracker(**kw)
+
+
+def test_saber_always_has_the_same_length():
+    near = _tracker(smoothing=0.0).update(POINT, skin_with(((310, 210), 30)))
+    far = _tracker(smoothing=0.0).update(POINT, skin_with(((420, 360), 30)))
+    for s in (near, far):
+        assert s.tip == POINT                                      # stays at the pen
+        assert abs(math.dist(s.tip, s.hilt_top) - 120) < 2         # fixed blade
+        assert abs(math.dist(s.hilt_top, s.hilt_bottom) - 50) < 2  # fixed hilt
+
+
+def test_saber_points_towards_the_hand():
+    s = _tracker(smoothing=0.0).update(POINT, skin_with(((380, 290), 30)))
+    expected = math.degrees(math.atan2(380 - 300, 290 - 150))
+    assert abs(_angle_deg(s) - expected) < 3
+
+
+def test_skin_above_the_tip_is_not_taken_as_the_hand():
+    s = _tracker(smoothing=0.0).update(POINT, skin_with(((300, 60), 35)))
+    assert abs(_angle_deg(s)) < 1                                  # still hanging straight down
+
+
+def test_direction_is_smoothed():
+    t = _tracker(smoothing=0.5)
+    s = t.update(POINT, skin_with(((300 + 81, 150 + 140), 30)))    # hand at about 30 deg
+    assert 10 < _angle_deg(s) < 20                                 # only halfway at first
+
+
+def test_a_single_wrong_frame_does_not_make_it_jump():
+    t = _tracker(smoothing=0.0, confirm_frames=3)
+    t.update(POINT, skin_with(((300, 300), 30)))                   # straight down
+    s = t.update(POINT, skin_with(((420, 220), 30)))               # sudden ~60 deg, one frame
+    assert abs(_angle_deg(s)) < 1
+
+
+def test_a_lasting_change_is_taken_over():
+    t = _tracker(smoothing=0.0, confirm_frames=3)
+    t.update(POINT, skin_with(((300, 300), 30)))
+    for _ in range(3):
+        s = t.update(POINT, skin_with(((420, 220), 30)))
+    assert _angle_deg(s) > 50
+
+
+def test_without_a_hand_it_swings_back_slowly_not_at_once():
+    t = _tracker(smoothing=0.0, keep_frames=0)
+    t.update(POINT, skin_with(((380, 290), 30)))                   # ~30 deg
+    s = t.update(POINT, np.zeros((500, 600), np.uint8))            # hand gone
+    assert 5 < _angle_deg(s) < 30                                  # on its way back, no jump
+    for _ in range(40):
+        s = t.update(POINT, np.zeros((500, 600), np.uint8))
+    assert abs(_angle_deg(s)) < 2                                  # vertical in the end
+
+
+def test_no_pen_no_saber():
+    assert _tracker().update(None, None) is None
+
+
+def test_draw_tilted_saber():
+    frame = np.full((500, 600, 3), 200, np.uint8)
+    s = lightsaber.saber_toward(POINT, (0.5, math.sqrt(0.75)), blade_length=150, hilt_length=60)
+    lightsaber.draw_saber(frame, s, (255, 0, 0))
+    hx, hy = _mid(s.hilt_top, s.hilt_bottom)
+    assert frame[int(hy), int(hx)].mean() < 120                    # dark hilt
+    bx, by = _mid(s.tip, s.hilt_top)
+    assert frame[int(by), int(bx)].min() > 200                     # bright blade

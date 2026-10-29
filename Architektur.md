@@ -34,7 +34,7 @@ Kamera ─► main (Loop, States, Input)
 | `game.py` | Spielzustand: Spawning (Bursts), Kollision, Punkte, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve, Verlauf+Glanz) für die Leben |
 | `background.py` | Spieler freistellen (Referenz-Differenz) und vor das Weltall setzen |
-| `lightsaber.py` | Lichtschwert: Spitze am Stiftpunkt, Griff auf der erkannten Hand |
+| `lightsaber.py` | Lichtschwert fester Länge: Spitze am Stiftpunkt, Richtung zur erkannten Hand |
 | `suit.py` | Raumanzug: Silhouette wird zu Anzugstoff (folgt den Armen), Kopf/Hände/Stift frei, Details am Gesicht |
 | `cameras.py` | Kameras finden (Indizes durchprobieren), öffnen (1080p MJPG, unter Windows MSMF), wechseln, Auswahl in `settings.json` merken |
 | `highscore.py` | Top-3-Highscore **je Schwierigkeit** mit Spielername (JSON-Persistenz) |
@@ -244,16 +244,15 @@ Kamera ─► main (Loop, States, Input)
   1. Erste Fassung: Richtung aus der Form der Farbmaske (`fitLine`), Griff über dem
      Stift → im Live-Test unruhig, verworfen.
   2. Statisch senkrecht nach unten → ruhig, aber unrealistisch.
-  3. Jetzt: Richtung nur aus Stiftspitze und **Hand**. Hand = die zur Spitze nächste
-     ausreichend große Hautfläche (YCrCb, `suit.skin_mask`) innerhalb
-     `SABER_HAND_RADIUS`; Flächen um das erkannte Gesicht werden ignoriert. Vom
-     gefundenen Hautbereich zählt nur der Teil in Handgröße direkt am Stift – sonst
-     würde eine Hand, die einen nackten Unterarm oder einen hautfarbenen Gegenstand
-     berührt, in deren Mitte rutschen. Geglättet wird der **Versatz Hand–Spitze**,
-     nicht die absolute Position: Bewegen sich Stift und Hand zusammen, folgt das
-     Schwert ohne Verzögerung, nur das Zittern der Erkennung wird gedämpft. Kurze
-     Aussetzer (≤ 5 Frames) behalten die letzte Hand, danach hängt das Schwert wieder
-     senkrecht. Mindest-Klingenlänge, wenn die Hand direkt an der Spitze ist.
+  3. Klinge von der Spitze bis zur erkannten Hand → Länge und Richtung sprangen mit
+     jeder Ungenauigkeit der Handerkennung, im Live-Test verworfen.
+  4. Jetzt: **feste Länge, Spitze am Stift**; die Hand bestimmt nur die **Richtung**.
+     Hand = die zur Spitze nächste ausreichend große Hautfläche (YCrCb,
+     `suit.skin_mask`) innerhalb `SABER_HAND_RADIUS`, Gesicht ausgeschlossen, davon nur
+     der Teil in Handgröße direkt am Stift. Gegen Zappeln: Richtung stark geglättet;
+     ein Sprung > 45° wird erst übernommen, wenn er 4 Frames anhält; Neigung höchstens
+     75° aus der Senkrechten (Haut oberhalb der Spitze zählt nie); ohne Hand erst kurz
+     halten, dann langsam in die Senkrechte zurückschwenken.
   Kosten: Handsuche ~5 ms (Abstände nur für Hautpixel statt für das ganze Fenster);
   Hautmaske und Gesichtserkennung werden pro Frame nur einmal berechnet und mit dem
   Raumanzug geteilt. Dicker Strahl (weißer Kern + zwei additive Leucht-Schichten).
