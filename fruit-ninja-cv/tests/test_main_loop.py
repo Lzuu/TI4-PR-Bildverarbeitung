@@ -78,3 +78,60 @@ def test_returning_to_yolo_does_not_reuse_an_old_mask(monkeypatch, tmp_path):
     run_loop(monkeypatch, tmp_path, FakeCamera([green_frame()]), 8, on_frame=click_mode,
              BG_MODE="yolo", YOLO_ENABLED=True)
     assert net.calls == 2                                  # once before, once after returning
+
+
+# -- CR-04: menu clicks keep UI and tracker consistent -----------------------
+from colors import COLORS, GRUEN, PINK
+
+
+def _record_tracker_colors(monkeypatch):
+    colors = []
+    original = m.MarkerTracker.set_color
+
+    def recording(self, pen):
+        colors.append(pen)
+        return original(self, pen)
+    monkeypatch.setattr(m.MarkerTracker, "set_color", recording)
+    return colors
+
+
+def _click(mouse, rect_or_circle):
+    if len(rect_or_circle) == 4:
+        x, y, w, h = rect_or_circle
+        mouse(cv2.EVENT_LBUTTONDOWN, x + 5, y + 5, 0, None)
+    else:
+        cx, cy, r = rect_or_circle
+        mouse(cv2.EVENT_LBUTTONDOWN, cx, cy, 0, None)
+
+
+def test_green_cannot_be_picked_in_greenscreen_mode(monkeypatch, tmp_path):
+    colors = _record_tracker_colors(monkeypatch)
+    W, H = m.config.WIDTH, m.config.HEIGHT
+    green = m.color_swatches(W, H)[COLORS.index(GRUEN)]
+
+    def clicks(n, mouse):
+        if n == 1:
+            _click(mouse, m.settings_button(W, H))       # open the colour panel
+        elif n == 2:
+            _click(mouse, green)                         # try green
+    run_loop(monkeypatch, tmp_path, FakeCamera([green_frame()]), 4, on_frame=clicks,
+             BG_MODE="greenscreen")
+    assert GRUEN not in colors and colors[-1] is PINK
+
+
+def test_switching_to_greenscreen_with_a_green_pen_falls_back_to_pink(monkeypatch, tmp_path):
+    colors = _record_tracker_colors(monkeypatch)
+    W, H = m.config.WIDTH, m.config.HEIGHT
+    green = m.color_swatches(W, H)[COLORS.index(GRUEN)]
+
+    def clicks(n, mouse):
+        if n == 1:
+            _click(mouse, m.settings_button(W, H))
+        elif n == 2:
+            _click(mouse, green)                         # allowed in normal mode
+        elif 3 <= n <= 5:                                # normal -> yolo -> off -> greenscreen
+            _click(mouse, m.background_button(W, H))
+    run_loop(monkeypatch, tmp_path, FakeCamera([green_frame()]), 8, on_frame=clicks,
+             BG_MODE="normal")
+    assert GRUEN in colors                               # green was picked first
+    assert colors[-1] is PINK                            # and replaced for greenscreen

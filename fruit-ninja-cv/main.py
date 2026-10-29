@@ -39,7 +39,7 @@ from game import Game
 from utils import draw_text
 from logging_config import setup_logging
 from difficulty import LEVELS
-from colors import COLORS
+from colors import COLORS, DEFAULT as DEFAULT_PEN, GRUEN
 from dwell import DwellTracker
 from sound import SoundPlayer
 import cameras
@@ -147,6 +147,19 @@ def settings_button(w, h):
 def background_button(w, h):
     """Bottom-left button stacked above 'Stiftfarbe'; cycles the background mode."""
     return (_s(20), h - _s(70) - _s(58), _s(260), _s(48))
+
+
+def pen_allowed(pen, bg_mode):
+    """A green pen cannot be told apart from a green screen (#41, CR-04)."""
+    return not (bg_mode == background.MODE_GREENSCREEN and pen is GRUEN)
+
+
+def pen_for_mode(pen, bg_mode):
+    """The pen colour to use in ``bg_mode``: ``pen`` if allowed, else the default."""
+    return pen if pen_allowed(pen, bg_mode) else DEFAULT_PEN
+
+
+PEN_HINT = "Gruener Stift geht nicht mit Greenscreen"
 
 
 def handle_background_click(click, mode, w, h):
@@ -270,7 +283,7 @@ def _draw_settings_button(frame, rect, pen_color, is_open):
 
 
 def draw_menu(frame, start_t, quit_t, sbtn, swatches, pen_color, settings_open,
-              active, progress, point, player_t=None, player=None):
+              active, progress, point, player_t=None, player=None, blocked=()):
     _dim(frame)
     h, w = frame.shape[:2]
     draw_text(frame, "FRUIT NINJA CV", (w // 2, int(h * 0.16)), scale=1.4,
@@ -298,6 +311,10 @@ def draw_menu(frame, start_t, quit_t, sbtn, swatches, pen_color, settings_open,
                            max(1, _s(2)), cv2.LINE_AA)
             draw_text(frame, COLORS[i].name, (cx, cy + r + _s(28)), scale=0.7,
                       color=COLORS[i].display, center=True)
+            if COLORS[i] in blocked:             # e.g. green while greenscreen is on
+                d = int(r * 0.8)
+                cv2.line(frame, (cx - d, cy - d), (cx + d, cy + d), (60, 60, 60), max(2, _s(5)))
+                cv2.line(frame, (cx - d, cy + d), (cx + d, cy - d), (60, 60, 60), max(2, _s(5)))
     if not _draw_pen_marker(frame, point) and not settings_open:
         draw_text(frame, "Stift nicht erkannt", (w // 2, int(h * 0.74)),
                   scale=0.6, color=(80, 80, 255), center=True)
@@ -481,6 +498,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     difficulty = None
     pen_color = COLORS[0]            # Pink by default -- only this colour is tracked
     tracker.set_color(pen_color)
+    hint_text, hint_until = None, 0.0  # short on-screen notice (e.g. pen/mode conflict)
     scores, rank = [], None
     player = face_id.GUEST
     faces_dir = os.path.join(face_id.BASE_DIR, config.FACES_DIR)
@@ -615,6 +633,12 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                 if new_mode != bg_mode:          # click cycled the background mode
                     bg_mode = new_mode
                     mode_session += 1
+                    if not pen_allowed(pen_color, bg_mode):
+                        pen_color = pen_for_mode(pen_color, bg_mode)
+                        tracker.set_color(pen_color)
+                        logger.info("Pen colour switched to %s (not usable with %s)",
+                                    pen_color.name, bg_mode)
+                        hint_text, hint_until = PEN_HINT, time.time() + 3.0
                     cameras.save_background_mode(config.SETTINGS_FILE, bg_mode)
                     logger.info("Background mode set to %s (mouse)", bg_mode)
                     settings_open = False
@@ -629,6 +653,11 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                     picked = False
                     for i, sw_t in enumerate(swatches):
                         if _hit(click[0], sw_t):
+                            if not pen_allowed(COLORS[i], bg_mode):
+                                logger.info("Pen colour %s refused in %s mode",
+                                            COLORS[i].name, bg_mode)
+                                hint_text, hint_until = PEN_HINT, time.time() + 3.0
+                                break
                             pen_color = COLORS[i]
                             tracker.set_color(pen_color)
                             logger.info("Pen colour set to %s (mouse)", pen_color.name)
@@ -645,7 +674,11 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                 active, progress, confirmed = dwell.update(point, targets)
             draw_menu(frame, start_t, quit_t, sbtn, swatches, pen_color,
                       settings_open, active, progress, point, player_t,
-                      player if identifier else None)
+                      player if identifier else None,
+                      blocked=[c for c in COLORS if not pen_allowed(c, bg_mode)])
+            if hint_text and time.time() < hint_until:
+                draw_text(frame, hint_text, (config.WIDTH // 2, int(config.HEIGHT * 0.68)),
+                          scale=0.6, color=(80, 80, 255), center=True)
             if not settings_open and not camera_open:
                 _draw_background_button(frame, background_button(config.WIDTH, config.HEIGHT),
                                         bg_mode)
