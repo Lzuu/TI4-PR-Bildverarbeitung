@@ -33,6 +33,9 @@ import background
 import suit
 import lightsaber
 import yolo_seg
+import pose_tracking
+from suit_rig import SuitRenderer
+from frame_metrics import FrameMetrics
 from marker_tracker import MarkerTracker
 from blade import Blade
 from game import Game
@@ -572,7 +575,9 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     # capture would bake their silhouette into the background. They press 'b'
     # (then step out during the countdown) to grab a clean empty background.
     space_img = background.load_space((config.WIDTH, config.HEIGHT))
-    suit_smoother = suit.RectSmoother()
+    suit_renderer = SuitRenderer() if config.SUIT_ENABLED else None
+    pose_tracker = pose_tracking.create_tracker() if config.SUIT_ENABLED else None
+    metrics = FrameMetrics(config.SUIT_DIAGNOSTICS)
     saber = lightsaber.SaberTracker()
     reference = None
     reference_camera = None          # camera the reference was taken with
@@ -587,7 +592,9 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     mode_session = 0                 # +1 on every background mode change (YOLO cache source)
 
     while True:
-        ok, frame = cap.read()
+        frame_started = time.perf_counter()
+        with metrics.measure('capture'):
+            ok, frame = cap.read()
         if not ok:
             frame_failures += 1
             if frame_failures >= config.MAX_FRAME_FAILURES:
@@ -606,10 +613,17 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
         clean = frame.copy()
         # perception first: one pen measurement per frame, used by suit, game and
         # drawing alike -- no stale mask from the previous frame (#41, CR-06)
-        point = tracker.track(clean)
+        with metrics.measure('marker'):
+            point = tracker.track(clean)
         pen_mask = tracker.last_mask
 
-        face_box = None              # face found this frame (shared by suit and saber)
+        # Share a full scan with the renderer instead of running YuNet twice.
+        face_scan_result = None
+        if state == STATE_FACE_SCAN and identifier is not None:
+            with metrics.measure('identity'):
+                face_scan_result = identifier.scan(clean)
+        face_box = face_scan_result[2] if face_scan_result is not None else None
+        face_detection_done = face_scan_result is not None
         # --- space background: capture the reference, then cut the player out ---
         if bg_capture_at is not None and time.monotonic() >= bg_capture_at:
             reference = clean.copy()
@@ -622,24 +636,39 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
         if config.BG_ENABLED and space_img is not None and bg_mode != background.MODE_OFF:
             mask = None
             if bg_mode == background.MODE_GREENSCREEN:
-                mask = background.greenscreen_mask(clean, scale=config.GREEN_SCALE)
+                with metrics.measure('segmentation_green'):
+                    mask = background.greenscreen_mask(clean, scale=config.GREEN_SCALE)
             elif bg_mode == background.MODE_YOLO and segmenter is not None:
                 # person mask, no green screen needed; the cache is bound to the
                 # current camera and mode session (#41, CR-10)
-                mask = segmenter.segment(clean, source=(cap.index, mode_session))
+                with metrics.measure('segmentation_yolo'):
+                    mask = segmenter.segment(clean, source=(cap.index, mode_session))
                 if segmenter.failed:
                     segmenter = None                 # off for good, other modes keep working
             elif bg_mode == background.MODE_NORMAL and reference is not None:
-                mask = background.foreground_mask(clean, reference)
+                with metrics.measure('segmentation_reference'):
+                    mask = background.foreground_mask(clean, reference)
             if mask is not None:
-                frame = background.composite_space(frame, mask, space_img)
+                with metrics.measure('composite'):
+                    frame = background.composite_space(frame, mask, space_img,
+                                                         feather=1.5 if config.SUIT_ENABLED else 0.)
+                if pen_mask is not None:
+                    cv2.copyTo(clean, pen_mask, frame)
                 if config.SUIT_ENABLED:
                     # place the helmet at the face (if one is seen) -- detection only, ~3 ms
-                    face_box = (identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
-                                if identifier is not None else None)
-                    # the whole body becomes the suit; only the pen stays visible
-                    frame = suit.dress(frame, mask, face_box, pen_mask,
-                                       time.monotonic(), suit_smoother)
+                    with metrics.measure('face'):
+                        if not face_detection_done and identifier is not None:
+                            face_box = identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
+                            face_detection_done = True
+                    now = time.monotonic()
+                    with metrics.measure('pose'):
+                        body_pose = pose_tracker.update(clean, mask, now=now,
+                                                        source=(cap.index, mode_session))
+                    with metrics.measure('suit'):
+                        frame = suit.dress(frame, mask, face_box, pen_mask, now,
+                                           original=clean, pose=body_pose,
+                                           renderer=suit_renderer,
+                                           source=(cap.index, mode_session))
 
         quit_requested = False
 
@@ -746,7 +775,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                                                   config.WIDTH, config.HEIGHT)
                 click[0] = None
                 scanner.reset()          # restart the scan with the (new) camera
-            name, score, box, crop = identifier.scan(clean)
+            name, score, box, crop = face_scan_result
             inside = face_id.face_in_circle(box, circle) and not camera_open
             g_active, g_progress, g_confirmed = dwell.update(point, [guest_t])
             if camera_open:
@@ -882,13 +911,15 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
         if config.SABER_ENABLED:
             # tip = pen point (the only thing that cuts), hilt on the hand (skin colour);
             # the face is excluded so it is never taken for the hand
-            if face_box is None and identifier is not None and point is not None:
+            if not face_detection_done and identifier is not None and point is not None:
                 face_box = identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
             skin = lightsaber.skin_mask(clean) if point is not None else None
             lightsaber.draw_saber(frame, saber.update(point, skin, face_box), pen_color.display)
 
-        cv2.imshow(config.WINDOW_NAME, frame)
-        key = cv2.waitKey(1) & 0xFF
+        with metrics.measure('display'):
+            cv2.imshow(config.WINDOW_NAME, frame)
+            key = cv2.waitKey(1) & 0xFF
+        metrics.finish(frame_started)
 
         if state == STATE_NAME_ENTRY and keyboard.from_keycode(key) is not None:
             typed_key = keyboard.from_keycode(key)   # letters type here instead of q/d
@@ -907,4 +938,10 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--suit-diagnostics', action='store_true',
+                        help='Log aggregate live processing times every five seconds')
+    arguments = parser.parse_args()
+    config.SUIT_DIAGNOSTICS = config.SUIT_DIAGNOSTICS or arguments.suit_diagnostics
     main()

@@ -1,0 +1,45 @@
+{
+  "opencv": "4.13.0",
+  "numpy": "2.5.4",
+  "image_size": [
+    480,
+    600
+  ],
+  "camera": false,
+  "display": false,
+  "limitations": "Static public portrait; short headless series, no live FPS or thermal endurance test.",
+  "measurements": [
+    {
+      "stage": "cadenced_pipeline_public_portrait",
+      "iterations": 24,
+      "median_ms": 35.514,
+      "p95_ms": 67.643,
+      "mean_ms": 42.811,
+      "opencv_threads": 16
+    },
+    {
+      "stage": "cadenced_pipeline_public_portrait",
+      "iterations": 24,
+      "median_ms": 34.498,
+      "p95_ms": 135.592,
+      "mean_ms": 60.527,
+      "opencv_threads": 4
+    },
+    {
+      "stage": "cadenced_pipeline_public_portrait",
+      "iterations": 24,
+      "median_ms": 71.013,
+      "p95_ms": 155.979,
+      "mean_ms": 93.234,
+      "opencv_threads": 2
+    },
+    {
+      "stage": "cadenced_pipeline_public_portrait",
+      "iterations": 24,
+      "median_ms": 86.893,
+      "p95_ms": 208.157,
+      "mean_ms": 94.075,
+      "opencv_threads": 1
+    }
+  ]
+}

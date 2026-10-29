@@ -18,6 +18,15 @@ def _solid(bgr):
     return np.full((H, W, 3), bgr, np.uint8)
 
 
+def test_feathered_space_composite_softens_only_inside_the_person_boundary():
+    frame=_solid((160,170,180));space=_solid((20,30,40))
+    mask=np.zeros((H,W),np.uint8);mask[20:100,30:130]=255
+    out=composite_space(frame,mask,space,feather=2.)
+    assert np.array_equal(out[10,10],space[10,10])
+    assert np.array_equal(out[60,80],(160,170,180))
+    assert 20<out[20,80,0]<160
+
+
 def test_identical_frames_give_empty_mask():
     ref = _solid((100, 100, 100))
     mask = foreground_mask(ref, ref.copy(), threshold=25)

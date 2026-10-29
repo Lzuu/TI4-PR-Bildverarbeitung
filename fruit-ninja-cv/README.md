@@ -61,18 +61,39 @@ ein Klick auf ein Bild wechselt die Kamera. Die Wahl wird in `settings.json`
 gespeichert und beim nächsten Start wieder verwendet. Die Kameras werden einmal
 beim Start gesucht (ca. 1 s je Kamera).
 
-## Raumanzug
-Ist der Weltraum-Hintergrund aktiv (ein Hintergrund-Modus außer „Aus"), wird der
-freigestellte Spieler zum **animierten Astronauten** – der **ganze Körper** wird
-Anzug, nicht nur die Kleidung:
-- Die komplette Silhouette (Rumpf, **Arme bis zu den Handschuhen**) wird zu weißem,
-  deckendem Anzugstoff, der sich mit dem Körper bewegt; zur Silhouettenkante hin
-  dunkler (runde, „schlauchartige" Gliedmaßen).
-- Über dem Kopf sitzt ein **Helm** mit metallischer Schale und dunklem **Visier**,
-  über das ein **Glanz-Reflex wandert**; oben blinkt ein kleines Antennenlicht.
-- Auf der Brust ein **Steuerpanel mit blinkenden LEDs**.
-- Nur der **Stift** bleibt sichtbar (Controller). Rein prozedural (keine Bilddatei),
-  die Animation läuft über die Zeit. Abschalten: `SUIT_ENABLED = False` in `config.py`.
+## Raumanzug mit echtem Gesicht
+
+Der Spieler trägt einen weißen EVA-Anzug mit texturiertem Rumpf, Halsring,
+Brustmodul und getrennten Arm-/Beinsegmenten, Handschuhen und Stiefeln. Lokale
+Pose-Erkennung richtet die einzelnen Teile an Schultern, Ellbogen, Handgelenken,
+Hüfte, Knien und Füßen aus. Das echte Kameragesicht bleibt durch ein nahezu klares,
+leicht reflektierendes Visier sichtbar. Kopf, Körper und Stift werden aus dem
+unveränderten aktuellen Kamerabild erkannt. Die bisherigen Hintergrundmodi,
+Menüs und das Lichtschwert bleiben erhalten.
+
+Vor dem ersten Start (einmalige Modellvorbereitung):
+
+```bash
+python -m pip install -r requirements.txt
+python tools/prepare_suit.py --all-models
+python main.py --suit-diagnostics
+```
+
+Im Menü `Hintergrund: YOLO` für Freistellung ohne Greenscreen wählen.
+`Normal` benötigt weiterhin mit Taste `b` eine leere Hintergrundreferenz;
+`Greenscreen` nutzt die grüne Wand. Bei `Aus` gibt es wie bisher keinen Anzug.
+Ein möglichst frontal sichtbarer Oberkörper und gute Beleuchtung helfen der Pose.
+
+Die acht PNG-Teile werden ausschließlich lokal geladen. Zusätzlich zu YuNet/SFace
+und YOLO kommen zwei OpenCV-Zoo-ONNX-Dateien (zusammen ca. 17,55 MB) hinzu;
+Python braucht weiterhin nur OpenCV + NumPy. Geprüfte Laufzeit: OpenCV 4.13.
+Die Assets und ihre [Generierung/Anker](suit_assets/README.md) sind eingecheckt;
+keine API-Schlüssel oder Bildgenerierung beim Spielen.
+
+Grenzen: perspektivisch bewegtes 2,5D-Rig, keine vollständige 3D-Stoffsimulation.
+Verdeckte Teile werden ausgeblendet, ein längerer Trackingverlust zeigt das
+Original. Live-Abnahme mit echten schnellen Bewegungen bleibt erforderlich.
+[Technik, Vorschauen, Messwerte und Prüfliste](../docs/astronaut-suit.md).
 
 **Hintergrund-Modi** (Button „Hintergrund" im Menü, links über „Stiftfarbe"):
 `Greenscreen` (Chroma-Key), `Normal` (Referenz per Taste `b`), **`YOLO`** und `Aus`.

@@ -1,20 +1,8 @@
-"""Space suit: turn the whole cut-out player into an animated space suit.
+"""EVA suit compatibility helpers and inexpensive cloth underlay.
 
-Unlike the first version (only the torso became fabric, head and hands stayed
-free), the *entire* silhouette is dressed: body, arms and hands become suit
-fabric (the hands read as gloves), the head gets a rendered **helmet** with a
-dark visor, and small details are **animated** over time. Only the pen stays
-visible (it is the controller). Per frame, on top of the space background:
-
-  player mask (background.py / yolo_seg.py)
-  -> full-body region (silhouette minus the pen)
-  -> fabric: cool white, darker towards the edge (rounded, tube-like limbs),
-     keeping a little of the real clothes' folds
-  -> animated helmet over the head (shell + visor with a moving sheen, blinking
-     antenna light) and an animated chest panel (blinking LEDs)
-
-Classical image processing only (masks, distance transform, blur, draw) -- no
-pose network. ``phase`` (seconds) drives the animation.
+The live articulated renderer lives in suit_rig.py; pose_tracking.py supplies
+measured joints. Camera-face pixels remain visible through its clear visor.
+The pure placement/cloth helpers remain available for tests and limited fallback.
 """
 
 import logging
@@ -31,7 +19,7 @@ FOLD_STRENGTH = 0.3              # how much of the real clothes' folds shows (op
 FOLD_LIMIT = 30                  # strong patterns (stripes, prints) are capped
 
 EDGE_COLOR = (90, 90, 95)        # silhouette outline
-FABRIC_COOL = 0.96               # red factor -> slightly cool white fabric
+FABRIC_COOL = 0.96               # retained legacy palette constant
 
 
 # --------------------------------------------------------------------------- #
@@ -123,10 +111,10 @@ def paint_fabric(frame, region):
     gray = _half(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)).astype(np.float32)
     detail = np.clip(gray - cv2.GaussianBlur(gray, (0, 0), 6), -FOLD_LIMIT, FOLD_LIMIT)
     dist = cv2.distanceTransform(small_region, cv2.DIST_L2, 3)
-    shade = _SHADE_LUT[np.minimum(dist * 2, 255).astype(np.uint8)]   # dist in full-res px
+    shade = _SHADE_LUT[(np.minimum(dist, 127.5) * 2).astype(np.uint8)]
     value = np.clip(cv2.scaleAdd(detail, FOLD_STRENGTH, shade), 0, 255)
     v = value.astype(np.uint8)
-    small_fabric = cv2.merge([v, v, cv2.multiply(v, FABRIC_COOL)])    # slightly cool white
+    small_fabric = cv2.merge([cv2.multiply(v, .94), cv2.multiply(v, .97), v])    # slightly cool white
     fabric = _full(small_fabric, roi.shape)
     cv2.copyTo(fabric, roi_region, roi)
     contours, _ = cv2.findContours(small_region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -137,55 +125,14 @@ def paint_fabric(frame, region):
 # --------------------------------------------------------------------------- #
 # Animated helmet
 # --------------------------------------------------------------------------- #
-def _draw_visor(frame, center, axes, phase):
-    """Dark glass visor with a vertical gradient and a horizontally sweeping sheen."""
-    cx, cy = center
-    ax, ay = axes
-    x0, y0 = max(cx - ax, 0), max(cy - ay, 0)
-    x1, y1 = min(cx + ax, frame.shape[1]), min(cy + ay, frame.shape[0])
-    if x1 <= x0 or y1 <= y0:
-        return
-    roi = frame[y0:y1, x0:x1]
-    h, w = roi.shape[:2]
-    vis = np.zeros((h, w), np.uint8)
-    cv2.ellipse(vis, (cx - x0, cy - y0), (ax, ay), 0, 0, 360, 255, -1, cv2.LINE_AA)
-
-    grad = np.linspace(58, 14, h, dtype=np.float32)[:, None]     # lighter at the top
-    glass = np.empty((h, w, 3), np.float32)
-    glass[..., 0] = grad * 1.7            # B (bluish dark glass)
-    glass[..., 1] = grad * 1.1            # G
-    glass[..., 2] = grad * 0.7            # R
-    xs = np.arange(w, dtype=np.float32)[None, :]
-    ys = np.arange(h, dtype=np.float32)[:, None]
-    band = (xs - ys * 0.5) / max(w, 1)
-    pos = np.sin(phase * 1.6) * 0.5 + 0.5                        # sweeps 0..1 over time
-    glass += np.exp(-((band - pos) ** 2) / (2 * 0.02 ** 2))[..., None] * 130.0
-    cv2.copyTo(np.clip(glass, 0, 255).astype(np.uint8), vis, roi)
-    cv2.ellipse(frame, center, axes, 0, 0, 360, (170, 170, 180), max(2, ax // 14), cv2.LINE_AA)
 
 
-def draw_helmet(frame, head, phase=0.0):
-    """Draw an animated astronaut helmet over the ``head`` box (x, y, w, h), in place."""
-    if head is None:
-        return frame
-    hx, hy, hw, hh = head
-    cx, cy = int(hx + hw / 2), int(hy + hh * 0.42)
-    rx, ry = max(6, int(hw * 0.9)), max(6, int(hh * 1.0))
-
-    cv2.ellipse(frame, (cx, cy), (rx, ry), 0, 0, 360, (228, 228, 232), -1, cv2.LINE_AA)
-    cv2.ellipse(frame, (cx, int(cy - ry * 0.45)), (int(rx * 0.5), int(ry * 0.28)),
-                0, 0, 360, (246, 246, 250), -1, cv2.LINE_AA)        # soft top highlight
-    cv2.ellipse(frame, (cx, cy), (rx, ry), 0, 0, 360, (140, 140, 150),
-                max(2, rx // 11), cv2.LINE_AA)                      # rim
-
-    _draw_visor(frame, (cx, int(cy + ry * 0.16)), (int(rx * 0.66), int(ry * 0.52)), phase)
-
-    pod = max(3, rx // 7)
-    cv2.circle(frame, (cx - rx, cy), pod, (120, 120, 132), -1, cv2.LINE_AA)
-    cv2.circle(frame, (cx + rx, cy), pod, (120, 120, 132), -1, cv2.LINE_AA)
-    blink = 0.5 + 0.5 * np.sin(phase * 6.0)                        # antenna light
-    cv2.circle(frame, (cx, int(cy - ry)), max(2, rx // 13),
-               (60, int(60 + 150 * blink), 230), -1, cv2.LINE_AA)
+def draw_helmet(frame, head, phase=0.0, original=None):
+    """Compatibility helper: local EVA shell with a near-clear camera-face visor."""
+    if head is not None:
+        from suit_rig import SuitRenderer
+        SuitRenderer()._helmet(frame, frame.copy() if original is None else original,
+                               (head, 0.), phase)
     return frame
 
 
@@ -265,27 +212,17 @@ class RectSmoother:
         return round(x), round(y), w, h
 
 
-def dress(frame, mask, face=None, keep=None, phase=0.0, smoother=None):
-    """Dress the whole player found in ``mask`` as a space suit (no player -> unchanged).
+def dress(frame, mask, face=None, keep=None, phase=0.0, smoother=None, *,
+          original=None, pose=None, renderer=None, source=None):
+    """Render an EVA rig, preserving ``original`` camera pixels for face and pen.
 
-    The entire silhouette becomes fabric (arms and hands too); ``keep`` (the pen)
-    stays visible. A helmet is drawn over the head (``face`` box if known, else
-    the top of the bounding box) and an animated chest panel on the torso.
-    ``phase`` (seconds) drives the helmet sheen and the blinking lights.
+    The game passes one persistent renderer and current measured pose. Older
+    callers can omit the keyword arguments and get the limited face/torso path.
     """
-    bbox = player_bbox(mask)
-    if bbox is None:
-        if smoother is not None:
-            smoother.update(None)
-        return frame
-    protected = keep > 0 if keep is not None else None
-    pen_pixels = frame[protected].copy() if protected is not None else None
-    paint_fabric(frame, full_body_region(mask, keep))
-    rect = chest_rect(bbox, face)
-    if smoother is not None:
-        rect = smoother.update(rect)
-    draw_chest_panel(frame, rect, phase)
-    draw_helmet(frame, head_box(face, bbox), phase)
-    if protected is not None:
-        frame[protected] = pen_pixels    # the pen stays visible in front of helmet/panel too
-    return frame
+    from suit_rig import SuitRenderer
+    if player_bbox(mask) is None and smoother is not None:
+        smoother.update(None)
+    renderer = SuitRenderer() if renderer is None else renderer
+    original = frame.copy() if original is None else original
+    return renderer.render(frame, original, mask, pose=pose, face=face, keep=keep,
+                           now=phase, source=source)

@@ -35,7 +35,9 @@ Kamera ─► main (Loop, States, Input)
 | `heart.py` | Herz-Sprite (parametrische Herzkurve, Verlauf+Glanz) für die Leben |
 | `background.py` | Spieler freistellen (Referenz-Differenz) und vor das Weltall setzen |
 | `lightsaber.py` | Lichtschwert fester Länge: Spitze am Stiftpunkt, Richtung zur erkannten Hand |
-| `suit.py` | Animierter Ganzkörper-Raumanzug: Silhouette → Stoff, Helm mit Visier-Glanz, Brust-LEDs |
+| `suit.py` / `suit_rig.py` | EVA-Körperteile, maskiertes Alpha-Compositing, Kameragesicht im klaren Visier |
+| `pose_tracking.py` | Lokale BlazePose-ONNX-Modelle, Gelenke, Flow, begrenzte Überbrückung |
+| `frame_metrics.py` | Optionale aggregierte Live-Zeiten ohne Pro-Frame-Logspam |
 | `cameras.py` | Kameras finden (Indizes durchprobieren), öffnen (1080p MJPG, unter Windows MSMF), wechseln, Auswahl in `settings.json` merken |
 | `highscore.py` | Top-3-Highscore **je Schwierigkeit** mit Spielername (JSON-Persistenz) |
 | `face_id.py` | Spielererkennung per Gesicht: YuNet-Detektion, SFace-Merkmale, Abgleich mit `faces/`, Scan im Kreis (`FaceScanner`), Einlernen |
@@ -217,32 +219,51 @@ Kamera ─► main (Loop, States, Input)
     Die Wahl wird in `settings.json`
     (`background_mode`, via `cameras.load/save_background_mode`) **persistiert** –
     analog zur Kamerawahl. Default ist `normal` (unverändertes Verhalten).
-- **Animierter Ganzkörper-Raumanzug (`suit.py`, Issues #27/#38).** Sobald der Spieler
-  freigestellt ist, wird er zum **animierten Astronauten**. Frühere Ansätze (festes
-  Anzug-Bild am Gesicht; nur der Torso wird Stoff, Kopf/Hände bleiben frei; optionales
-  Textur-Bild `textures/suit.png`) sind **ersetzt**: ein Filmfiguren-Foto über den
-  Körper zu strecken sah schlecht aus und deckte Löcher (Arm-Kreis) falsch ab, und der
-  „nur Kleidung"-Ansatz ließ Kopf/Hände nackt. Entschieden – **der ganze Körper wird
-  Anzug**, rein prozedural:
-  - **Stoff:** Die **komplette Silhouette** (Rumpf, Arme, Hände = Handschuhe) wird zu
-    kühlem Weiß, zum Rand hin dunkler (Distanztransformation → runde, schlauchartige
-    Gliedmaßen), mit einem Hauch der echten Falten (Bild minus Weichzeichnung, Faktor
-    0,3, max. ±30). Nur der **Stift** bleibt sichtbar (Maske des Marker-Trackers als
-    `keep`). Keine Haut-/Kopf-Ausnahme mehr.
-  - **Helm (animiert):** über dem Kopf (Gesichts-Box von YuNet, 320 px, ~3 ms; ohne
-    Gesicht die Kopfregion der Bounding-Box) eine metallische Schale mit dunklem,
-    bläulichem **Visier**. Über das Visier wandert ein **Glanz-Reflex** (Gauß-Streifen,
-    dessen Position per `sin(phase)` läuft); oben blinkt ein Antennenlicht.
-  - **Brustpanel (animiert):** Steuerpanel mit **blinkenden LEDs** (Helligkeit per
-    `sin(phase + i)`), am Gesicht/Torso verankert, Position geglättet (`RectSmoother`).
-  - **Animation** läuft über `phase = time.monotonic()`, das `dress()` übergeben wird.
-  - **Masken-Quelle:** `dress()` nimmt die Spielermaske eines beliebigen Hintergrund-
-    Modus (greenscheen/normal/**yolo**) entgegen; mit der präzisen YOLO-Maske sitzt der
-    Anzug am saubersten (ohne Greenscreen). Rein klassische Bildverarbeitung (Masken,
-    Distanztransformation, Zeichnen), keine Posenerkennung (die kostete ~100–200 ms).
-  - **Performance:** Helligkeitskarte auf halber Auflösung und nur im Bildausschnitt
-    des Spielers, Schattierung per Tabelle, Visier/Panel auf kleinen ROIs → wenige
-    ms/Frame zusätzlich zum Compositing.
+- **Artikulierter EVA-Raumanzug mit durchsichtigem Visier (Weiterentwicklung #37/#38).**
+  `suit_rig.py` setzt acht lokal mitgelieferte RGBA-Teile zusammen: Rumpf mit
+  Halsring/Brustmodul, Oberarm, Unterarm, Handschuh, Oberschenkel, Unterschenkel,
+  Stiefel und starre weiße Helmschale. Materialdetails sind einmalig generierte
+  PNGs, keine API-/Bildgenerierung zur Laufzeit. Transparente Ränder und die echte
+  Visieröffnung werden validiert; Anker liegen in `suit_assets/anchors.json`.
+  - `pose_tracking.py`: BlazePose-Personeninitialisierung (224px, Hüfte/Skala/Drehung)
+    und 33 Landmarks (256px) aus OpenCV Zoo, ausschließlich `cv2.dnn` + NumPy.
+    Die zwei zusätzlichen Apache-2.0-ONNX-Modelle sind zusammen 17,55 MB, SHA256-geprüft
+    und lokal gecacht; keine zusätzlichen ML-Pythonpakete. Die vorhandene
+    Personenmaske wählt den Spieler aus. Initialisierung wird pro fünf
+    Landmark-Inferenzen erneuert; Pose-Inferenzen standardmäßig alle 0,10 s.
+  - Landmark-Koordinaten werden über die inverse affine ROI-Transformation korrekt
+    ins aktuelle Kamerabild zurückgeführt. Adaptive Glättung bremst kleine
+    Messfehler; große Bewegungen werden weitgehend sofort übernommen. Zwischen
+    Inferenzen folgt pyramidal Lucas-Kanade-Flow den sichtbaren Gelenken.
+    Ohne gültige Präsenz/Visibility keine Gliedmaße; außerhalb des Bilds liegende
+    Gelenke werden verworfen. Nach höchstens 0,20 s ohne verifizierte Pose endet
+    die Überbrückung. Quellenwechsel oder fehlender Körper setzen alle Puffer zurück.
+  - Rumpf per perspektivischer Vierpunktabbildung, Gliedmaßen separat entlang der
+    jeweiligen Knochenachse mit unabhängiger Breite; diese wird an der lokalen
+    Silhouette angepasst. Z-Tiefe bestimmt grob die Ebenenfolge. Das ist ein
+    **2,5D-Overlay**, kein physikalisch simulierter 3D-Anzug. Starkes Drehen aus
+    der Frontalansicht und verdeckte Gliedmaßen bleiben Grenzen.
+  - Aktuelles `clean` bleibt unverändert. YuNet-Box, beim kurzen Face-Ausfall
+    kalibrierte Pose-Augenabstände und begrenzte Historie verankern den Helm.
+    Das echte Gesicht wird unverzerrt aus `clean` in die tatsächliche Alphaöffnung
+    übernommen; Glas ist zentral nahezu klar, Reflexe liegen weich an der Seite.
+    Nach dem Verlust aller Kopfhinweise verschwindet der Helm. Bei komplett
+    fehlender Geometrie erscheint das Original statt eines weiß übermalten Gesichts.
+  - Premultipliziertes Alpha wird nur in geclippten Ziel-ROIs transformiert;
+    kein schwarzer Saum und keine wachsende Sammlung skalierter Sprites. Einmal
+    geladener, auf 384px begrenzter Asset-Satz benötigt rund 23 MiB Pixelpuffer.
+    Echte Löcher zwischen Armen bleiben erhalten. Inward-Feathering glättet
+    Segmentierungskanten, ohne die Personenmaske in den Hintergrund zu vergrößern.
+  - Reihenfolge: `clean` → aktueller Stift → Segmentierung/Gesicht/Pose → Hintergrund
+    → Stoffunterlage → Beine/ferne Arme → Rumpf/Schultern → Helm/Kameragesicht/Glas
+    → vordere Unterarme/Handschuhe → Original-Stiftpixel → Spiel/UI/Lichtschwert.
+    Der Stift bleibt auch dann sichtbar, wenn YOLO ihn aus der Personenmaske entfernt.
+    Ein Face-Scan wird mit dem Anzug geteilt, statt YuNet doppelt auszuführen.
+  - `FrameMetrics` misst optional Capture, Tracking, Segmentierung, Face, Pose,
+    Anzug, Ausgabe und Gesamtframe; aggregierte Median-/P95-Werte alle fünf Sekunden.
+    Start mit `--suit-diagnostics`. Echte Live-FPS werden erst mit angeschlossener
+    Kamera/Anzeige bestätigt. Reproduzierbare Vorschauen und Messungen:
+    [EVA-Implementierung und Prüfung](docs/astronaut-suit.md).
 - **Stift als Lichtschwert, Griff auf der Hand (`lightsaber.py`).** Am Stift wird auf
   jedem Bildschirm ein Lichtschwert gezeichnet. Die Klingenspitze ist der Punkt, der
   schneidet (die Stiftspitze); der **Griff sitzt auf der Hand**, die Klinge läuft von
