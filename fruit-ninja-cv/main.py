@@ -57,27 +57,61 @@ STATE_PLAY = "play"
 STATE_GAME_OVER = "game_over"
 
 
-def detect_screen_size():
-    """Logical screen size (points) via system_profiler -- no GUI toolkit.
+DEFAULT_SCREEN = (1280, 720)
 
-    Avoids tkinter (which aborts with 'Tcl_FindHashEntry on deleted table' when
-    mixed with OpenCV's Cocoa window on macOS).
+
+def _windows_user32():
+    import ctypes
+    return ctypes.windll.user32
+
+
+def detect_screen_size(platform=None):
+    """Logical screen size of the primary display -- no GUI toolkit.
+
+    Windows: ``GetSystemMetrics`` (logical pixels, i.e. after display scaling,
+    the same units the OpenCV window uses; #41, CR-08). macOS: system_profiler
+    (tkinter aborts with 'Tcl_FindHashEntry on deleted table' when mixed with
+    OpenCV's Cocoa window). Anything else or any failure: ``DEFAULT_SCREEN``.
     """
+    platform = platform or sys.platform
     try:
-        out = subprocess.run(["system_profiler", "SPDisplaysDataType"],
-                             capture_output=True, text=True, timeout=6).stdout
-        m = re.search(r"UI Looks like:\s*(\d+)\s*x\s*(\d+)", out)
-        if m:
-            return int(m.group(1)), int(m.group(2))
-        m = re.search(r"Resolution:\s*(\d+)\s*x\s*(\d+)", out)
-        if m:
-            w, h = int(m.group(1)), int(m.group(2))
-            if w >= 2560:                 # Retina physical -> approximate points
-                w, h = w // 2, h // 2
-            return w, h
+        if platform == "win32":
+            user32 = _windows_user32()
+            w, h = user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
+            if w > 0 and h > 0:
+                return w, h
+        elif platform == "darwin":
+            out = subprocess.run(["system_profiler", "SPDisplaysDataType"],
+                                 capture_output=True, text=True, timeout=6).stdout
+            m = re.search(r"UI Looks like:\s*(\d+)\s*x\s*(\d+)", out)
+            if m:
+                return int(m.group(1)), int(m.group(2))
+            m = re.search(r"Resolution:\s*(\d+)\s*x\s*(\d+)", out)
+            if m:
+                w, h = int(m.group(1)), int(m.group(2))
+                if w >= 2560:                 # Retina physical -> approximate points
+                    w, h = w // 2, h // 2
+                return w, h
     except Exception:
         logger.warning("Screen-size detection failed; using default", exc_info=True)
-    return 1280, 720
+        return DEFAULT_SCREEN
+    logger.warning("Screen size unknown on %s; using default %dx%d", platform, *DEFAULT_SCREEN)
+    return DEFAULT_SCREEN
+
+
+def canvas_size(sw, sh, platform=None):
+    """Render size ``(width, height)`` for a screen of ``sw`` x ``sh``.
+
+    macOS: full screen height at the 16:10 usable fullscreen area (``ASPECT``).
+    Elsewhere the canvas takes the screen's own aspect, so the fullscreen
+    stretch does not distort (#41, CR-08), and its height is capped at
+    ``MAX_CANVAS_HEIGHT`` because the frame time grows with the pixel count.
+    """
+    platform = platform or sys.platform
+    if platform == "darwin":
+        return int(round(sh * config.ASPECT)), sh
+    h = min(sh, config.MAX_CANVAS_HEIGHT)
+    return int(round(h * sw / sh)), h
 
 
 def open_camera():
@@ -468,10 +502,8 @@ def main():
     logger.info("Starting Fruit Ninja CV (logfile: %s)", log_path)
 
     sw, sh = detect_screen_size()
-    # Render to a fixed 16:10 aspect (laptop fullscreen area), height from screen.
-    config.HEIGHT = sh
-    config.WIDTH = int(round(sh * config.ASPECT))
-    config.SCALE = sh / config.REF_HEIGHT
+    config.WIDTH, config.HEIGHT = canvas_size(sw, sh)
+    config.SCALE = config.HEIGHT / config.REF_HEIGHT
     logger.info("Screen %dx%d -> canvas %dx%d, scale %.2f", sw, sh,
                 config.WIDTH, config.HEIGHT, config.SCALE)
 

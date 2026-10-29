@@ -271,6 +271,78 @@ Kamera ─► main (Loop, States, Input)
   obere Stiftende; sein Standardmodus bleibt `centroid`. Die Schnitt-Logik selbst ist
   unverändert.
 
+- **Code-Review #41 (CR-01 bis CR-10).** Jeder Befund wurde zuerst auf dem aktuellen
+  Stand reproduziert, dann per Regressionstest festgehalten und behoben. Für die
+  Übergänge zwischen Modulen gibt es jetzt `tests/loop_harness.py`: Er lässt die
+  echte Hauptschleife `main._run_game_loop` mit einer Fake-Kamera und
+  ausgeschalteten OpenCV-Fenstern headless laufen.
+  - **CR-01 Klinge: Messung getrennt vom sichtbaren Schweif.** `Blade` führt zwei Puffer.
+    `points` ist der sichtbare Schweif, der beim Trackingverlust ausläuft. `_live`
+    enthält die letzten zwei echten Messungen. Kollision (`segment`,
+    `current_point`) nutzt nur `_live`. `None` leert `_live` sofort, und die erste
+    Messung danach beginnt einen neuen Schweif. So schneidet die Klinge weder
+    an der alten Position weiter noch quer über die Lücke.
+  - **CR-05/06 Wahrnehmung zuerst, einmal pro Frame.** Der Stift wird direkt nach
+    dem Kopieren des Kamerabilds getrackt, und zwar einmal für alle Zustände. Seine
+    Maske (`tracker.last_mask`) geht an den Anzug. `suit.dress` sichert die
+    Stiftpixel vor dem Zeichnen und setzt sie nach Brustpanel und Helm wieder ein.
+    Der Stift bleibt dadurch in jeder Render-Stufe sichtbar.
+  - **CR-02 Kamera gilt erst mit Bild als offen.** `cameras._open` verlangt
+    innerhalb von `FIRST_FRAME_TRIES` Versuchen ein Bild. Ein Wechsel gibt die alte
+    Kamera nur frei, wenn sie existiert. Scheitert auch die Rückkehr zur alten
+    Kamera, wird das als Fehler geloggt und `index=None` gesetzt. `read()` liefert
+    dann `(False, None)` statt abzustürzen.
+  - **CR-09/10 YOLO ist optional und an die Quelle gebunden.** Inferenzfehler
+    (`cv2.error`, `ValueError`, `IndexError`) und I/O-Fehler beim Laden werden einmal
+    geloggt. Danach setzt der Segmentierer `failed`, und die Schleife schaltet ihn
+    ab, statt pro Frame Fehler zu werfen. Der Maskencache hängt an
+    `source=(Kameraindex, Modus-Session)` und wird nach einem Kamera- oder
+    Moduswechsel neu berechnet. Eine alte Maske landet so nie auf einem neuen Bild.
+  - **CR-03 Gesichtseinlernen = eine zusammenhängende Session.** `FaceScanner` duldet
+    kurze Aussetzer bis `FACE_SCAN_GAP` (0,5 s). Ist das Gesicht länger aus dem Kreis,
+    werden die gesammelten Bilder und Stimmen verworfen. So werden nie Gesichter
+    zweier Personen zu einem Profil gemischt.
+  - **CR-04 Grüner Stift ist mit Greenscreen unvereinbar.** Die Regel steht in
+    `pen_allowed` / `pen_for_mode`. Im Menü ist das grüne Farbfeld im
+    Greenscreen-Modus durchgestrichen. Ein Klick darauf zeigt einen Hinweis statt
+    die Farbe zu wählen. Wird auf Greenscreen umgeschaltet, während Grün aktiv
+    ist, fällt der Stift auf Pink zurück, mit Hinweis.
+  - **CR-07 Highscore: Fehler unterscheiden, nichts verlieren.** `_read` meldet
+    `missing`, `corrupt` oder `unreadable`. Eine nicht lesbare Datei (z. B. gesperrt)
+    wird nie überschrieben. Eine kaputte Datei wird als `.corrupt` gesichert. Geschrieben
+    wird über eine `.tmp`-Datei mit `os.replace`, also atomar. `add_entry` liefert
+    `saved`, und der Game-Over-Bildschirm meldet „Highscore konnte nicht gespeichert
+    werden“.
+  - **CR-08 Bildschirm unter Windows.** Messung am Demo-Laptop (Windows 11, 200 %
+    Skalierung):
+
+    | | Wert |
+    |---|---|
+    | Logische Auflösung | 1440×960 (3:2) |
+    | Physische Auflösung | 2880×1920 |
+    | Vorher erkannt | Fallback 1280×720 (`system_profiler` fehlt unter Windows) |
+    | Vorher Canvas | 1152×720 (16:10), im Vollbild auf 3:2 gestreckt, also ca. 6 % horizontale Verzerrung |
+
+    Die Mauszuordnung ist korrekt. Versuch: Ein 800×450-Fenster zeigt ein
+    400×300-Bild. Ein Klick bei (600, 225) wird als (300, 150) gemeldet.
+    OpenCV rechnet Mausklicks also selbst in Bildkoordinaten um, und Klick
+    und Dwell treffen trotz Streckung.
+    Lösung: `detect_screen_size` liest unter Windows `GetSystemMetrics`. Das liefert
+    logische Pixel, also dieselben Einheiten wie das Fenster, ohne DPI-Awareness.
+    `canvas_size` übernimmt außerhalb von macOS das Seitenverhältnis des Bildschirms,
+    deshalb gibt es keine Verzerrung mehr.
+    Die Höhe ist auf `MAX_CANVAS_HEIGHT = 720` begrenzt. Gemessen mit der echten
+    Schleife (Greenscreen, Anzug, Lichtschwert):
+
+    | Canvas | Zeit pro Frame (Median) |
+    |---|---|
+    | 1152×720 | 45 ms |
+    | 1080×720 | 45 ms |
+    | 1440×960 | 88 ms |
+
+    Auf dem Demo-Laptop gilt also: Canvas 1080×720 (3:2), Vollbild unverzerrt.
+    macOS behält 16:10 bei voller Bildschirmhöhe (unverändert).
+
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.
 - **Logging:** `logs/fruit-ninja.log` (rotierend), Konsole zeigt nur Warnungen/Fehler.
@@ -300,8 +372,8 @@ Kamera ─► main (Loop, States, Input)
   Erkennungsaussetzer.
 - **Stiftspitze (Teilaufgabe 2):** Aktuell wird der Schwerpunkt verwendet.
 - **Debug-Fenster** mit Kamerabild und erkannter Stiftposition (bisher Maske per `d`).
-- **Windows:** Standard-Kamera (`CAMERA_INDEX`) und Sound (`afplay`) sind auf macOS
-  ausgelegt; unter Windows mit der ELP-USB-Kamera prüfen.
+- **Windows:** Sound (`afplay`) ist auf macOS ausgelegt. Kamera-Auswahl und
+  Bildschirmgröße sind für Windows gelöst (#31, #41 CR-08).
 
 ## Bewusste Nicht-Ziele
 - Kein ML für die Stifterkennung (klassische Bildverarbeitung). Ausnahme:
