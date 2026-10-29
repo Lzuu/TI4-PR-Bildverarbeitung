@@ -432,7 +432,7 @@ GAME_OVER_LABELS = ["Neustart", "Startmenue", "Quit"]
 
 
 def draw_game_over(frame, game, scores, rank, targets, active, progress, point,
-                   color, player):
+                   color, player, saved=True):
     _dim(frame, 0.55)
     h, w = frame.shape[:2]
     draw_text(frame, "GAME OVER", (w // 2, int(h * 0.16)), scale=1.6,
@@ -444,6 +444,9 @@ def draw_game_over(frame, game, scores, rank, targets, active, progress, point,
                   scale=0.75, color=(0, 215, 255), center=True)
     draw_text(frame, f"Leaderboard - {game.difficulty.name}",
               (w // 2, int(h * 0.42)), scale=0.7, center=True)
+    if not saved:                    # honest storage status (#41, CR-07)
+        draw_text(frame, "Highscore konnte nicht gespeichert werden", (w // 2, int(h * 0.37)),
+                  scale=0.55, color=(80, 80, 255), center=True)
     for i in range(3):
         if i < len(scores):
             line = f"{i + 1}.  {face_id.display_name(scores[i]['name'])}  {scores[i]['score']}"
@@ -500,6 +503,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     tracker.set_color(pen_color)
     hint_text, hint_until = None, 0.0  # short on-screen notice (e.g. pen/mode conflict)
     scores, rank = [], None
+    score_saved = True
     player = face_id.GUEST
     faces_dir = os.path.join(face_id.BASE_DIR, config.FACES_DIR)
     scanner = face_id.FaceScanner()
@@ -791,8 +795,9 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             game.draw_hud(frame)
             game.draw_combo(frame)
             if game.game_over:
-                scores, rank = highscore.add(config.HIGHSCORE_FILE,
+                result = highscore.add_entry(config.HIGHSCORE_FILE,
                                              game.difficulty.name, game.score, player)
+                scores, rank, score_saved = result.board, result.rank, result.saved
                 sounds.play("over")
                 logger.info("Game over -- %s, %s scored %d (rank: %s)",
                             game.difficulty.name, player, game.score, rank)
@@ -805,7 +810,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             game.draw(frame)
             game.draw_hud(frame)
             draw_game_over(frame, game, scores, rank, targets, active, progress,
-                           point, pen_color.display, player)
+                           point, pen_color.display, player, score_saved)
             if confirmed == 0:              # Neustart
                 logger.info("Restart requested (%s)", game.difficulty.name)
                 game.reset()
