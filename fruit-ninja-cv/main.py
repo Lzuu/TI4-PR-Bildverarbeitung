@@ -549,6 +549,10 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
         if config.MIRROR:
             frame = cv2.flip(frame, 1)
         clean = frame.copy()
+        # perception first: one pen measurement per frame, used by suit, game and
+        # drawing alike -- no stale mask from the previous frame (#41, CR-06)
+        point = tracker.track(clean)
+        pen_mask = tracker.last_mask
 
         face_box = None              # face found this frame (shared by suit and saber)
         # --- space background: capture the reference, then cut the player out ---
@@ -575,11 +579,10 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                     face_box = (identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
                                 if identifier is not None else None)
                     # the whole body becomes the suit; only the pen stays visible
-                    frame = suit.dress(frame, mask, face_box, tracker.last_mask,
+                    frame = suit.dress(frame, mask, face_box, pen_mask,
                                        time.monotonic(), suit_smoother)
 
         quit_requested = False
-        point = None                 # tracked pen point this frame (set by the states)
 
         if state == STATE_MENU:
             start_t = menu_start_target(config.WIDTH, config.HEIGHT)
@@ -628,7 +631,6 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                     settings_open = False   # any click in the panel closes it
                 click[0] = None
 
-            point = tracker.track(clean)
             player_t = player_target(config.WIDTH, config.HEIGHT) if identifier else None
             targets = [start_t, quit_t] + ([player_t] if player_t else [])
             if settings_open or camera_open:
@@ -671,7 +673,6 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                 scanner.reset()          # restart the scan with the (new) camera
             name, score, box, crop = identifier.scan(clean)
             inside = face_id.face_in_circle(box, circle) and not camera_open
-            point = tracker.track(clean)
             g_active, g_progress, g_confirmed = dwell.update(point, [guest_t])
             if camera_open:
                 g_confirmed = None
@@ -707,7 +708,6 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                     state = STATE_MENU
 
         elif state == STATE_NAME_ENTRY:
-            point = tracker.track(clean)
             k_targets = keyboard.layout(config.WIDTH, config.HEIGHT)
             active, progress, confirmed = key_dwell.update(point, k_targets)
             pressed = typed_key
@@ -727,7 +727,6 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                                 pen_color.display)
 
         elif state == STATE_DIFFICULTY:
-            point = tracker.track(clean)
             d_targets = row_targets(config.WIDTH, config.HEIGHT, len(LEVELS))
             q_target = quit_target(config.WIDTH, config.HEIGHT)
             active, progress, confirmed = dwell.update(point, d_targets + [q_target])
@@ -746,7 +745,6 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                     state = STATE_PLAY
 
         elif state == STATE_PLAY:
-            point = tracker.track(clean)
             blade.add(point)
             game.update(blade)
             game.draw(frame)
@@ -763,7 +761,6 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                 state = STATE_GAME_OVER
 
         elif state == STATE_GAME_OVER:
-            point = tracker.track(clean)
             targets = row_targets(config.WIDTH, config.HEIGHT, 3, y_frac=0.80, r=50)
             active, progress, confirmed = dwell.update(point, targets)
             game.draw(frame)

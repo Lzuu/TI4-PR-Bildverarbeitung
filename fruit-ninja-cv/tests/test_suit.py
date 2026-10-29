@@ -190,3 +190,43 @@ def test_dress_without_player_changes_nothing_and_resets():
     out = suit.dress(frame, _blank(), smoother=smoother)
     assert np.array_equal(out, np.full((H, W, 3), 50, np.uint8))
     assert smoother._xy is None
+
+
+# -- CR-05 (#41): the protected pen survives every render stage of dress -----
+def _pen_scene():
+    frame = np.full((240, 320, 3), 60, np.uint8)
+    mask = np.zeros((240, 320), np.uint8)
+    mask[10:240, 35:285] = 255                         # person
+    return frame, mask, (120, 20, 50, 60)              # face box x, y, w, h
+
+
+def _pen_at(frame, center):
+    keep = np.zeros(frame.shape[:2], np.uint8)
+    cv2.circle(keep, center, 9, 255, -1)
+    frame[keep > 0] = (180, 0, 255)                    # pink pen pixels
+    return keep
+
+
+def test_pen_in_front_of_the_chest_panel_stays_visible():
+    frame, mask, face = _pen_scene()
+    keep = _pen_at(frame, (145, 115))
+    before = frame.copy()
+    out = suit.dress(frame, mask, face, keep, phase=0.0)
+    assert (out[keep > 0] == before[keep > 0]).all()
+
+
+def test_pen_in_front_of_the_helmet_stays_visible():
+    frame, mask, face = _pen_scene()
+    keep = _pen_at(frame, (145, 50))                   # over the visor
+    before = frame.copy()
+    out = suit.dress(frame, mask, face, keep, phase=1.0)
+    assert (out[keep > 0] == before[keep > 0]).all()
+
+
+def test_suit_is_still_drawn_around_the_protected_pen():
+    frame, mask, face = _pen_scene()
+    keep = _pen_at(frame, (145, 115))
+    before = frame.copy()
+    out = suit.dress(frame, mask, face, keep, phase=0.0)
+    assert not (out[200, 60] == before[200, 60]).all()   # fabric elsewhere
+    assert not (out[50, 130] == before[50, 130]).all()   # helmet elsewhere
