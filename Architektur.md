@@ -34,7 +34,7 @@ Kamera ─► main (Loop, States, Input)
 | `game.py` | Spielzustand: Spawning (Bursts), Kollision, Punkte, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve, Verlauf+Glanz) für die Leben |
 | `background.py` | Spieler freistellen (Referenz-Differenz) und vor das Weltall setzen |
-| `lightsaber.py` | Statisches Lichtschwert am Stiftpunkt: Klinge senkrecht nach unten, Griff darunter |
+| `lightsaber.py` | Lichtschwert: Spitze am Stiftpunkt, Griff auf der erkannten Hand |
 | `suit.py` | Raumanzug: Silhouette wird zu Anzugstoff (folgt den Armen), Kopf/Hände/Stift frei, Details am Gesicht |
 | `cameras.py` | Kameras finden (Indizes durchprobieren), öffnen (1080p MJPG, unter Windows MSMF), wechseln, Auswahl in `settings.json` merken |
 | `highscore.py` | Top-3-Highscore **je Schwierigkeit** mit Spielername (JSON-Persistenz) |
@@ -237,18 +237,29 @@ Kamera ─► main (Loop, States, Input)
     Auflösung und nur im Bildausschnitt des Spielers, Schattierung per Tabelle,
     Hauterkennung auf halber Auflösung, Überblenden per `cv2.blendLinear` →
     insgesamt ~9–19 ms pro Frame (je nach CPU-Takt).
-- **Stift als Lichtschwert, bewusst statisch (`lightsaber.py`).** Am Stiftpunkt wird
-  auf jedem Bildschirm ein Lichtschwert gezeichnet: Die Klingenspitze ist der Punkt,
-  der schneidet; die Klinge hängt senkrecht nach unten, darunter der Griff. Eine
-  erste Fassung, die der Neigung des Stifts folgte (Achse aus der Farbmaske per
-  `fitLine`) und den Griff per Hauterkennung auf die Hand setzte, wurde im Live-Test
-  verworfen – sie wirkte unruhig. Statisch ist es ruhig und eindeutig. Dicker Strahl
-  (weißer Kern + zwei additive Leucht-Schichten in der Stiftfarbe, Glühen auf halber
-  Auflösung, ~6 ms pro Frame); Längen `SABER_LENGTH`/`SABER_HILT_LENGTH`. Der
-  Marker-Tracker liefert dafür im Modus `point_mode="tip"` (`config.PEN_POINT`) das
-  obere Stiftende statt des Schwerpunkts – damit schneidet und zielt die Stiftspitze;
-  der Standardmodus des Trackers bleibt `centroid`. Die Schwungspur übernimmt die
-  Stiftfarbe. Die Schnitt-Logik selbst ist unverändert.
+- **Stift als Lichtschwert, Griff auf der Hand (`lightsaber.py`).** Am Stift wird auf
+  jedem Bildschirm ein Lichtschwert gezeichnet. Die Klingenspitze ist der Punkt, der
+  schneidet (die Stiftspitze); der **Griff sitzt auf der Hand**, die Klinge läuft von
+  der Spitze zur Hand und kippt mit ihr. Verlauf der Entscheidungen:
+  1. Erste Fassung: Richtung aus der Form der Farbmaske (`fitLine`), Griff über dem
+     Stift → im Live-Test unruhig, verworfen.
+  2. Statisch senkrecht nach unten → ruhig, aber unrealistisch.
+  3. Jetzt: Richtung nur aus Stiftspitze und **Hand**. Hand = die zur Spitze nächste
+     ausreichend große Hautfläche (YCrCb, `suit.skin_mask`) innerhalb
+     `SABER_HAND_RADIUS`; Flächen um das erkannte Gesicht werden ignoriert. Vom
+     gefundenen Hautbereich zählt nur der Teil in Handgröße direkt am Stift – sonst
+     würde eine Hand, die einen nackten Unterarm oder einen hautfarbenen Gegenstand
+     berührt, in deren Mitte rutschen. Geglättet wird der **Versatz Hand–Spitze**,
+     nicht die absolute Position: Bewegen sich Stift und Hand zusammen, folgt das
+     Schwert ohne Verzögerung, nur das Zittern der Erkennung wird gedämpft. Kurze
+     Aussetzer (≤ 5 Frames) behalten die letzte Hand, danach hängt das Schwert wieder
+     senkrecht. Mindest-Klingenlänge, wenn die Hand direkt an der Spitze ist.
+  Kosten: Handsuche ~5 ms (Abstände nur für Hautpixel statt für das ganze Fenster);
+  Hautmaske und Gesichtserkennung werden pro Frame nur einmal berechnet und mit dem
+  Raumanzug geteilt. Dicker Strahl (weißer Kern + zwei additive Leucht-Schichten).
+  Der Marker-Tracker liefert im Modus `point_mode="tip"` (`config.PEN_POINT`) das
+  obere Stiftende; sein Standardmodus bleibt `centroid`. Die Schnitt-Logik selbst ist
+  unverändert.
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.

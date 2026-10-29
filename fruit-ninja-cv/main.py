@@ -519,6 +519,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     space_img = background.load_space((config.WIDTH, config.HEIGHT))
     suit_img = suit.load_suit() if config.SUIT_ENABLED else None
     suit_smoother = suit.RectSmoother()
+    saber = lightsaber.SaberTracker()
     suit_texture = suit.load_texture() if config.SUIT_ENABLED else None   # textures/suit.png
     reference = None
     reference_camera = None          # camera the reference was taken with
@@ -547,6 +548,8 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             frame = cv2.flip(frame, 1)
         clean = frame.copy()
 
+        face_box = None              # face found this frame (shared by suit and saber)
+        skin = None                  # skin mask this frame (shared by suit and saber)
         # --- space background: capture the reference, then cut the player out ---
         if bg_capture_at is not None and time.monotonic() >= bg_capture_at:
             reference = clean.copy()
@@ -569,7 +572,8 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                     face_box = (identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
                                 if identifier is not None else None)
                     # hands (skin) and the pen stay visible instead of becoming fabric
-                    keep = suit.skin_mask(clean)
+                    skin = suit.skin_mask(clean)
+                    keep = skin
                     if tracker.last_mask is not None:
                         keep = cv2.bitwise_or(keep, tracker.last_mask)
                     frame = suit.dress(frame, mask, suit_img, face_box, suit_smoother, keep,
@@ -800,8 +804,13 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
 
         # the pen as a lightsaber, on every screen (drawn last, like a cursor)
         if config.SABER_ENABLED:
-            # static saber: tip = pen point (the only thing that cuts), blade straight down
-            lightsaber.draw_saber(frame, lightsaber.saber_at(point), pen_color.display)
+            # tip = pen point (the only thing that cuts), hilt on the hand (skin colour);
+            # the face is excluded so it is never taken for the hand
+            if face_box is None and identifier is not None and point is not None:
+                face_box = identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
+            if skin is None and point is not None:
+                skin = suit.skin_mask(clean)
+            lightsaber.draw_saber(frame, saber.update(point, skin, face_box), pen_color.display)
 
         cv2.imshow(config.WINDOW_NAME, frame)
         key = cv2.waitKey(1) & 0xFF

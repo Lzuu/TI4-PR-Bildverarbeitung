@@ -73,6 +73,7 @@ PEN_POINT = "tip"                # Tracked pen point: "tip" (upper end) or "cent
 SABER_ENABLED = True             # Draw the pen as a lightsaber (lightsaber.py)
 SABER_LENGTH = 110               # Blade length in px at REF_HEIGHT (scaled), down from the pen point
 SABER_HILT_LENGTH = 45           # Hilt length in px at REF_HEIGHT (scaled), below the blade
+SABER_HAND_RADIUS = 220          # Hand (skin blob) is searched within this distance of the pen tip
 
 # ---------------------------------------------------------------------------
 # Gameplay / physics (pixels per frame)
