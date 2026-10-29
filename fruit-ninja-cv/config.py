@@ -55,6 +55,14 @@ GREEN_SCALE = 1.0                # Full res: ~5 ms/frame; downscaling barely hel
 SUIT_ENABLED = True              # Dress the cut-out player in a space suit (suit.py)
 SUIT_FACE_DETECT_WIDTH = 320     # Face detection for placing the suit runs at this width
 
+# Background mode "yolo": cut the player out with a YOLOv8-seg person mask
+# (ONNX via cv2.dnn, no torch) so no green screen is needed. See yolo_seg.py.
+YOLO_ENABLED = True              # Make the "yolo" background mode available
+YOLO_INPUT = 320                 # Inference input size (letterboxed square); smaller = faster
+YOLO_EVERY_N = 3                 # Infer every Nth frame, reuse the last mask in between (~15 ms/inference)
+YOLO_CONF = 0.4                  # Minimum person confidence
+YOLO_MASK_THRESH = 0.5           # Prototype-mask threshold
+
 # ---------------------------------------------------------------------------
 # Selection (VR-style dwell: hold the pen in a circle to confirm)
 # ---------------------------------------------------------------------------

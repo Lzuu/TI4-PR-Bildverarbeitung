@@ -1,4 +1,9 @@
-"""Tests for dressing the cut-out player in a space suit (issue #27). Headless."""
+"""Tests for the animated full-body space suit (suit.py).
+
+Pure, headless logic -- no camera, no GUI. Synthetic masks/frames stand in for
+the player. The suit now dresses the *whole* silhouette (head -> helmet, hands
+-> gloves); only the pen (``keep``) stays visible.
+"""
 
 import cv2
 import numpy as np
@@ -6,324 +11,182 @@ import numpy as np
 import suit
 
 
-def blank(h=400, w=600):
-    return np.zeros((h, w), np.uint8)
+H, W = 400, 600
+
+
+def _blank():
+    return np.zeros((H, W), np.uint8)
+
+
+def _body():
+    """A silhouette with head, torso and a raised arm ending in a hand."""
+    m = _blank()
+    cv2.circle(m, (300, 80), 45, 255, -1)              # head
+    cv2.rectangle(m, (240, 120), (360, 330), 255, -1)  # torso
+    cv2.rectangle(m, (200, 140), (240, 270), 255, -1)  # raised arm
+    cv2.circle(m, (220, 130), 22, 255, -1)             # hand (becomes a glove)
+    return m
 
 
 # --------------------------------------------------------------------------- #
-# Player position from the foreground mask
+# Player position
 # --------------------------------------------------------------------------- #
 def test_no_player_in_empty_mask():
-    assert suit.player_bbox(blank()) is None
-    assert suit.player_centroid(blank()) is None
-
-
-def test_bbox_of_a_single_player_blob():
-    mask = blank()
-    mask[100:300, 200:320] = 255
-    assert suit.player_bbox(mask) == (200, 100, 120, 200)
+    assert suit.player_bbox(_blank()) is None
+    assert suit.player_centroid(_blank()) is None
 
 
 def test_bbox_uses_the_largest_blob():
-    mask = blank()
-    mask[50:90, 20:60] = 255            # small blob (e.g. a moving chair)
-    mask[100:350, 300:450] = 255        # the player
-    assert suit.player_bbox(mask) == (300, 100, 150, 250)
-
-
-def test_tiny_noise_is_not_a_player():
-    mask = blank()
-    mask[10:14, 10:14] = 255
-    assert suit.player_bbox(mask) is None
-
-
-def test_centroid_of_the_player():
-    mask = blank()
-    mask[100:300, 200:320] = 255
-    cx, cy = suit.player_centroid(mask)
-    assert abs(cx - 259.5) < 1 and abs(cy - 199.5) < 1
+    m = _body()
+    cv2.circle(m, (20, 20), 4, 255, -1)                # tiny noise blob
+    x, y, w, h = suit.player_bbox(m)
+    assert x <= 200 and y <= 80 and x + w >= 360       # covers the whole body
+    assert (x, y) != (16, 16)                          # not the noise
 
 
 # --------------------------------------------------------------------------- #
-# Where the suit goes
+# Full-body region (the big behaviour change)
 # --------------------------------------------------------------------------- #
-def test_suit_hangs_below_the_face_centred_and_scaled():
-    face = (270, 80, 60, 70)                       # x, y, w, h
-    x, y, w, h = suit.suit_rect((200, 60, 200, 340), face)
-    assert abs((x + w / 2) - 300) <= 1             # centred under the face
-    assert 80 + 70 * 0.7 <= y <= 80 + 70           # collar just below the chin
-    assert w == round(face[2] * suit.SUIT_WIDTH_PER_FACE)
+def test_region_covers_head_and_hands():
+    region = suit.full_body_region(_body())
+    assert region[80, 300] == 255        # head is now part of the suit (helmet goes on top)
+    assert region[130, 220] == 255       # hand is covered (glove)
 
 
-def test_bigger_face_gives_bigger_suit():
-    small = suit.suit_rect(None, (100, 100, 40, 45))
-    big = suit.suit_rect(None, (100, 100, 80, 90))
-    assert big[2] == 2 * small[2]
+def test_region_excludes_the_pen():
+    keep = _blank()
+    cv2.rectangle(keep, (290, 200), (310, 240), 255, -1)   # the pen marker
+    region = suit.full_body_region(_body(), keep=keep)
+    assert region[220, 300] == 0         # pen stays visible, not fabric
+    assert region[80, 300] == 255        # head still covered
 
 
-def test_without_face_the_suit_is_placed_from_the_bbox():
-    x, y, w, h = suit.suit_rect((200, 100, 120, 300), None)
-    assert abs((x + w / 2) - 260) <= 1
-    assert 100 < y < 100 + 300 / 2                 # below the head, upper body
-
-
-def test_no_rect_without_player():
-    assert suit.suit_rect(None, None) is None
-
-
-def test_smoother_dampens_jitter():
-    smooth = suit.RectSmoother(factor=0.5)
-    assert smooth.update((100, 100, 200, 200)) == (100, 100, 200, 200)   # first rect as is
-    assert smooth.update((110, 100, 200, 200)) == (105, 100, 200, 200)   # halfway there
-
-
-def test_smoother_resets_when_player_is_gone():
-    smooth = suit.RectSmoother(factor=0.5)
-    smooth.update((100, 100, 200, 200))
-    assert smooth.update(None) is None
-    assert smooth.update((300, 300, 200, 200)) == (300, 300, 200, 200)   # no slide from old spot
-
-
-def test_smoother_follows_big_jumps_immediately():
-    smooth = suit.RectSmoother(factor=0.5)
-    smooth.update((100, 100, 200, 200))
-    assert smooth.update((600, 100, 200, 200)) == (600, 100, 200, 200)   # e.g. other player
+def test_region_empty_without_player():
+    assert suit.full_body_region(_blank()).max() == 0
 
 
 # --------------------------------------------------------------------------- #
-# Suit fabric on the silhouette: moves with the arms
+# Head box for the helmet
 # --------------------------------------------------------------------------- #
-FACE = (270, 60, 60, 70)                            # x, y, w, h
+def test_head_box_from_face():
+    assert suit.head_box(face=(255, 30, 90, 90)) == (255, 30, 90, 90)
 
 
-def _body_with_raised_arm():
-    """Silhouette: head, torso and the left arm raised up and to the side."""
-    mask = blank()
-    mask[40:140, 260:340] = 255                     # head
-    mask[140:400, 220:380] = 255                    # torso
-    mask[60:200, 120:180] = 255                     # raised upper arm, beside the head
-    mask[180:220, 120:240] = 255                    # shoulder joint
-    return mask
+def test_head_box_from_bbox_is_at_the_top():
+    bbox = (200, 35, 160, 300)
+    hx, hy, hw, hh = suit.head_box(bbox=bbox)
+    assert hy == 35                      # starts at the top of the player
+    assert hh < 300 * 0.5                # only the head, not the whole body
+    assert 200 <= hx <= 360
 
 
-def test_suit_region_covers_the_raised_arm():
-    region = suit.suit_region(_body_with_raised_arm(), FACE)
-    assert region[100, 150] == 255                  # arm above shoulder height
-    assert region[300, 300] == 255                  # torso
-
-
-def test_suit_region_leaves_the_head_free():
-    region = suit.suit_region(_body_with_raised_arm(), FACE)
-    assert region[90, 300] == 0                     # face
-    assert region[45, 300] == 0                     # hair above the face
-
-
-def test_suit_region_keeps_hands_and_pen_visible():
-    mask = _body_with_raised_arm()
-    keep = blank()
-    keep[60:80, 120:180] = 255                      # hand (skin) or pen at the arm's end
-    region = suit.suit_region(mask, FACE, keep)
-    assert region[70, 150] == 0
-    assert region[120, 150] == 255
-
-
-def test_suit_region_without_face_starts_below_the_head():
-    mask = blank()
-    mask[50:400, 200:400] = 255
-    region = suit.suit_region(mask, None)
-    assert region[60, 300] == 0                     # top of the silhouette = head
-    assert region[350, 300] == 255
-
-
-def test_skin_is_detected_but_suit_fabric_is_not():
-    frame = np.zeros((100, 200, 3), np.uint8)
-    frame[:, :100] = (120, 150, 200)                # BGR skin tone
-    frame[:, 100:] = (200, 60, 40)                  # blue jumper
-    skin = suit.skin_mask(frame)
-    assert skin[50, 50] == 255
-    assert skin[50, 150] == 0
-
-
-def test_fabric_is_light_and_keeps_the_folds():
-    frame = np.full((200, 200, 3), (40, 80, 160), np.uint8)    # dark red shirt
-    frame[:, 95:105] = (20, 40, 80)                            # a fold (darker stripe)
-    region = np.zeros((200, 200), np.uint8)
-    region[20:180, 20:180] = 255
-    out = suit.paint_fabric(frame.copy(), region)
-    assert out[100, 60].mean() > 150                           # suit is light
-    assert abs(int(out[100, 60, 0]) - int(out[100, 60, 2])) < 30   # and nearly grey/white
-    assert out[100, 100].mean() < out[100, 60].mean()          # fold still visible
-    assert (out[5, 5] == frame[5, 5]).all()                    # outside untouched
-
-
-def test_fabric_is_opaque_the_shirt_pattern_does_not_show_through():
-    frame = np.zeros((200, 200, 3), np.uint8)
-    frame[:, ::8] = 255                                        # high-contrast striped shirt
-    frame[:, 1::8] = 255
-    region = np.zeros((200, 200), np.uint8)
-    region[20:180, 20:180] = 255
-    out = suit.paint_fabric(frame.copy(), region)
-    inner = out[60:140, 60:140].astype(np.float32).mean(axis=2)
-    assert inner.std() < 15                                    # stripes almost gone
-
-
-def test_texture_replaces_the_fabric_colour():
-    frame = np.full((200, 200, 3), 60, np.uint8)
-    region = np.zeros((200, 200), np.uint8)
-    region[20:180, 20:180] = 255
-    texture = np.zeros((50, 50, 3), np.uint8)
-    texture[:] = (30, 30, 200)                                 # red suit (BGR)
-    out = suit.paint_fabric(frame.copy(), region, texture)
-    b, g, r = out[100, 100].astype(int)
-    assert r > 150 and r > b + 80 and r > g + 80               # red, not white
-    assert (out[5, 5] == 60).all()                             # outside untouched
-
-
-def test_texture_is_stretched_over_the_player():
-    frame = np.full((200, 300, 3), 60, np.uint8)
-    region = np.zeros((200, 300), np.uint8)
-    region[20:180, 50:250] = 255
-    texture = np.zeros((40, 40, 3), np.uint8)
-    texture[:, :20] = (30, 30, 200)                            # left half red
-    texture[:, 20:] = (200, 30, 30)                            # right half blue
-    out = suit.paint_fabric(frame.copy(), region, texture)
-    assert out[100, 90, 2] > out[100, 90, 0]                   # left side of the body red
-    assert out[100, 210, 0] > out[100, 210, 2]                 # right side blue
-
-
-def test_texture_starts_at_the_chin_not_at_the_top_of_the_silhouette():
-    """Raised arms make the silhouette taller -- the suit image must still start at the neck."""
-    frame = np.full((300, 300, 3), 60, np.uint8)
-    region = np.zeros((300, 300), np.uint8)
-    region[20:280, 50:250] = 255                               # silhouette from y=20 (raised arms)
-    texture = np.zeros((40, 40, 3), np.uint8)
-    texture[:20] = (30, 30, 200)                               # upper half red (chest)
-    texture[20:] = (200, 30, 30)                               # lower half blue (belt, legs)
-    out = suit.paint_fabric(frame.copy(), region, texture, top=120)
-    assert out[140, 150, 2] > out[140, 150, 0]                 # just below the chin: red chest
-    assert out[260, 150, 0] > out[260, 150, 2]                 # bottom: blue
-    assert out[60, 150, 2] > 30 and out[60, 150, 0] > 30       # above the chin: suit base colour
-
-
-def test_details_only_on_the_default_suit_not_on_a_custom_one():
-    frame = np.full((400, 600, 3), 60, np.uint8)
-    mask = blank()
-    mask[40:400, 150:450] = 255
-    face = (270, 60, 60, 70)
-    details = np.zeros((480, 400, 4), np.uint8)
-    details[:, :] = (0, 255, 0, 255)                           # bright green, fully opaque
-    texture = np.full((50, 50, 3), (30, 30, 200), np.uint8)    # red custom suit
-    with_default = suit.dress(frame.copy(), mask, details, face)
-    with_custom = suit.dress(frame.copy(), mask, details, face, texture=texture)
-    green = lambda img: ((img[:, :, 1] > 200) & (img[:, :, 2] < 50)).sum()
-    assert green(with_default) > 0
-    assert green(with_custom) == 0
-
-
-def test_load_texture(tmp_path):
-    assert suit.load_texture(str(tmp_path / "fehlt.png")) is None
-    rgba = np.zeros((20, 20, 4), np.uint8)
-    rgba[:, :, :3] = (30, 30, 200)
-    rgba[5:15, 5:15, 3] = 255                                  # suit in the middle, rest transparent
-    path = tmp_path / "anzug.png"
-    cv2.imwrite(str(path), rgba)
-    tex = suit.load_texture(str(path))
-    assert tex.shape == (20, 20, 3)
-    assert (tex[0, 0] == (30, 30, 200)).all()                  # transparent area filled with suit colour
+# --------------------------------------------------------------------------- #
+# Fabric
+# --------------------------------------------------------------------------- #
+def test_fabric_is_light_and_opaque():
+    frame = np.full((H, W, 3), 40, np.uint8)           # dark shirt
+    region = _blank()
+    cv2.rectangle(region, (200, 150), (360, 290), 255, -1)
+    suit.paint_fabric(frame, region)
+    assert int(frame[220, 280].mean()) > 170           # fabric is bright
+    assert int(frame[5, 5].mean()) == 40               # background untouched
 
 
 def test_fabric_is_darker_at_the_edge_than_in_the_middle():
+    frame = np.full((H, W, 3), 100, np.uint8)
+    region = _blank()
+    cv2.rectangle(region, (200, 150), (360, 290), 255, -1)
+    suit.paint_fabric(frame, region)
+    middle = int(frame[220, 280, 0])
+    near_edge = int(frame[220, 208, 0])
+    assert middle > near_edge + 15                     # rounded, tube-like shading
+
+
+# --------------------------------------------------------------------------- #
+# Chest panel placement + animation
+# --------------------------------------------------------------------------- #
+def test_chest_rect_scales_with_the_face():
+    small = suit.chest_rect(bbox=None, face=(280, 40, 40, 40))
+    big = suit.chest_rect(bbox=None, face=(280, 40, 80, 80))
+    assert big[2] > small[2]
+    assert suit.chest_rect(bbox=None, face=None) is None
+
+
+def test_chest_panel_leds_blink_over_time():
+    rect = (250, 120, 120, 150)
+    a = np.full((H, W, 3), 180, np.uint8)
+    b = a.copy()
+    suit.draw_chest_panel(a, rect, phase=0.0)
+    suit.draw_chest_panel(b, rect, phase=0.9)
+    assert not np.array_equal(a, np.full((H, W, 3), 180, np.uint8))   # something was drawn
+    assert not np.array_equal(a[135:210, 290:350], b[135:210, 290:350])  # LEDs animated
+
+
+# --------------------------------------------------------------------------- #
+# Helmet (shell + visor) + animation
+# --------------------------------------------------------------------------- #
+def test_helmet_has_light_shell_and_dark_visor():
     frame = np.full((200, 200, 3), 120, np.uint8)
-    region = np.zeros((200, 200), np.uint8)
-    region[20:180, 20:180] = 255
-    out = suit.paint_fabric(frame.copy(), region)
-    assert out[100, 22].mean() < out[100, 100].mean()          # rounded, tube-like look
+    suit.draw_helmet(frame, head=(60, 20, 80, 95), phase=0.0)
+    assert int(frame[8, 100].mean()) > 190             # shell top is bright metal
+    assert int(frame[70, 100].mean()) < 120            # visor glass is dark
 
 
-def test_dress_moves_with_the_arm():
-    """Same body, arm down vs. arm up: the suit follows the arm."""
-    frame = np.full((400, 600, 3), 60, np.uint8)
-    up = _body_with_raised_arm()
-    down = blank()
-    down[40:140, 260:340] = 255
-    down[140:400, 220:380] = 255
-    down[180:380, 160:220] = 255                    # arm hanging down
-    out_up = suit.dress(frame.copy(), up, suit.load_suit(), FACE)
-    out_down = suit.dress(frame.copy(), down, suit.load_suit(), FACE)
-    assert out_up[100, 150].mean() > 120 and out_down[100, 150].mean() == 60
-    assert out_down[300, 190].mean() > 120 and out_up[300, 190].mean() == 60
+def test_helmet_visor_sheen_is_animated():
+    base = np.full((200, 200, 3), 120, np.uint8)
+    a, b = base.copy(), base.copy()
+    suit.draw_helmet(a, head=(60, 20, 80, 95), phase=0.0)
+    suit.draw_helmet(b, head=(60, 20, 80, 95), phase=1.2)
+    assert not np.array_equal(a[70:120, 70:130], b[70:120, 70:130])  # moving sheen
 
 
-# --------------------------------------------------------------------------- #
-# Sprite asset
-# --------------------------------------------------------------------------- #
-def test_sprite_is_generated_once_with_alpha(tmp_path):
-    path = tmp_path / "assets" / "suit.png"
-    sprite = suit.load_suit(str(path))
-    assert path.exists()
-    assert sprite.ndim == 3 and sprite.shape[2] == 4
-    h, w = sprite.shape[:2]
-    assert sprite[0, 0, 3] == 0                     # transparent corner
-    assert sprite[190, 200, 3] == 255               # opaque chest panel
-    # the suit fabric itself comes from the silhouette, so the sprite only holds
-    # the details (collar, panel, patch) -- the lower torso is transparent
-    assert sprite[int(h * 0.85), w // 2, 3] == 0
-    again = suit.load_suit(str(path))               # loaded from file the second time
-    assert np.array_equal(again, sprite)
+def test_helmet_without_head_is_a_noop():
+    frame = np.full((50, 50, 3), 10, np.uint8)
+    out = suit.draw_helmet(frame, head=None)
+    assert np.array_equal(out, np.full((50, 50, 3), 10, np.uint8))
 
 
 # --------------------------------------------------------------------------- #
-# Alpha overlay
+# RectSmoother
 # --------------------------------------------------------------------------- #
-def _sprite(h=40, w=40):
-    s = np.zeros((h, w, 4), np.uint8)
-    s[:, :, :3] = 200
-    s[10:30, 10:30, 3] = 255                        # opaque square in the middle
-    return s
+def test_smoother_damps_small_moves():
+    s = suit.RectSmoother(factor=0.5)
+    s.update((100, 100, 40, 60))
+    x, y, w, h = s.update((120, 100, 40, 60))
+    assert 100 < x < 120                               # eased towards the new x
 
 
-def test_overlay_without_rect_leaves_frame_unchanged():
-    frame = np.full((100, 100, 3), 50, np.uint8)
-    out = suit.overlay_suit(frame.copy(), _sprite(), None)
-    assert np.array_equal(out, frame)
+def test_smoother_jumps_for_a_big_move():
+    s = suit.RectSmoother(factor=0.5)
+    s.update((100, 100, 40, 60))
+    x, _, _, _ = s.update((300, 100, 40, 60))          # > half width away
+    assert x == 300                                    # taken over immediately
 
 
-def test_overlay_draws_opaque_and_keeps_transparent_pixels():
-    frame = np.full((100, 100, 3), 50, np.uint8)
-    out = suit.overlay_suit(frame.copy(), _sprite(), (20, 20, 40, 40))
-    assert (out[40, 40] == 200).all()               # opaque part of the sprite
-    assert (out[22, 22] == 50).all()                # transparent part
-    assert (out[5, 5] == 50).all()                  # outside the rect
+def test_smoother_resets_when_player_gone():
+    s = suit.RectSmoother()
+    s.update((100, 100, 40, 60))
+    assert s.update(None) is None
+    assert s._xy is None
 
 
-def test_overlay_partly_outside_the_frame_does_not_crash():
-    frame = np.full((100, 100, 3), 50, np.uint8)
-    out = suit.overlay_suit(frame.copy(), _sprite(), (80, 80, 40, 40))
-    assert out.shape == frame.shape
-    assert (out[95, 95] == 200).all()
-    out = suit.overlay_suit(frame.copy(), _sprite(), (200, 200, 40, 40))   # fully outside
-    assert np.array_equal(out, frame)
+# --------------------------------------------------------------------------- #
+# dress (top level)
+# --------------------------------------------------------------------------- #
+def test_dress_puts_fabric_on_the_body_and_a_helmet_on_the_head():
+    frame = np.full((H, W, 3), 50, np.uint8)
+    mask = _body()
+    face = (255, 35, 90, 90)
+    suit.dress(frame, mask, face=face, phase=0.3)
+    assert int(frame[220, 300].mean()) > 150           # torso is now fabric
+    assert int(frame[70, 300, 0]) != 50                # head area changed (helmet)
+    assert int(frame[380, 20].mean()) == 50            # far background untouched
 
 
-def test_dress_puts_the_suit_on_the_player():
-    frame = np.full((400, 600, 3), 50, np.uint8)
-    mask = blank()
-    mask[100:400, 200:400] = 255
-    out = suit.dress(frame.copy(), mask, _sprite(), face=(270, 100, 60, 60))
-    assert not np.array_equal(out, frame)
-    assert (out[:, :150] == 50).all()               # nothing next to the player
-
-
-def test_dress_without_player_changes_nothing():
-    frame = np.full((400, 600, 3), 50, np.uint8)
-    out = suit.dress(frame.copy(), blank(), _sprite(), face=None)
-    assert np.array_equal(out, frame)
-
-
-def test_overlay_only_on_the_player_silhouette():
-    frame = np.full((100, 100, 3), 50, np.uint8)
-    mask = np.zeros((100, 100), np.uint8)
-    mask[:, :40] = 255                              # player only on the left side
-    out = suit.overlay_suit(frame.copy(), _sprite(), (20, 20, 40, 40), mask)
-    assert (out[35, 35] == 200).all()               # suit on the player
-    assert (out[45, 45] == 50).all()                # no suit on the background
+def test_dress_without_player_changes_nothing_and_resets():
+    frame = np.full((H, W, 3), 50, np.uint8)
+    smoother = suit.RectSmoother()
+    smoother.update((100, 100, 40, 60))
+    out = suit.dress(frame, _blank(), smoother=smoother)
+    assert np.array_equal(out, np.full((H, W, 3), 50, np.uint8))
+    assert smoother._xy is None

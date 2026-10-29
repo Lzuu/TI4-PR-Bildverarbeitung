@@ -8,8 +8,8 @@ import cv2
 import numpy as np
 
 from background import (foreground_mask, composite_space, load_space,
-                        greenscreen_mask, next_mode, MODES,
-                        MODE_GREENSCREEN, MODE_NORMAL, MODE_OFF)
+                        greenscreen_mask, next_mode, MODES, MODE_LABELS,
+                        MODE_GREENSCREEN, MODE_NORMAL, MODE_OFF, MODE_YOLO)
 
 H, W = 120, 160
 
@@ -158,8 +158,9 @@ def test_greenscreen_keys_out_off_shade_and_shadowed_green():
 # --------------------------------------------------------------------------- #
 # Background mode selection
 # --------------------------------------------------------------------------- #
-def test_modes_are_the_three_options():
-    assert set(MODES) == {MODE_GREENSCREEN, MODE_NORMAL, MODE_OFF}
+def test_modes_are_the_four_options():
+    assert set(MODES) == {MODE_GREENSCREEN, MODE_NORMAL, MODE_YOLO, MODE_OFF}
+    assert all(m in MODE_LABELS for m in MODES)       # every mode has a menu label
 
 
 def test_next_mode_cycles_through_all_and_wraps():

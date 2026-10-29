@@ -34,6 +34,23 @@ def saber_at(point, blade_length=None, hilt_length=None):
     return Saber((x, y), (x, y + blade_length), (x, y + blade_length + hilt_length))
 
 
+_SKIN_KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+
+
+def skin_mask(frame):
+    """Skin-coloured pixels (YCrCb range), used to find the hand holding the pen.
+
+    Computed at half resolution (4x fewer pixels, the mask is coarse anyway) on
+    the raw camera image -- so the hand is found even when the suit shows it as
+    a glove. Clothes in skin tones count as skin too (known limitation).
+    """
+    h, w = frame.shape[:2]
+    small = cv2.resize(frame, (w // 2, h // 2), interpolation=cv2.INTER_AREA)
+    skin = cv2.inRange(cv2.cvtColor(small, cv2.COLOR_BGR2YCrCb), (0, 133, 77), (255, 173, 127))
+    skin = cv2.morphologyEx(skin, cv2.MORPH_OPEN, _SKIN_KERNEL)
+    return cv2.resize(cv2.dilate(skin, _SKIN_KERNEL), (w, h), interpolation=cv2.INTER_NEAREST)
+
+
 def find_hand(skin, tip, radius, exclude=None, min_area=None, hand_size=None):
     """Where the hand holding the pen is, or None.
 

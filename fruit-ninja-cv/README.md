@@ -62,15 +62,24 @@ gespeichert und beim nächsten Start wieder verwendet. Die Kameras werden einmal
 beim Start gesucht (ca. 1 s je Kamera).
 
 ## Raumanzug
-Ist der Weltraum-Hintergrund aktiv (Taste `b`), trägt der freigestellte Spieler einen
-**Raumanzug, der sich mit Armen und Körper bewegt**: Die eigene Silhouette wird zu
-weißem, deckendem Anzugstoff (die Falten der echten Kleidung bleiben leicht sichtbar).
-**Eigener Anzug:** ein Bild als `textures/suit.png` ablegen – es wird statt des weißen
-Stoffs auf den Körper gestreckt (Details in `textures/README.md`). Kopf, Hände und
-der Stift bleiben frei. Kragen, Brustpanel und Abzeichen sitzen am Gesicht. Die Details
-liegen in `assets/suit_details.png` (wird beim ersten Start erzeugt, darf durch eine
-eigene PNG mit Transparenz ersetzt werden). Abschalten: `SUIT_ENABLED = False` in
-`config.py`.
+Ist der Weltraum-Hintergrund aktiv (ein Hintergrund-Modus außer „Aus"), wird der
+freigestellte Spieler zum **animierten Astronauten** – der **ganze Körper** wird
+Anzug, nicht nur die Kleidung:
+- Die komplette Silhouette (Rumpf, **Arme bis zu den Handschuhen**) wird zu weißem,
+  deckendem Anzugstoff, der sich mit dem Körper bewegt; zur Silhouettenkante hin
+  dunkler (runde, „schlauchartige" Gliedmaßen).
+- Über dem Kopf sitzt ein **Helm** mit metallischer Schale und dunklem **Visier**,
+  über das ein **Glanz-Reflex wandert**; oben blinkt ein kleines Antennenlicht.
+- Auf der Brust ein **Steuerpanel mit blinkenden LEDs**.
+- Nur der **Stift** bleibt sichtbar (Controller). Rein prozedural (keine Bilddatei),
+  die Animation läuft über die Zeit. Abschalten: `SUIT_ENABLED = False` in `config.py`.
+
+**Hintergrund-Modi** (Button „Hintergrund" im Menü, links über „Stiftfarbe"):
+`Greenscreen` (Chroma-Key), `Normal` (Referenz per Taste `b`), **`YOLO`** und `Aus`.
+Im **`YOLO`-Modus** erkennt eine YOLOv8-seg-Personensegmentierung (ONNX über `cv2.dnn`,
+kein `torch`) den Körper – das stellt den Spieler **ohne Greenscreen und ohne Referenz**
+frei und zieht ihm den Anzug an. Das Modell (`yolov8n-seg.onnx`, ~13 MB) lädt das Spiel
+beim ersten Start nach `models/`; fehlt es, fällt der Modus auf „Aus" zurück.
 
 ## Lichtschwert
 Am Stift erscheint ein **Lichtschwert**. Seine Länge pendelt sich in den ersten Sekunden so
@@ -125,7 +134,7 @@ pytest
 | `tests/test_highscore.py` | Top-3 je Schwierigkeit, Ranking, Spielername, alte Dateien, defekte Datei |
 | `tests/test_face_id.py` | Gesichtsdetektion, Wiedererkennung auf anderem Foto, Gast, Scan im Kreis, Einlernen, Startablauf |
 | `tests/test_lightsaber.py` | Feste Länge, Spitze am Stift, Richtung zur Hand, Handsuche (Gesicht ignoriert), kein Springen bei Ausreißern, sanfte Rückkehr, dicker Strahl |
-| `tests/test_suit.py` | Spieler-Box/Schwerpunkt, Anzug folgt dem erhobenen Arm, Kopf/Hände/Stift bleiben frei, Stoff mit Falten und Rundung, Details am Gesicht, Overlay, Glättung, Sprite |
+| `tests/test_suit.py` | Spieler-Box/Schwerpunkt, Ganzkörper-Region (Kopf/Hände dabei, Stift frei), Stoff hell/rund, Helm (Schale/Visier) + animierter Glanz, Brustpanel mit blinkenden LEDs, Glättung |
 | `tests/test_keyboard.py` | Bildschirmtastatur: Layout, Großschreibung, Löschen, Leerzeichen, Länge, echte Tastatur |
 
 ## Tuning
@@ -150,9 +159,10 @@ Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.p
 | `fruit.py` | Frucht-/Bomben-Projektil-Physik + Zeichnung |
 | `game.py` | Spawning, Kollision, Score, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve) für die Lebensanzeige |
-| `background.py` | Spieler freistellen, Weltraum-Hintergrund |
+| `background.py` | Spieler freistellen, Weltraum-Hintergrund (Modi: greenscreen/normal/yolo/off) |
+| `suit.py` | Animierter Ganzkörper-Raumanzug (Helm, Visier-Glanz, Brust-LEDs) |
+| `yolo_seg.py` | Personensegmentierung (YOLOv8-seg, ONNX via `cv2.dnn`) für den `yolo`-Modus |
 | `lightsaber.py` | Stift als Lichtschwert |
-| `suit.py` | Raumanzug aus der Silhouette (bewegt sich mit) |
 | `cameras.py` | Kameras finden, öffnen, wechseln, Auswahl speichern |
 | `highscore.py` | Top-3 je Schwierigkeit mit Spielername (JSON-Persistenz) |
 | `face_id.py` | Spielererkennung (YuNet + SFace), Scan im Kreis, Einlernen |

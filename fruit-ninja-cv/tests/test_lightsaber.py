@@ -213,3 +213,13 @@ def test_draw_tilted_saber():
     assert frame[int(hy), int(hx)].mean() < 120                    # dark hilt
     bx, by = _mid(s.tip, s.hilt_top)
     assert frame[int(by), int(bx)].min() > 200                     # bright blade
+
+
+def test_skin_mask_finds_skin_but_not_clothes():
+    frame = np.zeros((100, 200, 3), np.uint8)
+    frame[:, :100] = (120, 150, 200)                               # BGR skin tone
+    frame[:, 100:] = (200, 60, 40)                                 # blue jumper
+    skin = lightsaber.skin_mask(frame)
+    assert skin.shape == (100, 200)
+    assert skin[50, 50] == 255
+    assert skin[50, 150] == 0

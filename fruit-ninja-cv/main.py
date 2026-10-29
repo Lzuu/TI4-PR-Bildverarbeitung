@@ -32,6 +32,7 @@ import config
 import background
 import suit
 import lightsaber
+import yolo_seg
 from marker_tracker import MarkerTracker
 from blade import Blade
 from game import Game
@@ -517,10 +518,8 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     # capture would bake their silhouette into the background. They press 'b'
     # (then step out during the countdown) to grab a clean empty background.
     space_img = background.load_space((config.WIDTH, config.HEIGHT))
-    suit_img = suit.load_suit() if config.SUIT_ENABLED else None
     suit_smoother = suit.RectSmoother()
     saber = lightsaber.SaberTracker()
-    suit_texture = suit.load_texture() if config.SUIT_ENABLED else None   # textures/suit.png
     reference = None
     reference_camera = None          # camera the reference was taken with
     bg_capture_at = None
@@ -528,6 +527,9 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     if bg_mode not in background.MODES:
         bg_mode = config.BG_MODE
     logger.info("Background mode: %s", bg_mode)
+    # YOLO body segmenter for the "yolo" mode (downloaded on first use); None if
+    # the model is unavailable, then the mode falls back like "off".
+    segmenter = yolo_seg.create_segmenter() if config.YOLO_ENABLED else None
 
     while True:
         ok, frame = cap.read()
@@ -549,7 +551,6 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
         clean = frame.copy()
 
         face_box = None              # face found this frame (shared by suit and saber)
-        skin = None                  # skin mask this frame (shared by suit and saber)
         # --- space background: capture the reference, then cut the player out ---
         if bg_capture_at is not None and time.monotonic() >= bg_capture_at:
             reference = clean.copy()
@@ -563,21 +564,19 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             mask = None
             if bg_mode == background.MODE_GREENSCREEN:
                 mask = background.greenscreen_mask(clean, scale=config.GREEN_SCALE)
-            elif reference is not None:          # normal mode needs the empty reference
+            elif bg_mode == background.MODE_YOLO and segmenter is not None:
+                mask = segmenter.segment(clean)      # person mask, no green screen needed
+            elif bg_mode == background.MODE_NORMAL and reference is not None:
                 mask = background.foreground_mask(clean, reference)
             if mask is not None:
                 frame = background.composite_space(frame, mask, space_img)
-                if suit_img is not None:
-                    # anchor the suit at the face (if one is seen) -- detection only, ~3 ms
+                if config.SUIT_ENABLED:
+                    # place the helmet at the face (if one is seen) -- detection only, ~3 ms
                     face_box = (identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
                                 if identifier is not None else None)
-                    # hands (skin) and the pen stay visible instead of becoming fabric
-                    skin = suit.skin_mask(clean)
-                    keep = skin
-                    if tracker.last_mask is not None:
-                        keep = cv2.bitwise_or(keep, tracker.last_mask)
-                    frame = suit.dress(frame, mask, suit_img, face_box, suit_smoother, keep,
-                                       suit_texture)
+                    # the whole body becomes the suit; only the pen stays visible
+                    frame = suit.dress(frame, mask, face_box, tracker.last_mask,
+                                       time.monotonic(), suit_smoother)
 
         quit_requested = False
         point = None                 # tracked pen point this frame (set by the states)
@@ -797,6 +796,10 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             draw_text(frame, "Taste b: Weltall-Hintergrund",
                       (config.WIDTH // 2, int(config.HEIGHT * 0.96)),
                       scale=0.5, center=True)
+        elif bg_mode == background.MODE_YOLO and segmenter is None:
+            draw_text(frame, "YOLO-Modell nicht verfuegbar", (config.WIDTH // 2,
+                      int(config.HEIGHT * 0.96)), scale=0.5, color=(80, 80, 255),
+                      center=True)
 
         if show_mask and tracker.last_mask is not None:
             cv2.imshow("mask (debug)",
@@ -808,8 +811,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             # the face is excluded so it is never taken for the hand
             if face_box is None and identifier is not None and point is not None:
                 face_box = identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
-            if skin is None and point is not None:
-                skin = suit.skin_mask(clean)
+            skin = lightsaber.skin_mask(clean) if point is not None else None
             lightsaber.draw_saber(frame, saber.update(point, skin, face_box), pen_color.display)
 
         cv2.imshow(config.WINDOW_NAME, frame)
