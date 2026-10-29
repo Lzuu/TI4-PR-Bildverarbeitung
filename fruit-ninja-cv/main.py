@@ -530,6 +530,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     # YOLO body segmenter for the "yolo" mode (downloaded on first use); None if
     # the model is unavailable, then the mode falls back like "off".
     segmenter = yolo_seg.create_segmenter() if config.YOLO_ENABLED else None
+    mode_session = 0                 # +1 on every background mode change (YOLO cache source)
 
     while True:
         ok, frame = cap.read()
@@ -569,7 +570,11 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             if bg_mode == background.MODE_GREENSCREEN:
                 mask = background.greenscreen_mask(clean, scale=config.GREEN_SCALE)
             elif bg_mode == background.MODE_YOLO and segmenter is not None:
-                mask = segmenter.segment(clean)      # person mask, no green screen needed
+                # person mask, no green screen needed; the cache is bound to the
+                # current camera and mode session (#41, CR-10)
+                mask = segmenter.segment(clean, source=(cap.index, mode_session))
+                if segmenter.failed:
+                    segmenter = None                 # off for good, other modes keep working
             elif bg_mode == background.MODE_NORMAL and reference is not None:
                 mask = background.foreground_mask(clean, reference)
             if mask is not None:
@@ -609,6 +614,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                                                    config.WIDTH, config.HEIGHT)
                 if new_mode != bg_mode:          # click cycled the background mode
                     bg_mode = new_mode
+                    mode_session += 1
                     cameras.save_background_mode(config.SETTINGS_FILE, bg_mode)
                     logger.info("Background mode set to %s (mouse)", bg_mode)
                     settings_open = False
