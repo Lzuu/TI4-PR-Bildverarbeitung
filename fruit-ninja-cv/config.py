@@ -118,6 +118,7 @@ FACE_MATCH_THRESHOLD = 0.363     # Cosine similarity for "same person" (SFace re
 FACE_INPUT_WIDTH = 640           # Frames are downscaled to this width before detection
 FACE_VOTES_NEEDED = 5            # Frames recognising the same player needed to accept
 FACE_SCAN_CROPS = 8              # Face crops recorded for a new player
+FACE_SCAN_GAP = 0.5              # Face out of the circle longer than this: scan starts over
 FACE_SCAN_INTERVAL = 0.3         # Seconds between two recorded crops (head may move a bit)
 FACE_SCAN_RADIUS = 150           # Radius of the "face here" circle (scaled with SCALE)
 FACE_GREETING_SECONDS = 1.5      # How long "Hallo, <Name>!" is shown

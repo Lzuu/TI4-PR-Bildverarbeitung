@@ -65,9 +65,10 @@ class FakeClock:
 CROP = np.zeros((112, 112, 3), np.uint8)
 
 
-def _scanner(clock, crops=3, votes=3, interval=0.3):
+def _scanner(clock, crops=3, votes=3, interval=0.3, gap=None):
+    kw = {} if gap is None else {"gap_tolerance": gap}
     return face_id.FaceScanner(crops_needed=crops, votes_needed=votes, interval=interval,
-                               time_fn=clock)
+                               time_fn=clock, **kw)
 
 
 def test_scan_recognises_known_player_after_enough_frames():
@@ -283,3 +284,63 @@ def test_ensure_models_rejects_corrupt_file(tmp_path):
         (tmp_path / model.filename).write_bytes(b"kaputt")
     with pytest.raises(RuntimeError):
         face_id.ensure_models(str(tmp_path), download=False)
+
+
+# -- CR-03 (#41): one enrolment session = one continuous person --------------
+def _crop(value):
+    return np.full((112, 112, 3), value, np.uint8)
+
+
+def test_scan_resets_after_a_real_interruption():
+    clock = FakeClock()
+    scan = _scanner(clock, crops=5, interval=0.3, gap=0.5)
+    for i in range(2):
+        clock.t = i * 0.4
+        scan.update(True, face_id.GUEST, _crop(10))      # two crops of person A
+    clock.t = 1.0
+    scan.update(False, None, None)                       # left the circle ...
+    clock.t = 2.0
+    scan.update(False, None, None)                       # ... for a whole second
+    clock.t = 2.1
+    scan.update(True, face_id.GUEST, _crop(200))
+    assert [c.mean() for c in scan.crops] == [200]       # old crops discarded
+
+
+def test_person_a_leaves_and_b_enters_gives_no_mixed_profile():
+    clock = FakeClock()
+    scan = _scanner(clock, crops=3, interval=0.3, gap=0.5)
+    for i in range(2):
+        clock.t = i * 0.4
+        scan.update(True, face_id.GUEST, _crop(10))      # A
+    clock.t = 1.5
+    scan.update(False, None, None)
+    result = None
+    for i in range(3):
+        clock.t = 3.0 + i * 0.4
+        result = scan.update(True, face_id.GUEST, _crop(200)) or result   # B
+    kind, crops = result
+    assert kind == "new" and [c.mean() for c in crops] == [200, 200, 200]
+
+
+def test_known_votes_are_discarded_after_an_interruption():
+    clock = FakeClock()
+    scan = _scanner(clock, votes=3, gap=0.5)
+    scan.update(True, "Noah", CROP)
+    scan.update(True, "Noah", CROP)                      # 2 of 3 votes
+    clock.t = 0.2
+    scan.update(False, None, None)
+    clock.t = 1.5
+    assert scan.update(True, "Noah", CROP) is None       # starts again from 1 vote
+    assert scan.votes["Noah"] == 1
+
+
+def test_short_detection_dropout_is_tolerated():
+    clock = FakeClock()
+    scan = _scanner(clock, crops=5, interval=0.3, gap=0.5)
+    clock.t = 0.0
+    scan.update(True, face_id.GUEST, _crop(10))
+    clock.t = 0.2
+    scan.update(False, None, None)                       # one missed frame
+    clock.t = 0.4
+    scan.update(True, face_id.GUEST, _crop(10))
+    assert len(scan.crops) == 2                          # still the same session

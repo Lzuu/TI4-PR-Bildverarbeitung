@@ -147,14 +147,21 @@ class FaceScanner:
     is recorded every ``interval`` seconds, and after ``crops_needed`` crops it is
     a new player. Returns ``("known", name)``, ``("new", crops)`` or ``None``.
     Nothing happens while the face is outside the circle.
+
+    One session belongs to one continuous person: if the face is out of the
+    circle for longer than ``gap_tolerance`` seconds, collected crops and votes
+    are discarded, so a different person cannot continue someone else's scan
+    (#41, CR-03). Shorter gaps (a missed detection) are tolerated.
     """
 
     def __init__(self, crops_needed=config.FACE_SCAN_CROPS,
                  votes_needed=config.FACE_VOTES_NEEDED,
-                 interval=config.FACE_SCAN_INTERVAL, time_fn=time.time):
+                 interval=config.FACE_SCAN_INTERVAL, time_fn=time.time,
+                 gap_tolerance=config.FACE_SCAN_GAP):
         self.crops_needed = crops_needed
         self.votes_needed = votes_needed
         self.interval = interval
+        self.gap_tolerance = gap_tolerance
         self._time = time_fn
         self.reset()
 
@@ -162,6 +169,7 @@ class FaceScanner:
         self.votes = Counter()
         self.crops = []
         self._last_crop = None
+        self._left_at = None             # when the face left the circle
 
     @property
     def progress(self):
@@ -169,14 +177,21 @@ class FaceScanner:
         return min(1.0, max(best_vote, len(self.crops) / self.crops_needed))
 
     def update(self, in_circle, name, crop):
+        now = self._time()
         if not in_circle:
+            if self._left_at is None:
+                self._left_at = now
+            elif now - self._left_at > self.gap_tolerance:
+                self.reset()             # real interruption: start a new session
             return None
+        if self._left_at is not None and now - self._left_at > self.gap_tolerance:
+            self.reset()
+        self._left_at = None
         if name is not None and name != GUEST:
             self.votes[name] += 1
             if self.votes[name] >= self.votes_needed:
                 return "known", name
             return None
-        now = self._time()
         if self._last_crop is None or now - self._last_crop >= self.interval:
             self.crops.append(crop)
             self._last_crop = now
