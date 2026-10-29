@@ -1,7 +1,10 @@
 """The blade: a short trail of the most recent hand positions.
 
-The segment between the two most recent points is used for slicing; the whole
-trail is drawn as a glowing streak.
+Two things are kept apart: the *visible* trail (``points``, drawn as a glowing
+streak, allowed to fade out after the pen is lost) and the *live* measurements
+used for slicing (``_live``). When the pen is lost, the live track ends at once
+-- no cut from a stale position -- and a reacquired pen starts a new track, so
+no segment is ever drawn across the gap (#41, CR-01).
 """
 
 import math
@@ -14,25 +17,30 @@ import config
 
 class Blade:
     def __init__(self):
-        self.points = deque(maxlen=config.TRAIL_LENGTH)
+        self.points = deque(maxlen=config.TRAIL_LENGTH)   # visible trail
+        self._live = deque(maxlen=2)                      # current measurements (slicing)
 
     def reset(self):
         self.points.clear()
+        self._live.clear()
 
     def add(self, point):
-        """Add a hand point, or ``None`` to break the trail when the hand is lost."""
+        """Add a hand point, or ``None`` when the hand is lost in this frame."""
         if point is None:
-            # Lose the trail quickly so a reappearing hand does not "teleport-cut"
+            self._live.clear()               # no current measurement: no collision
             if self.points:
-                self.points.popleft()
+                self.points.popleft()        # visible trail fades out
             return
+        if not self._live:
+            self.points.clear()              # new track: no streak across the gap
+        self._live.append(point)
         self.points.append(point)
 
     def segment(self):
-        """Return (prev, cur) of the last two points, or ``None``."""
-        if len(self.points) < 2:
+        """Return (prev, cur) of the last two live points, or ``None``."""
+        if len(self._live) < 2:
             return None
-        return self.points[-2], self.points[-1]
+        return self._live[-2], self._live[-1]
 
     def speed(self):
         """Pixel distance covered in the last step (0 if not enough points)."""
@@ -51,8 +59,8 @@ class Blade:
         return math.atan2(by - ay, bx - ax)
 
     def current_point(self):
-        """The most recent marker point, or ``None`` if the trail is empty."""
-        return self.points[-1] if self.points else None
+        """The current marker point, or ``None`` if the pen is not seen right now."""
+        return self._live[-1] if self._live else None
 
     def draw(self, frame, glow_color=None):
         """Draw the trail; ``glow_color`` (BGR) e.g. matches the lightsaber colour."""

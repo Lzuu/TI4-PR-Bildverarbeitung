@@ -21,7 +21,8 @@ SCALE = 1.0               # = HEIGHT / REF_HEIGHT, set at runtime
 # Laptop screens (MacBook) expose a ~16:10 usable fullscreen area. We render to
 # this aspect and crop the 16:9 webcam to it, so the window fills the screen
 # (no grey bar) without distorting the video.
-ASPECT = 16 / 10
+ASPECT = 16 / 10          # macOS only; Windows uses the screen's own aspect (CR-08)
+MAX_CANVAS_HEIGHT = 720   # Windows: cap the render height (1440x960 doubles the frame time)
 FULLSCREEN = True         # Open the window in fullscreen
 MIRROR = True             # Flip horizontally so moving right moves the hand right
 WINDOW_NAME = "Fruit Ninja CV"
@@ -118,6 +119,7 @@ FACE_MATCH_THRESHOLD = 0.363     # Cosine similarity for "same person" (SFace re
 FACE_INPUT_WIDTH = 640           # Frames are downscaled to this width before detection
 FACE_VOTES_NEEDED = 5            # Frames recognising the same player needed to accept
 FACE_SCAN_CROPS = 8              # Face crops recorded for a new player
+FACE_SCAN_GAP = 0.5              # Face out of the circle longer than this: scan starts over
 FACE_SCAN_INTERVAL = 0.3         # Seconds between two recorded crops (head may move a bit)
 FACE_SCAN_RADIUS = 150           # Radius of the "face here" circle (scaled with SCALE)
 FACE_GREETING_SECONDS = 1.5      # How long "Hallo, <Name>!" is shown

@@ -4,6 +4,7 @@ Pure, headless logic -- no ONNX model, no camera, no GPU. Synthetic raw-output
 tensors stand in for the network; a FakeNet drives the segmenter.
 """
 
+import cv2
 import numpy as np
 import pytest
 
@@ -166,3 +167,50 @@ def test_create_segmenter_returns_none_without_model(monkeypatch):
 def test_ensure_model_raises_when_missing_and_no_download(tmp_path):
     with pytest.raises(RuntimeError):
         y.ensure_model(model_dir=str(tmp_path), download=False)
+
+
+# -- CR-09 (#41): YOLO failures switch the optional feature off, no crash ----
+class FailingNet(FakeNet):
+    def forward(self, names):
+        self.calls += 1
+        raise cv2.error("inference failed")
+
+
+def test_create_segmenter_returns_none_on_file_errors(monkeypatch):
+    def denied(*a, **k):
+        raise PermissionError("model folder not readable")
+    monkeypatch.setattr(y, "ensure_model", denied)
+    assert y.create_segmenter() is None
+
+
+def test_inference_error_disables_the_segmenter_once(caplog):
+    net = FailingNet(*_blank_outputs())
+    seg = y.BodySegmenter(net, input_size=64, every_n=1)
+    frame = np.zeros((48, 64, 3), np.uint8)
+    assert seg.segment(frame) is None                      # no exception
+    assert seg.failed
+    assert seg.segment(frame) is None                      # no retry every frame
+    assert net.calls == 1
+    errors = [r for r in caplog.records if r.levelname in ("ERROR", "WARNING")]
+    assert len(errors) == 1                                # one summarised log entry
+
+
+# -- CR-10 (#41): mask cache is bound to the camera / mode session -----------
+def test_new_source_gets_a_fresh_inference_despite_the_same_size():
+    net = FakeNet(*_blank_outputs())
+    seg = y.BodySegmenter(net, input_size=64, every_n=10)
+    frame = np.zeros((48, 64, 3), np.uint8)
+    seg.segment(frame, source=("cam", 0))
+    seg.segment(frame, source=("cam", 0))                  # same source: cached
+    assert net.calls == 1
+    seg.segment(frame, source=("cam", 1))                  # camera switched
+    assert net.calls == 2
+
+
+def test_cadence_for_an_unchanged_source_stays_the_same():
+    net = FakeNet(*_blank_outputs())
+    seg = y.BodySegmenter(net, input_size=64, every_n=3)
+    frame = np.zeros((48, 64, 3), np.uint8)
+    for _ in range(6):
+        seg.segment(frame, source=("cam", 0))
+    assert net.calls == 2

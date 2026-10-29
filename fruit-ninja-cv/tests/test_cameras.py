@@ -257,3 +257,37 @@ def test_camera_tiles_fit_on_screen_without_overlap():
         for i, (x, y, tw, th) in enumerate(tiles):
             assert x >= 0 and y >= 0 and x + tw <= w and y + th <= h
             assert all(not _overlap(tiles[i], t) for t in tiles[i + 1:])
+
+
+# -- CR-02 (#41): failed camera switches are handled in a controlled way -----
+class VanishingOpener(FakeOpener):
+    """Camera 0 works for the first open only (e.g. unplugged during the switch)."""
+
+    def __call__(self, index):
+        cap = super().__call__(index)
+        if index == 0:
+            self.cams.pop(0, None)
+        return cap
+
+
+def test_open_skips_a_camera_that_opens_but_delivers_no_picture():
+    cam = cameras.Camera(FakeOpener({0: None, 1: frame()}))     # 0 opens, but no image
+    assert cam.open_first([0, 1])
+    assert cam.index == 1
+
+
+def test_switch_and_rollback_both_failing_does_not_crash(caplog):
+    cam = cameras.Camera(VanishingOpener({0: frame()}))
+    assert cam.open_first([0])
+    assert not cam.switch(1)                                     # 1 missing, 0 gone too
+    ok, img = cam.read()                                         # no AttributeError
+    assert not ok and img is None
+    assert not cam.is_open
+    assert any("no camera" in r.getMessage().lower() for r in caplog.records)
+
+
+def test_switch_failure_with_working_rollback_keeps_running():
+    cam = cameras.Camera(FakeOpener({0: frame(10)}))
+    cam.open_first([0])
+    assert not cam.switch(5)
+    assert cam.is_open and cam.index == 0 and cam.read()[0]

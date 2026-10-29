@@ -151,8 +151,13 @@ class BodySegmenter:
 
     Inference is throttled to every ``every_n``-th frame (it costs ~15 ms); the
     last mask is reused in between, which is fine for an overlay that moves
-    slowly relative to the frame rate.
+    slowly relative to the frame rate. The cached mask belongs to a ``source``
+    (camera / mode session): a new source always gets a fresh inference (#41,
+    CR-10). An inference error switches the segmenter off for good (``failed``)
+    with one log entry instead of crashing the game (#41, CR-09).
     """
+
+    INFERENCE_ERRORS = (cv2.error, ValueError, IndexError)
 
     def __init__(self, net, input_size=None, conf=None, mask_thresh=None, every_n=None):
         self.net = net
@@ -162,6 +167,8 @@ class BodySegmenter:
         self.every_n = max(1, config.YOLO_EVERY_N if every_n is None else every_n)
         self._counter = 0
         self._last = None
+        self._source = None
+        self.failed = False
 
     def _infer(self, frame):
         canvas, px, py, nw, nh = _letterbox(frame, self.input)
@@ -176,14 +183,29 @@ class BodySegmenter:
         crop = small[py:py + nh, px:px + nw]           # drop the letterbox padding
         return cv2.resize(crop, (w, h), interpolation=cv2.INTER_NEAREST)
 
-    def segment(self, frame):
-        """Return the 0/255 player mask for ``frame`` (throttled; reuses last)."""
+    def segment(self, frame, source=None):
+        """Return the 0/255 player mask for ``frame`` (throttled; reuses last).
+
+        ``source`` identifies where the frame comes from (e.g. camera index and
+        mode session); a changed source invalidates the cached mask. Returns
+        None once the segmenter has failed.
+        """
+        if self.failed:
+            return None
         run = (self._counter % self.every_n == 0
                or self._last is None
-               or self._last.shape != frame.shape[:2])
+               or self._last.shape != frame.shape[:2]
+               or source != self._source)
         self._counter += 1
+        self._source = source
         if run:
-            self._last = self._infer(frame)
+            try:
+                self._last = self._infer(frame)
+            except self.INFERENCE_ERRORS:
+                logger.error("Body segmentation (YOLO) failed -- feature switched off",
+                             exc_info=True)
+                self.failed, self._last = True, None
+                return None
         return self._last
 
 
@@ -192,7 +214,7 @@ def create_segmenter():
     try:
         path = ensure_model()
         net = cv2.dnn.readNetFromONNX(path)
-    except (RuntimeError, cv2.error):
+    except (RuntimeError, cv2.error, OSError):    # OSError: folder/file not accessible
         logger.warning("Body segmentation (YOLO) disabled -- model unavailable",
                        exc_info=True)
         return None

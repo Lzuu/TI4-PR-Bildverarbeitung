@@ -278,10 +278,14 @@ def dress(frame, mask, face=None, keep=None, phase=0.0, smoother=None):
         if smoother is not None:
             smoother.update(None)
         return frame
+    protected = keep > 0 if keep is not None else None
+    pen_pixels = frame[protected].copy() if protected is not None else None
     paint_fabric(frame, full_body_region(mask, keep))
     rect = chest_rect(bbox, face)
     if smoother is not None:
         rect = smoother.update(rect)
     draw_chest_panel(frame, rect, phase)
     draw_helmet(frame, head_box(face, bbox), phase)
+    if protected is not None:
+        frame[protected] = pen_pixels    # the pen stays visible in front of helmet/panel too
     return frame

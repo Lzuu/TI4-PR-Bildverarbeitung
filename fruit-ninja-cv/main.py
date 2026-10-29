@@ -39,7 +39,7 @@ from game import Game
 from utils import draw_text
 from logging_config import setup_logging
 from difficulty import LEVELS
-from colors import COLORS
+from colors import COLORS, DEFAULT as DEFAULT_PEN, GRUEN
 from dwell import DwellTracker
 from sound import SoundPlayer
 import cameras
@@ -57,27 +57,61 @@ STATE_PLAY = "play"
 STATE_GAME_OVER = "game_over"
 
 
-def detect_screen_size():
-    """Logical screen size (points) via system_profiler -- no GUI toolkit.
+DEFAULT_SCREEN = (1280, 720)
 
-    Avoids tkinter (which aborts with 'Tcl_FindHashEntry on deleted table' when
-    mixed with OpenCV's Cocoa window on macOS).
+
+def _windows_user32():
+    import ctypes
+    return ctypes.windll.user32
+
+
+def detect_screen_size(platform=None):
+    """Logical screen size of the primary display -- no GUI toolkit.
+
+    Windows: ``GetSystemMetrics`` (logical pixels, i.e. after display scaling,
+    the same units the OpenCV window uses; #41, CR-08). macOS: system_profiler
+    (tkinter aborts with 'Tcl_FindHashEntry on deleted table' when mixed with
+    OpenCV's Cocoa window). Anything else or any failure: ``DEFAULT_SCREEN``.
     """
+    platform = platform or sys.platform
     try:
-        out = subprocess.run(["system_profiler", "SPDisplaysDataType"],
-                             capture_output=True, text=True, timeout=6).stdout
-        m = re.search(r"UI Looks like:\s*(\d+)\s*x\s*(\d+)", out)
-        if m:
-            return int(m.group(1)), int(m.group(2))
-        m = re.search(r"Resolution:\s*(\d+)\s*x\s*(\d+)", out)
-        if m:
-            w, h = int(m.group(1)), int(m.group(2))
-            if w >= 2560:                 # Retina physical -> approximate points
-                w, h = w // 2, h // 2
-            return w, h
+        if platform == "win32":
+            user32 = _windows_user32()
+            w, h = user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
+            if w > 0 and h > 0:
+                return w, h
+        elif platform == "darwin":
+            out = subprocess.run(["system_profiler", "SPDisplaysDataType"],
+                                 capture_output=True, text=True, timeout=6).stdout
+            m = re.search(r"UI Looks like:\s*(\d+)\s*x\s*(\d+)", out)
+            if m:
+                return int(m.group(1)), int(m.group(2))
+            m = re.search(r"Resolution:\s*(\d+)\s*x\s*(\d+)", out)
+            if m:
+                w, h = int(m.group(1)), int(m.group(2))
+                if w >= 2560:                 # Retina physical -> approximate points
+                    w, h = w // 2, h // 2
+                return w, h
     except Exception:
         logger.warning("Screen-size detection failed; using default", exc_info=True)
-    return 1280, 720
+        return DEFAULT_SCREEN
+    logger.warning("Screen size unknown on %s; using default %dx%d", platform, *DEFAULT_SCREEN)
+    return DEFAULT_SCREEN
+
+
+def canvas_size(sw, sh, platform=None):
+    """Render size ``(width, height)`` for a screen of ``sw`` x ``sh``.
+
+    macOS: full screen height at the 16:10 usable fullscreen area (``ASPECT``).
+    Elsewhere the canvas takes the screen's own aspect, so the fullscreen
+    stretch does not distort (#41, CR-08), and its height is capped at
+    ``MAX_CANVAS_HEIGHT`` because the frame time grows with the pixel count.
+    """
+    platform = platform or sys.platform
+    if platform == "darwin":
+        return int(round(sh * config.ASPECT)), sh
+    h = min(sh, config.MAX_CANVAS_HEIGHT)
+    return int(round(h * sw / sh)), h
 
 
 def open_camera():
@@ -147,6 +181,19 @@ def settings_button(w, h):
 def background_button(w, h):
     """Bottom-left button stacked above 'Stiftfarbe'; cycles the background mode."""
     return (_s(20), h - _s(70) - _s(58), _s(260), _s(48))
+
+
+def pen_allowed(pen, bg_mode):
+    """A green pen cannot be told apart from a green screen (#41, CR-04)."""
+    return not (bg_mode == background.MODE_GREENSCREEN and pen is GRUEN)
+
+
+def pen_for_mode(pen, bg_mode):
+    """The pen colour to use in ``bg_mode``: ``pen`` if allowed, else the default."""
+    return pen if pen_allowed(pen, bg_mode) else DEFAULT_PEN
+
+
+PEN_HINT = "Gruener Stift geht nicht mit Greenscreen"
 
 
 def handle_background_click(click, mode, w, h):
@@ -270,7 +317,7 @@ def _draw_settings_button(frame, rect, pen_color, is_open):
 
 
 def draw_menu(frame, start_t, quit_t, sbtn, swatches, pen_color, settings_open,
-              active, progress, point, player_t=None, player=None):
+              active, progress, point, player_t=None, player=None, blocked=()):
     _dim(frame)
     h, w = frame.shape[:2]
     draw_text(frame, "FRUIT NINJA CV", (w // 2, int(h * 0.16)), scale=1.4,
@@ -298,6 +345,10 @@ def draw_menu(frame, start_t, quit_t, sbtn, swatches, pen_color, settings_open,
                            max(1, _s(2)), cv2.LINE_AA)
             draw_text(frame, COLORS[i].name, (cx, cy + r + _s(28)), scale=0.7,
                       color=COLORS[i].display, center=True)
+            if COLORS[i] in blocked:             # e.g. green while greenscreen is on
+                d = int(r * 0.8)
+                cv2.line(frame, (cx - d, cy - d), (cx + d, cy + d), (60, 60, 60), max(2, _s(5)))
+                cv2.line(frame, (cx - d, cy + d), (cx + d, cy - d), (60, 60, 60), max(2, _s(5)))
     if not _draw_pen_marker(frame, point) and not settings_open:
         draw_text(frame, "Stift nicht erkannt", (w // 2, int(h * 0.74)),
                   scale=0.6, color=(80, 80, 255), center=True)
@@ -415,7 +466,7 @@ GAME_OVER_LABELS = ["Neustart", "Startmenue", "Quit"]
 
 
 def draw_game_over(frame, game, scores, rank, targets, active, progress, point,
-                   color, player):
+                   color, player, saved=True):
     _dim(frame, 0.55)
     h, w = frame.shape[:2]
     draw_text(frame, "GAME OVER", (w // 2, int(h * 0.16)), scale=1.6,
@@ -427,6 +478,9 @@ def draw_game_over(frame, game, scores, rank, targets, active, progress, point,
                   scale=0.75, color=(0, 215, 255), center=True)
     draw_text(frame, f"Leaderboard - {game.difficulty.name}",
               (w // 2, int(h * 0.42)), scale=0.7, center=True)
+    if not saved:                    # honest storage status (#41, CR-07)
+        draw_text(frame, "Highscore konnte nicht gespeichert werden", (w // 2, int(h * 0.37)),
+                  scale=0.55, color=(80, 80, 255), center=True)
     for i in range(3):
         if i < len(scores):
             line = f"{i + 1}.  {face_id.display_name(scores[i]['name'])}  {scores[i]['score']}"
@@ -448,10 +502,8 @@ def main():
     logger.info("Starting Fruit Ninja CV (logfile: %s)", log_path)
 
     sw, sh = detect_screen_size()
-    # Render to a fixed 16:10 aspect (laptop fullscreen area), height from screen.
-    config.HEIGHT = sh
-    config.WIDTH = int(round(sh * config.ASPECT))
-    config.SCALE = sh / config.REF_HEIGHT
+    config.WIDTH, config.HEIGHT = canvas_size(sw, sh)
+    config.SCALE = config.HEIGHT / config.REF_HEIGHT
     logger.info("Screen %dx%d -> canvas %dx%d, scale %.2f", sw, sh,
                 config.WIDTH, config.HEIGHT, config.SCALE)
 
@@ -481,7 +533,9 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     difficulty = None
     pen_color = COLORS[0]            # Pink by default -- only this colour is tracked
     tracker.set_color(pen_color)
+    hint_text, hint_until = None, 0.0  # short on-screen notice (e.g. pen/mode conflict)
     scores, rank = [], None
+    score_saved = True
     player = face_id.GUEST
     faces_dir = os.path.join(face_id.BASE_DIR, config.FACES_DIR)
     scanner = face_id.FaceScanner()
@@ -530,6 +584,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     # YOLO body segmenter for the "yolo" mode (downloaded on first use); None if
     # the model is unavailable, then the mode falls back like "off".
     segmenter = yolo_seg.create_segmenter() if config.YOLO_ENABLED else None
+    mode_session = 0                 # +1 on every background mode change (YOLO cache source)
 
     while True:
         ok, frame = cap.read()
@@ -549,6 +604,10 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
         if config.MIRROR:
             frame = cv2.flip(frame, 1)
         clean = frame.copy()
+        # perception first: one pen measurement per frame, used by suit, game and
+        # drawing alike -- no stale mask from the previous frame (#41, CR-06)
+        point = tracker.track(clean)
+        pen_mask = tracker.last_mask
 
         face_box = None              # face found this frame (shared by suit and saber)
         # --- space background: capture the reference, then cut the player out ---
@@ -565,7 +624,11 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             if bg_mode == background.MODE_GREENSCREEN:
                 mask = background.greenscreen_mask(clean, scale=config.GREEN_SCALE)
             elif bg_mode == background.MODE_YOLO and segmenter is not None:
-                mask = segmenter.segment(clean)      # person mask, no green screen needed
+                # person mask, no green screen needed; the cache is bound to the
+                # current camera and mode session (#41, CR-10)
+                mask = segmenter.segment(clean, source=(cap.index, mode_session))
+                if segmenter.failed:
+                    segmenter = None                 # off for good, other modes keep working
             elif bg_mode == background.MODE_NORMAL and reference is not None:
                 mask = background.foreground_mask(clean, reference)
             if mask is not None:
@@ -575,11 +638,10 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                     face_box = (identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
                                 if identifier is not None else None)
                     # the whole body becomes the suit; only the pen stays visible
-                    frame = suit.dress(frame, mask, face_box, tracker.last_mask,
+                    frame = suit.dress(frame, mask, face_box, pen_mask,
                                        time.monotonic(), suit_smoother)
 
         quit_requested = False
-        point = None                 # tracked pen point this frame (set by the states)
 
         if state == STATE_MENU:
             start_t = menu_start_target(config.WIDTH, config.HEIGHT)
@@ -606,6 +668,13 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                                                    config.WIDTH, config.HEIGHT)
                 if new_mode != bg_mode:          # click cycled the background mode
                     bg_mode = new_mode
+                    mode_session += 1
+                    if not pen_allowed(pen_color, bg_mode):
+                        pen_color = pen_for_mode(pen_color, bg_mode)
+                        tracker.set_color(pen_color)
+                        logger.info("Pen colour switched to %s (not usable with %s)",
+                                    pen_color.name, bg_mode)
+                        hint_text, hint_until = PEN_HINT, time.time() + 3.0
                     cameras.save_background_mode(config.SETTINGS_FILE, bg_mode)
                     logger.info("Background mode set to %s (mouse)", bg_mode)
                     settings_open = False
@@ -620,6 +689,11 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                     picked = False
                     for i, sw_t in enumerate(swatches):
                         if _hit(click[0], sw_t):
+                            if not pen_allowed(COLORS[i], bg_mode):
+                                logger.info("Pen colour %s refused in %s mode",
+                                            COLORS[i].name, bg_mode)
+                                hint_text, hint_until = PEN_HINT, time.time() + 3.0
+                                break
                             pen_color = COLORS[i]
                             tracker.set_color(pen_color)
                             logger.info("Pen colour set to %s (mouse)", pen_color.name)
@@ -628,7 +702,6 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                     settings_open = False   # any click in the panel closes it
                 click[0] = None
 
-            point = tracker.track(clean)
             player_t = player_target(config.WIDTH, config.HEIGHT) if identifier else None
             targets = [start_t, quit_t] + ([player_t] if player_t else [])
             if settings_open or camera_open:
@@ -637,7 +710,11 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                 active, progress, confirmed = dwell.update(point, targets)
             draw_menu(frame, start_t, quit_t, sbtn, swatches, pen_color,
                       settings_open, active, progress, point, player_t,
-                      player if identifier else None)
+                      player if identifier else None,
+                      blocked=[c for c in COLORS if not pen_allowed(c, bg_mode)])
+            if hint_text and time.time() < hint_until:
+                draw_text(frame, hint_text, (config.WIDTH // 2, int(config.HEIGHT * 0.68)),
+                          scale=0.6, color=(80, 80, 255), center=True)
             if not settings_open and not camera_open:
                 _draw_background_button(frame, background_button(config.WIDTH, config.HEIGHT),
                                         bg_mode)
@@ -671,7 +748,6 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                 scanner.reset()          # restart the scan with the (new) camera
             name, score, box, crop = identifier.scan(clean)
             inside = face_id.face_in_circle(box, circle) and not camera_open
-            point = tracker.track(clean)
             g_active, g_progress, g_confirmed = dwell.update(point, [guest_t])
             if camera_open:
                 g_confirmed = None
@@ -707,7 +783,6 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                     state = STATE_MENU
 
         elif state == STATE_NAME_ENTRY:
-            point = tracker.track(clean)
             k_targets = keyboard.layout(config.WIDTH, config.HEIGHT)
             active, progress, confirmed = key_dwell.update(point, k_targets)
             pressed = typed_key
@@ -727,7 +802,6 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                                 pen_color.display)
 
         elif state == STATE_DIFFICULTY:
-            point = tracker.track(clean)
             d_targets = row_targets(config.WIDTH, config.HEIGHT, len(LEVELS))
             q_target = quit_target(config.WIDTH, config.HEIGHT)
             active, progress, confirmed = dwell.update(point, d_targets + [q_target])
@@ -746,7 +820,6 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                     state = STATE_PLAY
 
         elif state == STATE_PLAY:
-            point = tracker.track(clean)
             blade.add(point)
             game.update(blade)
             game.draw(frame)
@@ -754,8 +827,9 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             game.draw_hud(frame)
             game.draw_combo(frame)
             if game.game_over:
-                scores, rank = highscore.add(config.HIGHSCORE_FILE,
+                result = highscore.add_entry(config.HIGHSCORE_FILE,
                                              game.difficulty.name, game.score, player)
+                scores, rank, score_saved = result.board, result.rank, result.saved
                 sounds.play("over")
                 logger.info("Game over -- %s, %s scored %d (rank: %s)",
                             game.difficulty.name, player, game.score, rank)
@@ -763,13 +837,12 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                 state = STATE_GAME_OVER
 
         elif state == STATE_GAME_OVER:
-            point = tracker.track(clean)
             targets = row_targets(config.WIDTH, config.HEIGHT, 3, y_frac=0.80, r=50)
             active, progress, confirmed = dwell.update(point, targets)
             game.draw(frame)
             game.draw_hud(frame)
             draw_game_over(frame, game, scores, rank, targets, active, progress,
-                           point, pen_color.display, player)
+                           point, pen_color.display, player, score_saved)
             if confirmed == 0:              # Neustart
                 logger.info("Restart requested (%s)", game.difficulty.name)
                 game.reset()

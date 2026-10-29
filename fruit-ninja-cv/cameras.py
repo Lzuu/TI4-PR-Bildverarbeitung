@@ -72,8 +72,16 @@ def choose_index(saved, default, available):
     return min(available) if available else None
 
 
+FIRST_FRAME_TRIES = 5            # reads to wait for the first picture after opening
+
+
 class Camera:
-    """The camera in use; can be switched to another index at runtime."""
+    """The camera in use; can be switched to another index at runtime.
+
+    A camera only counts as open once it delivered a picture. If a switch fails
+    and the previous camera cannot be reopened either, there is no camera:
+    ``read`` then reports failure instead of crashing (#41, CR-02).
+    """
 
     def __init__(self, opener=default_opener):
         self._opener = opener
@@ -89,6 +97,14 @@ class Camera:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
         cap.set(cv2.CAP_PROP_FPS, 30)
+        for _ in range(FIRST_FRAME_TRIES):           # opened is not enough: needs a picture
+            ok, img = cap.read()
+            if ok and img is not None:
+                break
+        else:
+            logger.warning("Camera %d opens but delivers no picture -- skipped", index)
+            cap.release()
+            return None
         logger.info("Opened camera %d: %dx%d @ %.0f fps", index,
                     cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT),
                     cap.get(cv2.CAP_PROP_FPS))
@@ -109,17 +125,28 @@ class Camera:
         if index == self.index:
             return True
         old_cap, old_index = self.cap, self.index
-        old_cap.release()            # some drivers do not allow two open streams
+        if old_cap is not None:
+            old_cap.release()        # some drivers do not allow two open streams
         cap = self._open(index)
         if cap is None:
-            logger.warning("Switching to camera %d failed, staying on %d", index, old_index)
-            self.cap = self._open(old_index)
+            logger.warning("Switching to camera %d failed, reopening %s", index, old_index)
+            self.cap = self._open(old_index) if old_index is not None else None
+            if self.cap is None:
+                logger.error("Reopening camera %s failed as well -- no camera available",
+                             old_index)
+                self.index = None
             return False
         self.cap, self.index = cap, index
         logger.info("Switched camera %d -> %d", old_index, index)
         return True
 
+    @property
+    def is_open(self):
+        return self.cap is not None
+
     def read(self):
+        if self.cap is None:
+            return False, None       # no camera: the game loop counts failed reads
         return self.cap.read()
 
     def release(self):
