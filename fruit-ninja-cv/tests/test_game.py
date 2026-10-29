@@ -131,3 +131,61 @@ def test_no_combo_below_minimum():
         g._update_combo(0)
     assert g.score == 2                  # no bonus below COMBO_MIN
     assert g.combo_banner_frames == 0
+
+
+# -- CR-01 (#41): tracking loss must interrupt collisions immediately --------
+def _trail(blade, points):
+    for p in points:
+        blade.add(p)
+
+
+def test_no_cut_while_the_pen_is_lost():
+    g = Game(W, H)
+    b = Blade()
+    _trail(b, [(100 + i, 100) for i in range(12)])          # last point (111, 100)
+    g.fruits = [_fruit_at(111, 100, r=30)]                   # fruit at the last position
+    for _ in range(3):
+        b.add(None)                                          # pen lost
+        g._handle_slicing(b)
+    assert not g.fruits[0].sliced and g.score == 0
+
+
+def test_no_bomb_hit_while_the_pen_is_lost():
+    g = Game(W, H)
+    b = Blade()
+    _trail(b, [(100 + i, 100) for i in range(12)])
+    g.fruits = [_fruit_at(111, 100, r=30, bomb=True)]
+    b.add(None)
+    g._handle_slicing(b)
+    assert not g.game_over
+
+
+def test_reacquired_pen_does_not_cut_across_the_gap():
+    g = Game(W, H)
+    b = Blade()
+    _trail(b, [(100 + i, 100) for i in range(12)])
+    b.add(None)
+    g.fruits = [_fruit_at(300, 100, r=30)]                   # between old and new position
+    b.add((500, 100))                                        # pen found again far away
+    g._handle_slicing(b)
+    assert not g.fruits[0].sliced and g.score == 0
+
+
+def test_cutting_works_again_after_reacquiring():
+    g = Game(W, H)
+    b = Blade()
+    _trail(b, [(100, 100), (110, 100)])
+    b.add(None)
+    b.add((500, 100))
+    b.add((560, 100))                                        # a real swipe after the gap
+    g.fruits = [_fruit_at(530, 100, r=20)]
+    g._handle_slicing(b)
+    assert g.fruits[0].sliced
+
+
+def test_visible_trail_fades_after_loss_but_does_not_collide():
+    b = Blade()
+    _trail(b, [(100 + 10 * i, 100) for i in range(6)])
+    b.add(None)
+    assert len(b.points) > 0                                 # still drawn, fading
+    assert b.current_point() is None and b.segment() is None # but no collision
