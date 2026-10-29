@@ -23,6 +23,18 @@ def test_segment_affine_maps_both_anchors_and_rotates_width_perpendicular():
     assert abs(matrix[0,0])<1e-5
 
 
+def test_left_and_right_gloves_are_mirrored_without_moving_wrist_anchors():
+    renderer=SuitRenderer()
+    endpoints=np.float32([[50,30],[50,70]])
+    left=renderer._part('glove','glove_l',endpoints,30)
+    right=renderer._part('glove','glove_r',endpoints,30)
+    assert np.linalg.det(left['matrix'][:,:2])*np.linalg.det(right['matrix'][:,:2])<0
+    h,w=renderer.assets['glove'].image.shape[:2]
+    anchors=np.asarray(renderer.meta['glove']['anchors'],np.float32)*(w,h)
+    for part in (left,right):
+        assert np.allclose(cv2.transform(anchors[None],part['matrix'])[0],endpoints,atol=1e-4)
+
+
 def test_partially_offscreen_sprite_does_not_wrap_or_change_far_background():
     frame=np.full((50,50,3),30,np.uint8)
     sprite=np.full((20,20,4),255,np.uint8)

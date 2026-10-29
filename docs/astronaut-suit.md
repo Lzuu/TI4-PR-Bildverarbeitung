@@ -74,7 +74,7 @@ Körperpunkte sind dann deterministische Testeingaben. `--models` nutzt zusätzl
 die echten lokalen Netze auf dem vorhandenen gemeinfreien NASA-Porträt.
 Es werden keine privaten Team- oder Kamerafotos benötigt.
 
-**Tests: 285 bestanden, 0 fehlgeschlagen, 0 Fehler, 0 übersprungen.**
+**Tests: 286 bestanden, 0 fehlgeschlagen, 0 Fehler, 0 übersprungen.**
 
 Gezielte Regressionen decken Gesichtspixel im Visier, Originalpuffer,
 Hintergrund im Helminnenraum, Alpha-Ränder, Rotation/Anker, geclipptes Rendering,
@@ -115,15 +115,15 @@ keine gemessene Kamera-zu-Bildschirm-Latenz.** Keine garantierte Live-Framerate.
 
 | Schritt | Eingabe | Median ms | P95 ms |
 | --- | --- | ---: | ---: |
-| Artikulierter Anzug inkl. Eingabekopie | synthetisch 960×720 | 24.30 | 32.51 |
-| Stifttracking | synthetisch 960×720 | 2.53 | 2.96 |
-| Pose inkl. periodischer Initialisierung | Porträt 480×600 / 256px Netz | 17.29 | 41.24 |
-| YOLO-Inferenz+Decode | Porträt 480×600 / 320px Netz | 28.95 | 32.62 |
-| YuNet-Detektion | Porträt 480×600 / 320px Netz | 5.73 | 7.45 |
-| Alle Modelle und Rendering bei jedem Aufruf | Porträt 480×600 | 75.91 | 99.74 |
-| Getaktete Pipeline (Marker, N=3 YOLO, Pose/Flow, Face, Rendering) | Porträt 480×600 | 37.50 | 89.37 |
+| Artikulierter Anzug inkl. Eingabekopie | synthetisch 960×720 | 25.22 | 27.94 |
+| Stifttracking | synthetisch 960×720 | 2.69 | 3.22 |
+| Pose inkl. periodischer Initialisierung | Porträt 480×600 / 256px Netz | 13.62 | 34.09 |
+| YOLO-Inferenz+Decode | Porträt 480×600 / 320px Netz | 27.74 | 30.98 |
+| YuNet-Detektion | Porträt 480×600 / 320px Netz | 6.18 | 7.90 |
+| Alle Modelle und Rendering bei jedem Aufruf | Porträt 480×600 | 69.38 | 90.72 |
+| Getaktete Pipeline (Marker, N=3 YOLO, Pose/Flow, Face, Rendering) | Porträt 480×600 | 32.11 | 72.49 |
 
-Der getaktete Durchlauf benötigte im Mittel **47.81 ms**, entsprechend etwa **20.9 verarbeiteten Testbildern/s** ohne Capture/Anzeige. Das ist kein 720p-Live-FPS-Wert; Komponenten mit verschiedenen Eingabegrößen
+Der getaktete Durchlauf benötigte im Mittel **45.51 ms**, entsprechend etwa **22.0 verarbeiteten Testbildern/s** ohne Capture/Anzeige. Das ist kein 720p-Live-FPS-Wert; Komponenten mit verschiedenen Eingabegrößen
 dürfen nicht einfach addiert werden. Die zusätzliche Figur kostet Rechenzeit;
 30 oder 60 Live-FPS werden auf dieser Grundlage ausdrücklich nicht zugesichert.
 Ausgabeauflösung und Inferenzintervalle am Demogerät anhand Bildqualität UND

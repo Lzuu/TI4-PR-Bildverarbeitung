@@ -242,6 +242,12 @@ class SuitRenderer:
         h, w = sprite.image.shape[:2]
         anchors = np.asarray(meta['anchors'], np.float32) * (w, h)
         matrix = segment_transform(anchors, *endpoints, width, meta['width'] * w)
+        if matrix is not None and label.endswith('_l'):
+            # Opposite-side thumb, pocket and connector orientation; reflect
+            # around the authored bone axis without a second decoded bitmap.
+            normal=matrix[:,0].copy()
+            matrix[:,2]+=normal*(2*anchors[0,0])
+            matrix[:,0]=-normal
         return dict(name=label, asset=asset, matrix=matrix, endpoints=np.asarray(endpoints).copy())
 
     def _torso(self, pose, bbox, face):
