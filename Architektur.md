@@ -103,7 +103,7 @@ Kamera ─► main (Loop, States, Input)
   (höhere Gravitation + Wurfgeschwindigkeit + schnelleres Spawnen); **Leben bleiben
   immer 3**. `Game`/`Fruit` bekommen die gewählte Stufe injiziert → keine global
   verstreuten Magic Numbers. Jede Stufe hat ein **eigenes Leaderboard**.
-- **Kombos über ein Zeitfenster.** Mehrere Treffer innerhalb `COMBO_WINDOW_FRAMES`
+- **Kombos über ein Zeitfenster.** Mehrere Treffer innerhalb `COMBO_WINDOW_SECONDS`
   zählen als ein Swipe; ab `COMBO_MIN` Früchten gibt es Bonuspunkte.
 - **Spielererkennung per Gesicht mit vortrainierten Netzen (Issue #28).** Vor der
   Schwierigkeitsauswahl erkennt das Spiel den Spieler und ordnet ihm den Highscore

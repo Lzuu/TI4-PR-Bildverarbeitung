@@ -73,8 +73,8 @@ def test_spawn_throws_fruits_over_time():
     random.seed(0)
     g = Game(W, H)
     b = Blade()
-    for _ in range(max(g.difficulty.spawn_interval) + 5):
-        g.update(b)
+    for _ in range(int(max(g.difficulty.spawn_interval) * 30) + 5):   # 30 fps
+        g.update(b, 1 / 30)
     assert len(g.fruits) >= 1
 
 
@@ -112,11 +112,10 @@ def test_combo_bonus_awarded_for_three_in_window():
     sliced = g._handle_slicing(b)
     assert sliced == 3 and g.score == 3
     g._update_combo(sliced)
-    for _ in range(config.COMBO_WINDOW_FRAMES):   # let the combo window elapse
-        g._update_combo(0)
+    g._update_combo(0, config.COMBO_WINDOW_SECONDS)   # let the combo window elapse
     assert g.score == 3 + 3 * config.COMBO_BONUS_PER_FRUIT
     assert g.combo_text.startswith("COMBO")
-    assert g.combo_banner_frames > 0
+    assert g.combo_banner_left > 0
 
 
 def test_no_combo_below_minimum():
@@ -127,10 +126,9 @@ def test_no_combo_below_minimum():
     sliced = g._handle_slicing(b)
     assert sliced == 2 and g.score == 2
     g._update_combo(sliced)
-    for _ in range(config.COMBO_WINDOW_FRAMES):
-        g._update_combo(0)
+    g._update_combo(0, config.COMBO_WINDOW_SECONDS)
     assert g.score == 2                  # no bonus below COMBO_MIN
-    assert g.combo_banner_frames == 0
+    assert g.combo_banner_left == 0
 
 
 # -- CR-01 (#41): tracking loss must interrupt collisions immediately --------
@@ -189,3 +187,95 @@ def test_visible_trail_fades_after_loss_but_does_not_collide():
     b.add(None)
     assert len(b.points) > 0                                 # still drawn, fading
     assert b.current_point() is None and b.segment() is None # but no collision
+
+
+# -- PERF-01 (#42): game time in seconds, independent of the frame rate ------
+import pytest
+
+from difficulty import MEDIUM
+
+
+def _simulate(fps, seconds, seed=1, time_scale=1.0):
+    g = Game(W, H, MEDIUM, rng=random.Random(seed))
+    g.time_scale = time_scale
+    b = Blade()
+    for _ in range(round(seconds * fps)):
+        g.update(b, 1.0 / fps)
+    return g
+
+
+@pytest.mark.parametrize("fps", [15, 60])
+def test_same_time_gives_same_throws_at_any_frame_rate(fps):
+    ref = _simulate(30, 3.0)
+    g = _simulate(fps, 3.0)
+    assert ref.fruits, "test needs fruits in the air"
+    assert len(g.fruits) == len(ref.fruits)
+    for a, b in zip(g.fruits, ref.fruits):
+        assert (a.name, a.is_bomb) == (b.name, b.is_bomb)
+        assert abs(a.x - b.x) < 1.0 and abs(a.y - b.y) < 1.0
+
+
+def test_fruit_flight_time_is_in_seconds():
+    # same launch, same airtime at 10 and 60 fps (seconds until it falls out)
+    def airtime(fps):
+        f = _fruit_at(W / 2, H + 40)
+        f.vy = -600.0 * config.SCALE
+        t = 0.0
+        while not f.is_missed(H):
+            f.update(1.0 / fps)
+            t += 1.0 / fps
+        return t
+    assert abs(airtime(10) - airtime(60)) <= 0.1 + 1e-9
+
+
+@pytest.mark.parametrize("fps", [10, 30, 60])
+def test_combo_window_is_in_seconds(fps):
+    g = Game(W, H, rng=random.Random(0))
+    g.fruits = [_fruit_at(W / 2, H / 2) for _ in range(3)]
+    b = Blade()
+    b.add((int(W / 2), int(H / 2)))
+    g.update(b, 1.0 / fps)                                   # three cut at once
+    assert g.score == 3
+    empty = Blade()
+    t = 0.0
+    while t + 1.0 / fps < config.COMBO_WINDOW_SECONDS - 1e-9:
+        g.update(empty, 1.0 / fps)
+        t += 1.0 / fps
+    assert g.score == 3                                      # window still open
+    g.update(empty, 1.0 / fps)
+    g.update(empty, 1.0 / fps)
+    assert g.score == 3 + 3 * config.COMBO_BONUS_PER_FRUIT
+
+
+def test_slow_motion_only_slows_the_simulation():
+    slow = _simulate(30, 2.0, time_scale=0.5)
+    normal = _simulate(30, 1.0)
+    assert len(slow.fruits) == len(normal.fruits)
+    for a, b in zip(slow.fruits, normal.fruits):
+        assert abs(a.x - b.x) < 1.0 and abs(a.y - b.y) < 1.0
+
+
+def test_combo_banner_runs_in_real_time_during_slow_motion():
+    g = Game(W, H, rng=random.Random(0))
+    g.time_scale = 0.5
+    g.combo_text, g.combo_banner_left = "COMBO x3!", config.COMBO_BANNER_SECONDS
+    g.update(Blade(), 0.2)                                   # 0.2 real s, 0.1 game s
+    assert g.combo_banner_left == pytest.approx(config.COMBO_BANNER_SECONDS - 0.2, abs=1e-6)
+
+
+def test_long_pause_is_capped():
+    g = Game(W, H, rng=random.Random(0))
+    f = _fruit_at(W / 2, H / 2)
+    f.vx, f.vy = 100.0, 0.0
+    g.fruits = [f]
+    g.update(Blade(), 5.0)                                   # e.g. camera switch blocked
+    assert f.x == pytest.approx(W / 2 + 100.0 * config.MAX_FRAME_DT)
+
+
+def test_default_step_is_one_reference_frame():
+    g = Game(W, H, rng=random.Random(0))
+    f = _fruit_at(W / 2, H / 2)
+    f.vx, f.vy = 30.0, 0.0
+    g.fruits = [f]
+    g.update(Blade())
+    assert f.x == pytest.approx(W / 2 + 30.0 / config.REF_FPS)

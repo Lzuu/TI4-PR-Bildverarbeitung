@@ -598,6 +598,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     segmenter = yolo_seg.create_segmenter() if config.YOLO_ENABLED else None
     mode_session = 0                 # +1 on every background mode change (YOLO cache source)
 
+    last_frame_t = time.monotonic()
     while True:
         stats.start_frame()
         with stats.stage("read"):
@@ -613,6 +614,8 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             cv2.waitKey(10)
             continue
         frame_failures = 0
+        now = time.monotonic()
+        frame_dt, last_frame_t = now - last_frame_t, now   # real time since the last frame
 
         with stats.stage("prep"):
             frame = crop_to_aspect(frame, config.WIDTH / config.HEIGHT)
@@ -845,7 +848,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
 
         elif state == STATE_PLAY:
             blade.add(point)
-            game.update(blade)
+            game.update(blade, frame_dt)      # seconds, not frames (#42, PERF-01)
             game.draw(frame)
             blade.draw(frame, pen_color.display if config.SABER_ENABLED else None)
             game.draw_hud(frame)

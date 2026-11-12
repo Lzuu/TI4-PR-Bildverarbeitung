@@ -142,7 +142,7 @@ Marker/Kamera & allgemeine Konstanten in `config.py`:
 - `CAMERA_INDEX` — Standard-Kamera, solange keine im Menü gewählt wurde.
 - `MIN_MARKER_AREA` / `MORPH_KERNEL` — Erkennung dünner Stifte / Rauschfilter.
 - `DWELL_SECONDS` / `SELECT_RADIUS` — Dauer & Größe der Dwell-Auswahl.
-- `COMBO_WINDOW_FRAMES` / `COMBO_MIN` / `COMBO_BONUS_PER_FRUIT` — Kombo-Regeln.
+- `COMBO_WINDOW_SECONDS` / `COMBO_MIN` / `COMBO_BONUS_PER_FRUIT` — Kombo-Regeln.
 
 Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.py`.
 

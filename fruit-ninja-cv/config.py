@@ -87,8 +87,13 @@ SABER_HILT_LENGTH = 45           # Hilt length in px at REF_HEIGHT (scaled), bel
 SABER_HAND_RADIUS = 220          # Hand (skin blob) is searched within this distance of the pen tip
 
 # ---------------------------------------------------------------------------
-# Gameplay / physics (pixels per frame)
+# Gameplay / physics (pixels and seconds -- independent of the frame rate)
 # ---------------------------------------------------------------------------
+# The game advances by the real time between two frames (#42, PERF-01), so it
+# plays equally fast at 10 or 30 camera frames per second. The values were
+# originally tuned per frame at REF_FPS and converted 1:1.
+REF_FPS = 30                     # Frame rate the gameplay was tuned at (default step)
+MAX_FRAME_DT = 0.25              # Longer pauses (camera switch, hiccup) count as this much
 # Fruits are thrown UP from below the bottom edge: they start with an upward
 # velocity, gravity decelerates them, they peak and fall back down (projectile
 # arc). An un-sliced fruit is only "missed" once it falls back below the bottom.
@@ -97,15 +102,15 @@ SABER_HAND_RADIUS = 220          # Hand (skin blob) is searched within this dist
 # chance, lives) live in difficulty.py. The constants below are shared by all
 # difficulty levels.
 FRUIT_RADIUS = (34, 52)          # Radius range
-SLICE_ANIM_FRAMES = 25           # How long the two halves fly before removal
+SLICE_ANIM_SECONDS = 25 / 30     # How long the two halves fly before removal
 
 # ---------------------------------------------------------------------------
 # Combos (Fruit-Ninja-style: several fruits within one swipe / short window)
 # ---------------------------------------------------------------------------
-COMBO_WINDOW_FRAMES = 12         # Slices within this window belong to one combo
+COMBO_WINDOW_SECONDS = 0.4      # Slices within this window belong to one combo (game time)
 COMBO_MIN = 3                    # Minimum fruits for a combo bonus
 COMBO_BONUS_PER_FRUIT = 1        # Extra points per fruit in a qualifying combo
-COMBO_BANNER_FRAMES = 35         # How long the combo banner stays on screen
+COMBO_BANNER_SECONDS = 35 / 30   # How long the combo banner stays on screen (real time)
 
 # ---------------------------------------------------------------------------
 # Highscore
