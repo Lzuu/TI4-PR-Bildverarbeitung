@@ -45,6 +45,7 @@ from sound import SoundPlayer
 import cameras
 import face_id
 import highscore
+import perf
 import keyboard
 
 logger = logging.getLogger(__name__)
@@ -525,6 +526,15 @@ def main():
         logger.info("Shut down cleanly")
 
 
+def draw_perf_overlay(frame, lines):
+    """Frame-time statistics (key 'p') in the top-right corner (#42, PERF-06)."""
+    if not lines:
+        lines = ["Messung laeuft ..."]
+    x = config.WIDTH - _s(330)
+    for i, line in enumerate(lines[:12]):
+        draw_text(frame, line, (x, _s(28) + i * _s(22)), scale=0.45)
+
+
 def _run_game_loop(cap, sounds, previews=None, identifier=None):
     tracker = MarkerTracker(point_mode=config.PEN_POINT)   # tip = lightsaber tip, cuts
     blade = Blade()
@@ -550,6 +560,8 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     previews = dict(previews or {})  # thumbnails of the cameras found at startup
     frame_failures = 0
     click = [None]
+    stats = perf.FrameStats(interval=config.PERF_LOG_INTERVAL, csv_path=config.PERF_CSV)
+    show_perf = False
 
     def on_mouse(event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
@@ -587,8 +599,11 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     mode_session = 0                 # +1 on every background mode change (YOLO cache source)
 
     while True:
-        ok, frame = cap.read()
+        stats.start_frame()
+        with stats.stage("read"):
+            ok, frame = cap.read()
         if not ok:
+            stats.count("read_fail")
             frame_failures += 1
             if frame_failures >= config.MAX_FRAME_FAILURES:
                 logger.error("Lost camera after %d consecutive failed reads -- aborting",
@@ -599,14 +614,16 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             continue
         frame_failures = 0
 
-        frame = crop_to_aspect(frame, config.WIDTH / config.HEIGHT)
-        frame = cv2.resize(frame, (config.WIDTH, config.HEIGHT))
-        if config.MIRROR:
-            frame = cv2.flip(frame, 1)
-        clean = frame.copy()
+        with stats.stage("prep"):
+            frame = crop_to_aspect(frame, config.WIDTH / config.HEIGHT)
+            frame = cv2.resize(frame, (config.WIDTH, config.HEIGHT))
+            if config.MIRROR:
+                frame = cv2.flip(frame, 1)
+            clean = frame.copy()
         # perception first: one pen measurement per frame, used by suit, game and
         # drawing alike -- no stale mask from the previous frame (#41, CR-06)
-        point = tracker.track(clean)
+        with stats.stage("track"):
+            point = tracker.track(clean)
         pen_mask = tracker.last_mask
 
         face_box = None              # face found this frame (shared by suit and saber)
@@ -621,6 +638,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             logger.info("Camera changed -- space background off until 'b' is pressed again")
         if config.BG_ENABLED and space_img is not None and bg_mode != background.MODE_OFF:
             mask = None
+            t_stage = time.perf_counter()
             if bg_mode == background.MODE_GREENSCREEN:
                 mask = background.greenscreen_mask(clean, scale=config.GREEN_SCALE)
             elif bg_mode == background.MODE_YOLO and segmenter is not None:
@@ -631,17 +649,23 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                     segmenter = None                 # off for good, other modes keep working
             elif bg_mode == background.MODE_NORMAL and reference is not None:
                 mask = background.foreground_mask(clean, reference)
+            stats.add("segment", time.perf_counter() - t_stage)
             if mask is not None:
-                frame = background.composite_space(frame, mask, space_img)
+                with stats.stage("composite"):
+                    frame = background.composite_space(frame, mask, space_img)
                 if config.SUIT_ENABLED:
                     # place the helmet at the face (if one is seen) -- detection only, ~3 ms
-                    face_box = (identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
-                                if identifier is not None else None)
+                    with stats.stage("face"):
+                        face_box = (identifier.largest_face_box(clean,
+                                                                config.SUIT_FACE_DETECT_WIDTH)
+                                    if identifier is not None else None)
                     # the whole body becomes the suit; only the pen stays visible
-                    frame = suit.dress(frame, mask, face_box, pen_mask,
-                                       time.monotonic(), suit_smoother)
+                    with stats.stage("suit"):
+                        frame = suit.dress(frame, mask, face_box, pen_mask,
+                                           time.monotonic(), suit_smoother)
 
         quit_requested = False
+        t_stage = time.perf_counter()
 
         if state == STATE_MENU:
             start_t = menu_start_target(config.WIDTH, config.HEIGHT)
@@ -858,6 +882,8 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             elif confirmed == 2:            # Quit
                 quit_requested = True
 
+        stats.add("screen", time.perf_counter() - t_stage)
+
         if bg_capture_at is not None:
             secs = max(0, int(bg_capture_at - time.monotonic()) + 1)
             draw_text(frame, f"Aus dem Bild gehen: {secs}",
@@ -883,18 +909,28 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             # tip = pen point (the only thing that cuts), hilt on the hand (skin colour);
             # the face is excluded so it is never taken for the hand
             if face_box is None and identifier is not None and point is not None:
-                face_box = identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
-            skin = lightsaber.skin_mask(clean) if point is not None else None
-            lightsaber.draw_saber(frame, saber.update(point, skin, face_box), pen_color.display)
+                with stats.stage("face"):
+                    face_box = identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
+            with stats.stage("saber"):
+                skin = lightsaber.skin_mask(clean) if point is not None else None
+                lightsaber.draw_saber(frame, saber.update(point, skin, face_box),
+                                      pen_color.display)
 
-        cv2.imshow(config.WINDOW_NAME, frame)
-        key = cv2.waitKey(1) & 0xFF
+        if show_perf:
+            draw_perf_overlay(frame, stats.overlay_lines())
+        with stats.stage("show"):
+            cv2.imshow(config.WINDOW_NAME, frame)
+            key = cv2.waitKey(1) & 0xFF
+        stats.end_frame()
 
         if state == STATE_NAME_ENTRY and keyboard.from_keycode(key) is not None:
             typed_key = keyboard.from_keycode(key)   # letters type here instead of q/d
         elif quit_requested or key == ord("q"):
             logger.info("Quit requested")
             break
+        elif key == ord("p"):
+            show_perf = not show_perf
+            logger.info("Perf overlay %s", "on" if show_perf else "off")
         elif key == ord("d"):
             show_mask = not show_mask
             logger.info("Debug mask %s", "on" if show_mask else "off")

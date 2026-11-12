@@ -27,6 +27,8 @@ FULLSCREEN = True         # Open the window in fullscreen
 MIRROR = True             # Flip horizontally so moving right moves the hand right
 WINDOW_NAME = "Fruit Ninja CV"
 MAX_FRAME_FAILURES = 60   # Abort only after this many *consecutive* failed reads
+PERF_LOG_INTERVAL = 10.0  # Seconds per frame-time summary in the log (perf.py; key 'p' shows it)
+PERF_CSV = "logs/perf.csv"  # Summaries are also appended here (None = no CSV)
 
 # ---------------------------------------------------------------------------
 # Marker tracking (fixed colour ranges -- no self-calibration; see colors.py)
