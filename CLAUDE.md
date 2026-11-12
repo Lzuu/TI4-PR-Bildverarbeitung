@@ -6,7 +6,7 @@ Das Programm liegt in `fruit-ninja-cv/` (Basis: Noahs Projekt). Vorgaben aus `au
 - **Alle Tests ausführen:** Nach jeder Änderung `python -m pytest` in `fruit-ninja-cv/`. Eine Aufgabe ist erst fertig, wenn alle Tests grün sind.
 - **Architekturentscheidungen** in `Architektur.md` festhalten.
 - **Logging** über `logging_config.py` (`logs/fruit-ninja.log`), wichtige Abläufe loggen, nicht pro Frame.
-- **Iterationen:** Arbeit läuft über Issues im Milestone der aktuellen Iteration, ein Branch pro Issue, Pull Request gegen `main`.
+- **Iterationen:** Arbeit läuft über Issues (ohne Milestones), ein Branch pro Issue, Pull Request gegen `main`. `main` ist geschützt: Direkte Pushes werden abgelehnt, gemergt wird per Pull Request mit grüner CI; eine Freigabe durch Dritte ist nicht nötig.
 - Maßgeblich ist `aufgabenstellung.md` (kleingeschrieben); keine zweite Datei mit gleichem Namen in anderer Schreibweise anlegen (Windows).
 - Kamera an diesem Windows-Laptop: ELP-USB-Kamera an Index 2; mit MSMF-Backend in 1080p MJPG 30 fps, 720p liefert nur 9 fps.
 
@@ -70,4 +70,4 @@ Ein Zustand steht jeweils in einem Block `elif state == STATE_...`; nach dem Zus
 - Größen in Pixeln mit `config.SCALE` multiplizieren (`_s()` in `main.py`).
 - YOLO- und Anzug-Zwischenstände gehören zu einer Quelle `(Kameraindex, mode_session)`; eine neue Quelle verwirft sie.
 - Ein Fehler in einem optionalen Feature (YOLO, Pose, Gesicht, Ton) schaltet das Feature ab und wird einmal geloggt; das Spiel läuft weiter.
-- Offene Review-Punkte stehen in den Issues #54 (Performance) und #55 (Fehler, Aufräumen).
+- Offene Review-Punkte: je Arbeitspaket ein Issue, #56 bis #62 (Performance) und #63 bis #74 (Fehler, Aufräumen); Übersicht in #54 und #55. Was gegenüber der Aufgabenstellung fehlt, steht in `Architektur.md` unter „Abgleich mit der Aufgabenstellung“.
