@@ -37,7 +37,6 @@ Kamera ─► main (Loop, States, Input)
 | `lightsaber.py` | Lichtschwert: Spitze am Stiftpunkt, Griff am Handschuh des Anzugs (Pose), sonst Richtung zur per Hautfarbe erkannten Hand |
 | `suit.py` / `suit_rig.py` | EVA-Körperteile, maskiertes Alpha-Compositing, Kameragesicht im klaren Visier |
 | `pose_tracking.py` | Lokale BlazePose-ONNX-Modelle, Gelenke, Flow, begrenzte Überbrückung |
-| `frame_metrics.py` | Optionale aggregierte Live-Zeiten ohne Pro-Frame-Logspam |
 | `cameras.py` | Kameras finden (Indizes durchprobieren), öffnen (1080p MJPG, unter Windows MSMF), wechseln, Auswahl in `settings.json` merken |
 | `highscore.py` | Top-3-Highscore **je Schwierigkeit** mit Spielername (JSON-Persistenz) |
 | `face_id.py` | Spielererkennung per Gesicht: YuNet-Detektion, SFace-Merkmale, Abgleich mit `faces/`, Scan im Kreis (`FaceScanner`), Einlernen |
@@ -259,10 +258,9 @@ Kamera ─► main (Loop, States, Input)
     → vordere Unterarme/Handschuhe → Original-Stiftpixel → Spiel/UI/Lichtschwert.
     Der Stift bleibt auch dann sichtbar, wenn YOLO ihn aus der Personenmaske entfernt.
     Ein Face-Scan wird mit dem Anzug geteilt, statt YuNet doppelt auszuführen.
-  - `FrameMetrics` misst optional Capture, Tracking, Segmentierung, Face, Pose,
-    Anzug, Ausgabe und Gesamtframe; aggregierte Median-/P95-Werte alle fünf Sekunden.
-    Start mit `--suit-diagnostics`. Echte Live-FPS werden erst mit angeschlossener
-    Kamera/Anzeige bestätigt. Reproduzierbare Vorschauen und Messungen:
+  - Stufenzeiten misst `perf.FrameStats` (Taste `p`); das frühere `frame_metrics.py`
+    war nie angeschlossen und wurde entfernt. Echte Live-FPS werden erst mit
+    angeschlossener Kamera/Anzeige bestätigt. Reproduzierbare Vorschauen und Messungen:
     [EVA-Implementierung und Prüfung](docs/astronaut-suit.md).
 - **Stift als Lichtschwert, Griff auf der Hand (`lightsaber.py`).** Am Stift wird auf
   jedem Bildschirm ein Lichtschwert gezeichnet. Die Klingenspitze ist der Punkt, der

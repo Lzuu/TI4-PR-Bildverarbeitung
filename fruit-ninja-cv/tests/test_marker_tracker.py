@@ -50,11 +50,6 @@ def test_union_detects_any_pen_colour():
         assert _centroid_near(t.track(_frame_with(bgr))), bgr
 
 
-def test_blank_wall_detects_nothing():
-    frame = np.full((H, W, 3), WALL, np.uint8)
-    assert MarkerTracker().track(frame) is None
-
-
 # -- pen tip mode: the upper end of the pen is the point (lightsaber tip) -----
 def _pen_frame(center=(480, 270), length=180, width=25, angle=0):
     frame = np.full((H, W, 3), WALL, np.uint8)

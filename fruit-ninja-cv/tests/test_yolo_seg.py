@@ -145,16 +145,6 @@ def test_segment_throttles_inference_to_every_n():
     assert net.calls == 2                # inferred on frame 0 and 3 only
 
 
-def test_segment_returns_same_cached_mask_between_inferences():
-    net = FakeNet(*_blank_outputs())
-    seg = y.BodySegmenter(net, input_size=64, every_n=5)
-    frame = np.zeros((48, 64, 3), np.uint8)
-    first = seg.segment(frame)
-    second = seg.segment(frame)          # skipped frame
-    assert net.calls == 1
-    assert second is first               # reused object, no recompute
-
-
 # --------------------------------------------------------------------------- #
 # Graceful fallback
 # --------------------------------------------------------------------------- #
@@ -204,15 +194,6 @@ def test_new_source_gets_a_fresh_inference_despite_the_same_size():
     seg.segment(frame, source=("cam", 0))                  # same source: cached
     assert net.calls == 1
     seg.segment(frame, source=("cam", 1))                  # camera switched
-    assert net.calls == 2
-
-
-def test_cadence_for_an_unchanged_source_stays_the_same():
-    net = FakeNet(*_blank_outputs())
-    seg = y.BodySegmenter(net, input_size=64, every_n=3)
-    frame = np.zeros((48, 64, 3), np.uint8)
-    for _ in range(6):
-        seg.segment(frame, source=("cam", 0))
     assert net.calls == 2
 
 

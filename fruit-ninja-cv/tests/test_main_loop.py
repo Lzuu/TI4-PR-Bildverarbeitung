@@ -11,9 +11,9 @@ def _record_dress(monkeypatch):
     calls = []
     original = m.suit.dress
 
-    def recording(frame, mask, face=None, keep=None, phase=0.0, smoother=None, **kwargs):
+    def recording(frame, mask, face=None, keep=None, phase=0.0, **kwargs):
         calls.append(None if keep is None else keep.copy())
-        return original(frame, mask, face, keep, phase, smoother, **kwargs)
+        return original(frame, mask, face, keep, phase, **kwargs)
 
     monkeypatch.setattr(m.suit, "dress", recording)
     return calls
@@ -234,9 +234,9 @@ def _record_face_args(monkeypatch):
     faces = []
     original = m.suit.dress
 
-    def recording(frame, mask, face=None, keep=None, phase=0.0, smoother=None, **kw):
+    def recording(frame, mask, face=None, keep=None, phase=0.0, **kw):
         faces.append(face)
-        return original(frame, mask, face, keep, phase, smoother, **kw)
+        return original(frame, mask, face, keep, phase, **kw)
     monkeypatch.setattr(m.suit, "dress", recording)
     return faces
 

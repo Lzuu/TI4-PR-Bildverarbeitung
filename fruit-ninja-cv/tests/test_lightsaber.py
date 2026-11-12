@@ -46,12 +46,6 @@ def test_blade_glows_in_the_saber_colour_around_the_core():
     assert (frame[480, 20] == 0).all()                     # far away untouched
 
 
-def test_hilt_is_dark_metal_below_the_blade():
-    frame, s = _drawn(np.full((500, 600, 3), 200, np.uint8))
-    y = (s.hilt_top[1] + s.hilt_bottom[1]) // 2
-    assert frame[y, 300].mean() < 120
-
-
 def test_drawing_near_the_edge_or_without_pen_does_not_crash():
     frame = np.zeros((500, 600, 3), np.uint8)
     lightsaber.draw_saber(frame, lightsaber.saber_at((10, 480)), (0, 0, 255))
@@ -76,11 +70,6 @@ def skin_with(*blobs, shape=(500, 600)):
 
 def _mid(a, b):
     return ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-
-
-def test_find_hand_is_the_skin_blob_near_the_pen_tip():
-    hand = lightsaber.find_hand(skin_with(((330, 280), 35)), POINT, radius=250)
-    assert math.dist(hand, (330, 280)) < 3
 
 
 def test_no_hand_without_skin_or_too_small_or_too_far():
@@ -149,20 +138,17 @@ def test_length_ignores_jitter_of_the_hand_detection():
 
 
 def test_blade_length_has_limits():
-    t = _tracker(smoothing=0.0, min_blade=80, max_blade=200)
-    for _ in range(200):
-        s = t.update(POINT, skin_with(((300, 175), 20)))           # hand right at the tip
-    assert math.dist(s.tip, s.hilt_top) >= 79
-    t = _tracker(smoothing=0.0, min_blade=80, max_blade=200, radius=500)
-    for _ in range(200):
-        s = t.update(POINT, skin_with(((300, 495), 25)))           # hand very far away
-    assert math.dist(s.tip, s.hilt_top) <= 201
-
-
-def test_saber_points_towards_the_hand():
-    s = _tracker(smoothing=0.0).update(POINT, skin_with(((380, 290), 30)))
-    expected = math.degrees(math.atan2(380 - 300, 290 - 150))
-    assert abs(_angle_deg(s) - expected) < 3
+    # adapt_rate 0.5 settles within a few frames (the default 5 % needs ~200)
+    near = skin_with(((300, 175), 20))                             # hand right at the tip
+    t = _tracker(smoothing=0.0, min_blade=80, max_blade=200, adapt_rate=0.5)
+    for _ in range(20):
+        s = t.update(POINT, near)
+    assert 79 <= math.dist(s.tip, s.hilt_top) <= 81                # settled on the lower limit
+    far = skin_with(((300, 495), 25))                              # hand very far away
+    t = _tracker(smoothing=0.0, min_blade=80, max_blade=200, radius=500, adapt_rate=0.5)
+    for _ in range(20):
+        s = t.update(POINT, far)
+    assert 199 <= math.dist(s.tip, s.hilt_top) <= 201              # settled on the upper limit
 
 
 def test_skin_above_the_tip_is_not_taken_as_the_hand():

@@ -1,5 +1,6 @@
 """Short-video window while an agent works (#48) -- headless, no browser is started."""
 
+import functools
 import shutil
 import subprocess
 from pathlib import Path
@@ -19,15 +20,24 @@ def _defaults(https_handler=None, scheme="https"):
             f'{role}        LSHandlerURLScheme = {scheme};\n    }}\n)')
 
 
-def _bash(script):
-    """Run ``script`` in bash inside the tools folder; skip if no usable bash exists."""
+@functools.lru_cache(maxsize=None)
+def _usable_bash():
+    """``(bash path, None)`` or ``(None, reason)``; probed once, not once per test."""
     bash = shutil.which("bash")
     if bash is None:
-        pytest.skip("no bash available")
+        return None, "no bash available"
     probe = subprocess.run([bash, "-c", "source ./doomscroll.sh && echo ok"], cwd=TOOLS,
                            capture_output=True, text=True)
     if probe.stdout.strip() != "ok":
-        pytest.skip("bash cannot run the script here (e.g. WSL without a distribution)")
+        return None, "bash cannot run the script here (e.g. WSL without a distribution)"
+    return bash, None
+
+
+def _bash(script):
+    """Run ``script`` in bash inside the tools folder; skip if no usable bash exists."""
+    bash, reason = _usable_bash()
+    if bash is None:
+        pytest.skip(reason)
     return lambda text="": subprocess.run([bash, "-c", f"source ./doomscroll.sh; {script}"],
                                           cwd=TOOLS, input=text, capture_output=True,
                                           text=True).stdout.strip()

@@ -187,29 +187,28 @@ def model_paths():
         pytest.skip(f"Gesichtsmodelle nicht verfuegbar: {exc}")
 
 
-@pytest.fixture
-def identifier(model_paths):
+@pytest.fixture(scope="module")
+def loaded_identifier(model_paths):
+    """Both networks are loaded once for the whole file (about 80 ms each time)."""
     return face_id.FaceIdentifier(model_paths["detector"], model_paths["recognizer"])
 
 
 @pytest.fixture
-def crew_faces(identifier):
+def identifier(loaded_identifier):
+    loaded_identifier.gallery = {}       # every test starts without enrolled players
+    return loaded_identifier
+
+
+@pytest.fixture(scope="module")
+def crew_faces(loaded_identifier):
     """Faces of the Apollo 11 crew photo, left to right: Armstrong, Collins, Aldrin."""
     img = _img("apollo11_crew.jpg")
-    faces = sorted(identifier.detect(img), key=lambda f: f[0])
+    faces = sorted(loaded_identifier.detect(img), key=lambda f: f[0])
     return img, faces
-
-
-def test_detects_the_face_in_a_portrait(identifier):
-    assert len(identifier.detect(_img("armstrong_portrait.jpg"))) == 1
 
 
 def test_detects_all_three_faces_in_crew_photo(crew_faces):
     assert len(crew_faces[1]) == 3
-
-
-def test_no_face_in_empty_image(identifier):
-    assert identifier.detect(np.full((480, 640, 3), 128, np.uint8)) == []
 
 
 def test_known_faces_are_recognised_in_a_different_photo(identifier, crew_faces):

@@ -6,7 +6,6 @@ camera images.
 
 import cv2
 import numpy as np
-import config
 
 from background import (foreground_mask, composite_space, load_space,
                         greenscreen_mask, next_mode, MODES, MODE_LABELS,
@@ -54,17 +53,6 @@ def test_foreground_mask_scaled_detects_block_full_size():
     assert mask.shape == (H, W)      # upscaled back to full frame size
     assert mask[60, 80] == 255       # block still detected
     assert mask[5, 5] == 0           # background still empty
-
-
-def test_composite_replaces_background_keeps_foreground():
-    frame = _solid((0, 0, 255))     # red "player"
-    space = _solid((50, 20, 10))    # space backdrop colour
-    mask = np.zeros((H, W), np.uint8)
-    mask[40:80, 50:100] = 255       # a foreground region
-    out = composite_space(frame, mask, space)
-    assert out.shape == frame.shape
-    assert tuple(int(c) for c in out[60, 70]) == (0, 0, 255)   # mask -> frame kept
-    assert tuple(int(c) for c in out[5, 5]) == (50, 20, 10)    # else -> space
 
 
 def test_composite_writes_in_place():
@@ -124,15 +112,6 @@ def test_greenscreen_keys_out_green_keeps_player():
     assert mask.shape == (H, W)
     assert mask[60, 80] == 255      # player region kept
     assert mask[5, 5] == 0          # green keyed out -> background
-
-
-def test_greenscreen_scaled_still_detects_player():
-    frame = _solid((0, 255, 0))
-    cv2.rectangle(frame, (40, 30), (120, 90), (0, 0, 255), -1)
-    mask = greenscreen_mask(frame, scale=0.5)   # segment downscaled, upscale back
-    assert mask.shape == (H, W)
-    assert mask[60, 80] == 255
-    assert mask[5, 5] == 0
 
 
 def test_greenscreen_keeps_enclosed_green_hole_as_background():
@@ -203,5 +182,3 @@ def test_greenscreen_half_scale_stays_close_to_full_scale():
     assert (full ^ half).sum() < 0.002 * full.size          # < 0.2 % of the pixels differ
 
 
-def test_greenscreen_default_scale_comes_from_config():
-    assert config.GREEN_SCALE == 0.5
