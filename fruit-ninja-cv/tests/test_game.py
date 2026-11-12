@@ -227,3 +227,29 @@ def test_default_step_is_one_reference_frame():
     g.fruits = [f]
     g.update(Blade())
     assert f.x == pytest.approx(W / 2 + 30.0 / config.REF_FPS)
+
+
+# -- CR-12 (#64): a bomb in the same swipe ends the run, the fruits cut before it still count
+class _SoundSpy:
+    def __init__(self):
+        self.played = []
+
+    def play(self, name):
+        self.played.append(name)
+
+
+def test_bomb_in_the_same_swipe_keeps_the_combo_of_the_fruits_cut_before_it():
+    spy = _SoundSpy()
+    g = Game(W, H, sounds=spy, rng=random.Random(0))
+    falling = _fruit_at(W / 2, H + 100)             # would leave the screen in this very frame
+    falling.vy = 5.0
+    g.fruits = [_fruit_at(100, H / 2), _fruit_at(200, H / 2), _fruit_at(300, H / 2),
+                _fruit_at(400, H / 2, bomb=True), falling]
+    b = Blade()
+    b.add((50, int(H / 2)))
+    b.add((450, int(H / 2)))
+    g.update(b, 1 / 30)
+    assert g.game_over
+    assert g.score == 3 + 3 * config.COMBO_BONUS_PER_FRUIT
+    assert g.lives == g.difficulty.lives            # no physics step after the bomb
+    assert "miss" not in spy.played

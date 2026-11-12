@@ -41,7 +41,9 @@ class MarkerTracker:
             k = max(3, int(round(k * self.scale)) | 1)       # odd, shrinks with the frame
             self._blur = (3, 3)
         self._kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
-        self.last_mask = None
+        self.last_mask = None            # every pen-coloured pixel of the frame (debug view)
+        self.pen_mask = None             # only the contour chosen as the pen (what the suit spares)
+        self._no_pen = None              # cached all-zero mask for frames without a pen
         self.set_ranges(ranges or [(DEFAULT.lower, DEFAULT.upper)])
 
     # -- colour configuration ----------------------------------------------
@@ -77,7 +79,10 @@ class MarkerTracker:
         small_mask = mask
         if s != 1.0:
             mask = cv2.resize(mask, (full_w, full_h), interpolation=cv2.INTER_LINEAR)
-        self.last_mask = mask                # always frame-sized (the suit protects the pen)
+        self.last_mask = mask                # always frame-sized, shows ALL pen-coloured pixels
+        if self._no_pen is None or self._no_pen.shape != (full_h, full_w):
+            self._no_pen = np.zeros((full_h, full_w), np.uint8)
+        self.pen_mask = self._no_pen         # until a pen is found: nothing to protect (#71)
         mask = small_mask
 
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL,
@@ -93,6 +98,12 @@ class MarkerTracker:
         if m["m00"] == 0:
             self._dir = None
             return None
+        # the pen is this one contour: a pink cushion elsewhere must not be spared by the suit
+        selected = np.zeros_like(mask)
+        cv2.drawContours(selected, [largest], -1, 255, cv2.FILLED)
+        selected = cv2.bitwise_and(mask, cv2.dilate(selected, self._kernel))   # keeps the soft edge
+        self.pen_mask = selected if s == 1.0 else cv2.resize(
+            selected, (full_w, full_h), interpolation=cv2.INTER_LINEAR)
         centroid = (m["m10"] / m["m00"], m["m01"] / m["m00"])
         if self.point_mode == "tip":
             centroid = self._tip(largest, centroid)

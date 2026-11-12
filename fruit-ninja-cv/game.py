@@ -57,6 +57,8 @@ class Game:
         game_dt = real_dt * self.time_scale
 
         sliced = self._handle_slicing(blade)
+        if self.game_over:                    # a bomb ended the run: nothing moves any more (#64)
+            return
         self._update_combo(sliced, game_dt)
 
         # Advance physics and prune finished / missed fruits
@@ -123,6 +125,9 @@ class Game:
                     self.sounds.play("bomb")
                     logger.info("Sliced a BOMB -- game over at score %d",
                                 self.score)
+                    if sliced:                # the fruits cut before the bomb belong to the combo
+                        self._combo_count += sliced
+                        self._combo_left = config.COMBO_WINDOW_SECONDS
                     self._end_game()
                     break                    # no further scoring this frame
                 self.score += 1

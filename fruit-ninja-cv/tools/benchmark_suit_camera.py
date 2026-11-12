@@ -50,7 +50,7 @@ def main():
             box=identifier.largest_face_box(clean);faces+=int(box is not None)
             body=pose.update(clean,mask,source=args.camera);poses+=int(body is not None)
             canvas=background.composite_space(clean.copy(),mask,backdrop,feather=1.5)
-            renderer.render(canvas,clean,mask,body,box,marker.last_mask,source=args.camera)
+            renderer.render(canvas,clean,mask,body,box,marker.pen_mask,source=args.camera)
             elapsed.append((time.perf_counter()-tick)*1000)
         duration=time.perf_counter()-start
         result.update(duration_s=round(duration,3),frames=len(elapsed),read_failures=failures,

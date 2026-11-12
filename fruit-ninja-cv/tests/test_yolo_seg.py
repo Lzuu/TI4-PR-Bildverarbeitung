@@ -198,8 +198,10 @@ def test_new_source_gets_a_fresh_inference_despite_the_same_size():
 
 
 # -- PERF-07 (#42): load YOLO only when it is used, in the background --------
+import hashlib
 import io
 import os
+import urllib.request
 
 import pytest
 
@@ -296,9 +298,9 @@ def test_download_uses_a_timeout(monkeypatch, tmp_path):
     def fake_urlopen(url, timeout=None):
         seen["timeout"] = timeout
         return io.BytesIO(payload)
-    monkeypatch.setattr(y.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(y, "MODEL", y.ModelFile("m.onnx", "http://example.invalid/m",
-                                                y.hashlib.sha256(payload).hexdigest()))
+                                                hashlib.sha256(payload).hexdigest()))
     path = y.ensure_model(str(tmp_path))
     assert seen["timeout"] == config.YOLO_DOWNLOAD_TIMEOUT
     assert open(path, "rb").read() == payload
@@ -307,7 +309,7 @@ def test_download_uses_a_timeout(monkeypatch, tmp_path):
 def test_download_timeout_is_a_clean_failure(monkeypatch, tmp_path):
     def slow(url, timeout=None):
         raise TimeoutError("timed out")
-    monkeypatch.setattr(y.urllib.request, "urlopen", slow)
+    monkeypatch.setattr(urllib.request, "urlopen", slow)
     with pytest.raises(RuntimeError):
         y.ensure_model(str(tmp_path))
     assert os.listdir(tmp_path) == []                # no half-written .part file left

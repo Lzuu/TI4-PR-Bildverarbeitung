@@ -13,17 +13,17 @@ Both models come from the OpenCV Model Zoo and are downloaded on first use
 into ``models/`` (checked against a SHA256 hash).
 """
 
-import hashlib
 import logging
 import os
 import time
-import urllib.request
 from collections import Counter, namedtuple
 
 import cv2
 import numpy as np
 
 import config
+import model_download
+from utils import imread, imwrite
 
 logger = logging.getLogger(__name__)
 
@@ -50,38 +50,16 @@ MODELS = {
 # --------------------------------------------------------------------------- #
 # Models
 # --------------------------------------------------------------------------- #
-def _sha256(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def ensure_models(model_dir=MODEL_DIR, download=True):
     """Return ``{"detector": path, "recognizer": path}``, downloading if needed.
 
     Raises ``RuntimeError`` if a model is missing (and may not be downloaded),
-    the download fails or a file does not match its hash.
+    the download fails (timeout, wrong hash) or a file does not match its hash.
+    See ``model_download`` for the safeguards.
     """
-    os.makedirs(model_dir, exist_ok=True)
-    paths = {}
-    for key, model in MODELS.items():
-        path = os.path.join(model_dir, model.filename)
-        if not os.path.exists(path):
-            if not download:
-                raise RuntimeError(f"{model.filename} fehlt in {model_dir}")
-            logger.info("Downloading %s ...", model.filename)
-            tmp = path + ".part"
-            try:
-                urllib.request.urlretrieve(model.url, tmp)
-            except OSError as exc:
-                raise RuntimeError(f"Download von {model.filename} fehlgeschlagen: {exc}")
-            os.replace(tmp, path)
-        if _sha256(path) != model.sha256:
-            raise RuntimeError(f"{model.filename} ist beschaedigt (Hash stimmt nicht)")
-        paths[key] = path
-    return paths
+    return {key: model_download.ensure_file(os.path.join(model_dir, model.filename), model.url,
+                                            model.sha256, download=download)
+            for key, model in MODELS.items()}
 
 
 # --------------------------------------------------------------------------- #
@@ -129,6 +107,21 @@ def face_in_circle(box, circle):
     fx, fy = x + w / 2, y + h / 2
     centred = (fx - cx) ** 2 + (fy - cy) ** 2 <= (0.5 * r) ** 2
     return centred and 0.4 * r <= w <= 2.0 * r
+
+
+def name_problem(name, existing):
+    """Why ``name`` cannot be used for a new player (short text without umlauts for the
+    HUD), or None. The guest name is reserved; taken names are refused so two faces never
+    end up in one profile. Case is ignored, because the folders are not case-sensitive
+    under Windows. An empty name is fine: a free "Spieler N" is chosen."""
+    name = name.strip()
+    if not name:
+        return None
+    if name.casefold() == GUEST.casefold():
+        return "Name ist reserviert"
+    if any(name.casefold() == taken.casefold() for taken in existing):
+        return "Name ist schon vergeben"
+    return None
 
 
 def default_player_name(existing):
@@ -203,6 +196,9 @@ class FaceScanner:
 # --------------------------------------------------------------------------- #
 # Detection + recognition
 # --------------------------------------------------------------------------- #
+Enrolled = namedtuple("Enrolled", "added saved")   # features added / image files written
+
+
 class FaceIdentifier:
     def __init__(self, detector_path, recognizer_path,
                  threshold=config.FACE_MATCH_THRESHOLD,
@@ -267,7 +263,7 @@ class FaceIdentifier:
                 continue
             files = [os.path.join(folder, f) for f in sorted(os.listdir(folder))
                      if f.lower().endswith(IMAGE_EXTENSIONS)]
-            added = self.add_person(name, [cv2.imread(f) for f in files])
+            added = self.add_person(name, [imread(f) for f in files])
             if added:
                 logger.info("Player %s: %d reference image(s)", name, added)
             else:
@@ -310,15 +306,29 @@ class FaceIdentifier:
         return self.scan(frame)[:3]
 
     def enroll(self, faces_dir, name, crops):
-        """Save the crops to ``faces_dir/<name>/`` and add the player to the gallery."""
-        folder = person_dir(faces_dir, name)
-        os.makedirs(folder, exist_ok=True)
-        stamp = int(time.time() * 1000)
-        for i, crop in enumerate(crops):
-            cv2.imwrite(os.path.join(folder, f"{stamp}_{i}.png"), crop)
-        added = self.add_person(name.strip(), crops)
-        logger.info("Enrolled player %s with %d face image(s)", name.strip(), added)
-        return added
+        """Add the player to the gallery and save the crops to ``faces_dir/<name>/``.
+
+        Returns ``Enrolled(added, saved)``. The player is usable in this session even if
+        the images cannot be saved (folder not writable, invalid name): that is logged and
+        shows in ``saved < added``, the caller tells the player (#65).
+        """
+        name = name.strip()
+        added = self.add_person(name, crops)
+        saved = 0
+        try:
+            folder = person_dir(faces_dir, name)
+            os.makedirs(folder, exist_ok=True)
+            stamp = int(time.time() * 1000)
+            for i, crop in enumerate(crops):
+                if imwrite(os.path.join(folder, f"{stamp}_{i}.png"), crop):
+                    saved += 1
+        except (OSError, ValueError):
+            logger.warning("Could not create the folder for player %s", name, exc_info=True)
+        if saved < len(crops):
+            logger.warning("Player %s: only %d of %d face image(s) saved -- not recognised "
+                           "after a restart", name, saved, len(crops))
+        logger.info("Enrolled player %s with %d face image(s), %d saved", name, added, saved)
+        return Enrolled(added, saved)
 
 
 def create_identifier(faces_dir=None):
@@ -327,7 +337,7 @@ def create_identifier(faces_dir=None):
     try:
         paths = ensure_models()
         identifier = FaceIdentifier(paths["detector"], paths["recognizer"])
-    except (RuntimeError, cv2.error):
+    except (RuntimeError, OSError, cv2.error):
         logger.warning("Face identification disabled -- everyone plays as %s", GUEST,
                        exc_info=True)
         return None

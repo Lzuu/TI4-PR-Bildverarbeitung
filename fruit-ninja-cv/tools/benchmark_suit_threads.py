@@ -36,7 +36,7 @@ for threads in arguments.threads:
         now=time.monotonic()
         body=tracker.update(frame,mask,now=now)
         box=face.largest_face_box(frame)
-        return renderer.render(frame.copy(),frame,mask,body,box,marker.last_mask,now)
+        return renderer.render(frame.copy(),frame,mask,body,box,marker.pen_mask,now)
     row=measure('cadenced_pipeline_public_portrait',pipeline,iterations=24)
     row['opencv_threads']=threads
     results.append(row)

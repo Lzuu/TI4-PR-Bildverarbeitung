@@ -127,3 +127,22 @@ def test_scale_defaults_to_config(monkeypatch):
     assert MarkerTracker().scale == 0.5
     monkeypatch.setattr(config, "TRACK_SCALE", 1.0)
     assert MarkerTracker().scale == 1.0
+
+
+# -- CR-19 (#71): only the pen is protected, not every object of the same colour --
+def test_pen_mask_covers_only_the_pen_and_not_other_objects_of_the_same_colour():
+    frame = _frame_with(PINK_BGR)                                   # pen: 26 x 181 px
+    cv2.rectangle(frame, (100, 100), (130, 130), PINK_BGR, -1)      # pink cushion, smaller
+    t = MarkerTracker(point_mode="tip")
+    assert t.track(frame) is not None
+    assert t.pen_mask.shape == frame.shape[:2]
+    assert t.pen_mask[270, 482] > 0                                 # on the pen
+    assert t.pen_mask[115, 115] == 0                                # not on the cushion
+    assert t.last_mask[115, 115] > 0                                # the debug mask still shows it
+
+
+def test_pen_mask_is_empty_without_a_pen():
+    frame = np.full((H, W, 3), WALL, np.uint8)
+    t = MarkerTracker()
+    assert t.track(frame) is None
+    assert t.pen_mask.shape == frame.shape[:2] and t.pen_mask.max() == 0

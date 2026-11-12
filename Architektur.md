@@ -40,11 +40,12 @@ Kamera ─► main (Loop, States, Input)
 | `pose_tracking.py` | Lokale BlazePose-ONNX-Modelle, Gelenke, Flow, begrenzte Überbrückung |
 | `cameras.py` | Kameras finden (Indizes durchprobieren), öffnen (1080p MJPG, unter Windows MSMF), wechseln, Auswahl in `settings.json` merken |
 | `highscore.py` | Top-3-Highscore **je Schwierigkeit** mit Spielername (JSON-Persistenz) |
-| `face_id.py` | Spielererkennung per Gesicht: YuNet-Detektion, SFace-Merkmale, Abgleich mit `faces/`, Scan im Kreis (`FaceScanner`), Einlernen |
+| `face_id.py` | Spielererkennung per Gesicht: YuNet-Detektion, SFace-Merkmale, Abgleich mit `faces/`, Scan im Kreis (`FaceScanner`), Einlernen, Namensprüfung |
+| `model_download.py` | Geprüfter Modell-Download (Timeout, Hash vor dem Installieren) für Gesicht, YOLO und Pose |
 | `keyboard.py` | Bildschirmtastatur (Dwell pro Taste) für den Namen neuer Spieler |
 | `enroll.py` | Spieler einlernen: speichert ausgerichtete Gesichtsausschnitte nach `faces/<Name>/` |
 | `sound.py` | Soundeffekte (synthetisiert, non-blocking via afplay) |
-| `utils.py` | Wiederverwendbare Helfer: Linie-Kreis-Abstand, Text mit Schatten |
+| `utils.py` | Wiederverwendbare Helfer: Linie-Kreis-Abstand, Text mit Schatten, Bilddateien mit Umlaut im Pfad |
 | `logging_config.py` | Zentrales Logging (rotierendes Logfile + Konsole) |
 
 ## Datenfluss (pro Frame)
@@ -459,6 +460,49 @@ Kamera ─► main (Loop, States, Input)
   angeschlossen war (Kamera 0, 1920×1080, wurde stattdessen verwendet).
   Offen: Der prozedurale Anzug ist auf diesem Gerät der größte Einzelposten.
 
+- **Fehlerbehebung aus dem Code-Review #55 (CR-11 bis CR-19, 12.11.2026).** Jeder Fehler
+  wurde zuerst als Test nachgestellt (rot) und dann behoben; 32 neue Tests.
+  - **CR-11 (#63) Bildschirmwechsel.** `DwellTracker.reset(require_exit=True)`: Nach einem
+    Wechsel zählt ein Ziel erst, wenn der Stift alle Ziele einmal verlassen hat (oder
+    verloren ging). „Startmenue“ und „Quit“ liegen an derselben Stelle, „Start“ im Kreis
+    „Mittel“; das Layout zu verschieben hätte das Problem bei der nächsten Änderung wieder
+    erzeugt. Die Tastenwiederholung der Namenseingabe (`key_dwell.reset()` nach einer Taste)
+    bleibt bewusst ohne Sperre, sonst ginge kein Doppelbuchstabe mehr.
+  - **CR-12 (#64) Bombe im selben Schwung.** `_handle_slicing` zählt die vor der Bombe
+    geschnittenen Früchte zur Kombo, bevor das Spiel endet; danach läuft in diesem Frame
+    keine Physik mehr (kein Leben, kein „miss“-Ton nach Game Over).
+  - **CR-13 (#65) Umlaute in Spielernamen.** `cv2.imread/imwrite` scheitern unter Windows an
+    Pfaden wie `faces/Jürgen`. `utils.imread/imwrite` gehen über `imencode/imdecode` und
+    normale Dateizugriffe. `FaceIdentifier.enroll` liefert `Enrolled(added, saved)`; der
+    Spieler bleibt in der Sitzung nutzbar, schlägt das Speichern fehl, wird das geloggt und
+    im Menü angezeigt. Offen: `cv2.dnn.readNetFromONNX` und die Sprite-/Hintergrundbilder
+    lesen Pfade mit Umlaut weiterhin über OpenCV direkt (Repo unter einem Benutzerpfad mit
+    Umlaut).
+  - **CR-14 (#66) Lichtschwert.** Beim Wechsel vom Handschuh zur Hautsuche wird die Klingenlänge
+    auf `min_blade` bis `max_blade` begrenzt statt auf 0 zu fallen.
+  - **CR-15 (#67) Modell-Download.** Ein Pfad für alle drei Modelle: `model_download.py`
+    (Timeout, Hash beim Schreiben der `.part`-Datei, erst bei passendem Hash an den Endnamen
+    verschoben, Größenlimit). Eine beschädigte Datei aus einem früheren Lauf wird bei erlaubtem
+    Download ersetzt; ohne Download bleibt sie unangetastet und wird gemeldet.
+    `MODEL_DOWNLOAD_TIMEOUT = 20` gilt auch für Gesichts- und Posemodelle. Damit ist auch
+    CR-21 erledigt.
+  - **CR-16 (#68) Dateipfade.** `config.BASE_DIR` (Programmordner); `settings.json`,
+    `highscores.json`, `logs/perf.csv` und `logs/fruit-ninja.log` liegen dort, egal von wo
+    gestartet wird. Wer bisher aus dem Repo-Wurzelordner gestartet hat, hat dort eigene
+    Dateien, die nicht mehr gelesen werden.
+  - **CR-17 (#69) Kamera verloren.** `Camera.reopen()` probiert die zuletzt funktionierende,
+    dann die konfigurierte und dann alle übrigen Kameras. Ohne Kamera zeigt die Schleife einen
+    Hinweis und versucht es alle `CAMERA_REOPEN_INTERVAL` (1 s); erst nach
+    `CAMERA_LOST_TIMEOUT` (30 s) endet das Spiel, Taste `q` beendet jederzeit. Liefert eine
+    geöffnete Kamera nur keine Bilder, gilt weiter `MAX_FRAME_FAILURES`.
+  - **CR-18 (#70) Namen.** `face_id.name_problem`: „Gast“ und vergebene Namen (ohne
+    Beachtung der Groß-/Kleinschreibung, die Ordner sind unter Windows nicht
+    unterscheidend) werden abgelehnt, mit Hinweis in der Namenseingabe. Ein leerer Name
+    bleibt erlaubt („Spieler N“).
+  - **CR-19 (#71) Stiftmaske.** `MarkerTracker.pen_mask` enthält nur die Kontur, die als Stift
+    gewählt wurde; der Anzug schont nur sie. `last_mask` bleibt die Maske aller
+    stiftfarbenen Pixel für die Debug-Ansicht (Taste `d`). Ein pinkes Kissen im Raum scheint
+    damit nicht mehr durch den Weltraum.
 - **Agent-Wartezeit: Short-Video-Fenster per Hook (#48, `fruit-ninja-cv/tools/doomscroll/`).**
   Kein Teil des Spiels. Claude-Code-Hooks (`UserPromptSubmit` öffnet, `Stop`,
   `StopFailure`, `SessionEnd` schließen) rufen ein Skript je System auf: `doomscroll.ps1`
@@ -531,7 +575,7 @@ Geprüft am Code des Stands 93621a2, nicht an einer Live-Vorführung.
 | Robustheit ohne aufwendige Kalibrierung | erfüllt | feste Farbbereiche, keine Kalibrierung; der Modus „Normal“ braucht ein Referenzbild (Taste `b`) |
 | Schnittspur anzeigen | erfüllt | `Blade.draw`, Lichtschwert |
 | Debug-Fenster mit Kamerabild und Stiftposition | teilweise | Taste `d` zeigt nur die Farbmaske, nicht das Kamerabild mit markierter Position |
-| Testcase-basiert, alle Tests auf GitHub | erfüllt | 345 Tests in `fruit-ninja-cv/tests/`, CI bei jedem Pull Request |
+| Testcase-basiert, alle Tests auf GitHub | erfüllt | 377 Tests in `fruit-ninja-cv/tests/`, CI bei jedem Pull Request |
 | Inkrementell-iterativ, über GitHub abgebildet | erfüllt | Issues #1 bis #74, Pull Requests |
 | Architekturentscheidungen in `Architektur.md` | erfüllt | diese Datei |
 | Logfiles zum Debuggen | erfüllt | `logging_config.py`, `logs/fruit-ninja.log` |

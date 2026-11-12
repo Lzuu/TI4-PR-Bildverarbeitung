@@ -87,6 +87,7 @@ class Camera:
         self._opener = opener
         self.cap = None
         self.index = None
+        self.last_index = None       # the camera that worked last (for reopen)
 
     def _open(self, index):
         cap = self._opener(index)
@@ -115,10 +116,20 @@ class Camera:
         for index in candidates:
             cap = self._open(index)
             if cap is not None:
-                self.cap, self.index = cap, index
+                self.cap, self.index, self.last_index = cap, index, index
                 return True
             logger.info("Camera %d not available", index)
         return False
+
+    def reopen(self):
+        """Get a camera back after a switch and its rollback both failed (#69).
+
+        Tries the last working camera first, then the configured one, then the rest.
+        Returns True if a camera is open (also if one already was).
+        """
+        if self.cap is not None:
+            return True
+        return self.open_first(candidate_order(self.last_index, config.CAMERA_INDEX))
 
     def switch(self, index):
         """Change to camera ``index``; keeps the current one if that fails."""
@@ -136,7 +147,7 @@ class Camera:
                              old_index)
                 self.index = None
             return False
-        self.cap, self.index = cap, index
+        self.cap, self.index, self.last_index = cap, index, index
         logger.info("Switched camera %d -> %d", old_index, index)
         return True
 
