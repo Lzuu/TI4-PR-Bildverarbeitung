@@ -74,7 +74,7 @@ Körperpunkte sind dann deterministische Testeingaben. `--models` nutzt zusätzl
 die echten lokalen Netze auf dem vorhandenen gemeinfreien NASA-Porträt.
 Es werden keine privaten Team- oder Kamerafotos benötigt.
 
-**Tests: 292 bestanden, 0 fehlgeschlagen, 0 Fehler, 0 übersprungen.**
+**Tests: 353 bestanden, 0 fehlgeschlagen, 0 Fehler, 0 übersprungen.**
 
 Gezielte Regressionen decken Gesichtspixel im Visier, Originalpuffer,
 Hintergrund im Helminnenraum, Alpha-Ränder, Rotation/Anker, geclipptes Rendering,
@@ -115,15 +115,15 @@ keine gemessene Kamera-zu-Bildschirm-Latenz.** Keine garantierte Live-Framerate.
 
 | Schritt | Eingabe | Median ms | P95 ms |
 | --- | --- | ---: | ---: |
-| Artikulierter Anzug inkl. Eingabekopie | synthetisch 960×720 | 38.48 | 46.38 |
-| Stifttracking | synthetisch 960×720 | 2.60 | 3.01 |
-| Pose inkl. periodischer Initialisierung | Porträt 480×600 / 256px Netz | 13.96 | 34.19 |
-| YOLO-Inferenz+Decode | Porträt 480×600 / 320px Netz | 28.53 | 31.37 |
-| YuNet-Detektion | Porträt 480×600 / 320px Netz | 6.78 | 7.56 |
-| Alle Modelle und Rendering bei jedem Aufruf | Porträt 480×600 | 84.40 | 106.37 |
-| Getaktete Pipeline (Marker, N=3 YOLO, Pose/Flow, Face, Rendering) | Porträt 480×600 | 42.97 | 99.24 |
+| Artikulierter Anzug inkl. Eingabekopie | synthetisch 960×720 | 37.40 | 39.53 |
+| Stifttracking | synthetisch 960×720 | 1.14 | 1.29 |
+| Pose inkl. periodischer Initialisierung | Porträt 480×600 / 256px Netz | 14.77 | 34.37 |
+| YOLO-Inferenz+Decode | Porträt 480×600 / 320px Netz | 28.42 | 31.11 |
+| YuNet-Detektion | Porträt 480×600 / 320px Netz | 6.76 | 7.39 |
+| Alle Modelle und Rendering bei jedem Aufruf | Porträt 480×600 | 83.34 | 103.97 |
+| Getaktete Pipeline (Marker, N=3 YOLO, Pose/Flow, Face, Rendering) | Porträt 480×600 | 79.52 | 99.83 |
 
-Der getaktete Durchlauf benötigte im Mittel **57.60 ms**, entsprechend etwa **17.4 verarbeiteten Testbildern/s** ohne Capture/Anzeige. Das ist kein 720p-Live-FPS-Wert; Komponenten mit verschiedenen Eingabegrößen
+Der getaktete Durchlauf benötigte im Mittel **64.95 ms**, entsprechend etwa **15.4 verarbeiteten Testbildern/s** ohne Capture/Anzeige. Das ist kein 720p-Live-FPS-Wert; Komponenten mit verschiedenen Eingabegrößen
 dürfen nicht einfach addiert werden. Die zusätzliche Figur kostet Rechenzeit;
 30 oder 60 Live-FPS werden auf dieser Grundlage ausdrücklich nicht zugesichert.
 Ausgabeauflösung und Inferenzintervalle am Demogerät anhand Bildqualität UND
@@ -200,9 +200,12 @@ aus dem Originalbild wiederhergestellt.
 
 Vier zusätzliche Regressionen prüfen passende sichtbare Bundbreiten, kurze
 projizierte Armsegmente, schnelle Wechsel unten/seitlich/verschränkt/oben und
-Trackingverlust sowie die sichtbare Polsterbreite. Insgesamt 292 Tests bestanden.
+Trackingverlust sowie die sichtbare Polsterbreite. Insgesamt 353 Tests bestanden (einschließlich der neuen Performance-Tests auf main).
 Die reproduzierbaren Vorschaubilder wurden erneuert und visuell geprüft.
-Render-Median bei 960×720: 38,5 ms; getaktete Testpipeline am öffentlichen
-Portrait: 57,6 ms Mittel (ca. 17,4 verarbeitete Testbilder/s), ohne Kamera/Anzeige.
+Render-Median bei 960×720: 37,4 ms; getaktete Testpipeline am öffentlichen
+Portrait: 65,0 ms Mittel (ca. 15,4 verarbeitete Testbilder/s), ohne Kamera/Anzeige.
 Das ist keine Live-FPS-Messung. Schnelle reale Armbewegungen, Drehungen zur Kamera
 und wechselnde Beleuchtung benötigen weiterhin eine Live-Abnahme.
+
+
+Integration: main / faa6023 mit den Performance-Änderungen aus PR #45 wurde übernommen. Lazy-YOLO-Laden, zeitbasierte Spielbewegung, halbaufgelöstes Tracking und die Performance-Anzeige bleiben erhalten. Pose-Rig und beide Diagnosepfade teilen sich weiterhin das unveränderte Kamerabild und eine Gesichtserkennung je Frame. Die gemeinsame Testsuite besteht aus 353 erfolgreichen Tests.

@@ -77,7 +77,17 @@ def test_slice_marks_state_and_stops_scoring_twice():
     f = _make_fruit()
     f.slice(0.0)
     assert f.sliced
-    # The slice animation finishes after the configured number of frames
-    for _ in range(config.SLICE_ANIM_FRAMES):
-        f.update()
+    # The slice animation finishes after the configured time
+    f.update(config.SLICE_ANIM_SECONDS / 2)
+    assert not f.is_finished()
+    f.update(config.SLICE_ANIM_SECONDS / 2)
     assert f.is_finished()
+
+
+def test_exact_projectile_is_independent_of_the_step():
+    a, b = _make_fruit(3), _make_fruit(3)
+    for _ in range(30):
+        a.update(1 / 30)                     # 1 s in 30 steps
+    for _ in range(4):
+        b.update(0.25)                       # 1 s in 4 steps
+    assert abs(a.x - b.x) < 1e-6 and abs(a.y - b.y) < 1e-6

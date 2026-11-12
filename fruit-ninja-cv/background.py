@@ -191,7 +191,9 @@ def greenscreen_mask(frame, lower=None, upper=None, kernel_size=None, scale=1.0,
         mask = _drop_small_blobs(mask, min_blob_frac * mh * mw)
 
     if scale != 1.0:
-        mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
+        # smooth edges instead of 1/scale-px blocks: linear upscale, then re-threshold
+        mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_LINEAR)
+        mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)[1]
     return mask
 
 
