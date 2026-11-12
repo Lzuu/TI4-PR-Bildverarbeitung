@@ -49,7 +49,7 @@ def run_loop(monkeypatch, tmp_path, camera, frames_to_run, keys=None, on_frame=N
     """Run ``_run_game_loop`` for ``frames_to_run`` frames, then quit.
 
     ``keys``: {frame_number: keycode}; ``on_frame(n, mouse_cb)`` runs before each
-    waitKey (e.g. to click); ``cfg`` overrides config values for this run.
+    waitKey (e.g. to click; returning True ends the run); ``cfg`` overrides config values for this run.
     ``yolo_start`` replaces the background thread that loads YOLO; by default
     the model is loaded synchronously so the tests stay deterministic.
     """
@@ -65,8 +65,8 @@ def run_loop(monkeypatch, tmp_path, camera, frames_to_run, keys=None, on_frame=N
 
     def wait_key(_delay):
         state["n"] += 1
-        if on_frame is not None:
-            on_frame(state["n"], state["mouse"])
+        if on_frame is not None and on_frame(state["n"], state["mouse"]) is True:
+            return ord("q")                      # on_frame asked to stop early
         if state["n"] >= frames_to_run:
             return ord("q")
         return keys.get(state["n"], 255)

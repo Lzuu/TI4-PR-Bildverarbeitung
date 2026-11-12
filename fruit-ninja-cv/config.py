@@ -123,6 +123,25 @@ COMBO_BONUS_PER_FRUIT = 1        # Extra points per fruit in a qualifying combo
 COMBO_BANNER_SECONDS = 35 / 30   # How long the combo banner stays on screen (real time)
 
 # ---------------------------------------------------------------------------
+# Challenge mode: direction fruits (#33, see motion.py / challenge.py)
+# ---------------------------------------------------------------------------
+# A direction fruit only counts if it is cut fast enough, in the shown direction.
+# Speed is measured in field widths per second (independent of the resolution). The
+# thresholds are starting values: the practical test (tools/analyze_cuts.py) is what
+# they are meant to be tuned with.
+CHALLENGE_SECONDS = 60           # Length of a challenge (it also ends when all lives are lost)
+CHALLENGE_DIRECTION_SHARE = 0.7  # Share of direction fruits among the non-bomb fruits
+CHALLENGE_POINTS = 3             # Points for a valid direction cut (plain fruit: 1)
+CHALLENGE_FEEDBACK_SECONDS = 0.7 # How long a "good" / "wrong" notice stays on screen
+CHALLENGE_REPORT_COOLDOWN = 0.5  # A rejected cut is reported at most this often per fruit (s)
+CUT_WINDOW = 0.12                # Seconds of pen movement that decide direction and speed
+CUT_MAX_GAP = 0.3                # More time than this between two samples starts a new track
+CUT_MAX_SPEED = 15.0             # Faster than this (field widths/s) is no pen movement: new track
+CUT_MIN_SPEED = 1.0              # Minimum cut speed in field widths per second
+CUT_TOLERANCE_DEG = 30           # Maximum angle between the arrow and the stroke
+CUT_HINT_FRACTION = 0.3          # A too-slow swipe above this share of CUT_MIN_SPEED gets a hint
+
+# ---------------------------------------------------------------------------
 # Highscore
 # ---------------------------------------------------------------------------
 HIGHSCORE_FILE = "highscores.json"

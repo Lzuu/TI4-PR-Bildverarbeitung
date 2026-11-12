@@ -23,6 +23,9 @@ Entwickelt **inkrementell-iterativ** und **test-case-basiert**.
   und Glanz.
 - 🍉 **Wurf-Physik:** Früchte fliegen von unten im Bogen herein.
 - ✂️ **Schneiden durch Berührung** (keine Mindestgeschwindigkeit).
+- 🧭 **Challenge-Modus:** 60 Sekunden lang Richtungsfrüchte mit Pfeil, die nur mit einem
+  **schnellen Schnitt in Pfeilrichtung** fallen — die Kamerabilder liefern Bahn,
+  Richtung und Geschwindigkeit des Stifts.
 - 🎚️ **Drei Schwierigkeitsgrade** – schnellere Früchte = schwerer (immer **3 Leben**).
 - 🏆 **Leaderboard je Schwierigkeit** (Top-3, persistent).
 - 🔥 **Kombos** à la Fruit Ninja: mehrere Früchte in einem Swipe → Bonuspunkte.
@@ -129,10 +132,50 @@ Kamera: Standard `CAMERA_INDEX = 1` (MacBook FaceTime HD). Andere Kamera in
    (Maus) → Farb-Kachel wählen.
 2. **Schwierigkeit wählen:** Stift **3 Sekunden** in den gewünschten Kreis
    (Einfach/Mittel/Schwer) halten.
+2a. **Challenge statt Spiel:** im Startmenü den **Challenge**-Kreis (links) statt „Start"
+    wählen, danach ebenfalls die Schwierigkeit. Jeder Modus hat sein eigenes Leaderboard.
 3. **Spielen:** Stift über die Früchte führen (**Berührung reicht**). Mehrere
    Früchte in einem Swipe geben einen **Kombo-Bonus**. Verpasste Früchte kosten
    ein Leben, Bomben = sofort vorbei.
 4. **Game Over:** **Neustart**, **Startmenü** oder **Quit** per Stift-Dwell wählen.
+
+### Challenge-Modus
+Die Challenge dauert **60 Sekunden** oder endet, wenn alle **3 Leben** weg sind (bekannte
+Regeln: verpasste Frucht = −1 Leben, Bombe = vorbei, verpasste Bombe ist frei).
+
+- **Richtungsfrüchte** tragen einen **Doppelring und einen Pfeil** (links→rechts,
+  rechts→links, oben→unten, unten→oben; die Gegenrichtung ist eine andere Aufgabe).
+  Normale Früchte und Bomben gibt es weiterhin, sie gelten wie im klassischen Spiel.
+- Gültig ist ein Schnitt, wenn der Stift die Frucht berührt, **schnell genug** ist
+  (`CUT_MIN_SPEED`, in Spielfeldbreiten pro Sekunde) und die Richtung höchstens
+  `CUT_TOLERANCE_DEG` (30°) vom Pfeil abweicht: **+3 Punkte**, grünes „+3".
+- **Falsche Richtung:** die Frucht bleibt, kurz rotes „Falsche Richtung". **Zu langsam:**
+  kein Schnitt, bei einem echten Versuch ein oranges „Schneller!". Stillhalten und
+  langsames Berühren sind weder Schnitt noch Fehler.
+- Nach einem Tracking-Aussetzer beginnt die Bahn neu: wieder auftauchen schneidet nie
+  quer über das Spielfeld. Jede Frucht zählt nur einmal.
+- Richtung und Pfeil gelten für das **gespiegelte Bild, das du siehst**.
+- Am Ende: Punkte und Anzahl erfüllter Richtungsaufgaben.
+
+#### Praktischer Versuch (Grenzwerte begründen)
+`CUT_MIN_SPEED` und `CUT_TOLERANCE_DEG` sind **Startwerte**, noch nicht am Gerät
+gemessen. Jede beurteilte Frucht schreibt eine Zeile ins Log (nicht pro Frame), zum
+Beispiel `Cut ok: direction=right speed=2.10 deviation=8`.
+
+1. Aufgaben vorher festlegen, je Beleuchtung (mindestens zwei, z. B. Tageslicht und
+   Kunstlicht): jede der vier Richtungen etwa 10-mal absichtlich richtig schneiden,
+   außerdem je 10 absichtlich falsche (Gegenrichtung) und 10 langsame Berührungen.
+2. `logs/fruit-ninja.log` vor jedem Durchgang sichern oder leeren, danach
+   `python tools/analyze_cuts.py logs/fruit-ninja.log` ausführen.
+3. Protokollieren: beabsichtigte Schnitte, davon korrekt akzeptiert, und fälschlich
+   akzeptierte (falsche oder langsame Schnitte, die zählten).
+4. Der Abstand zwischen dem langsamsten akzeptierten Schnitt und der schnellsten
+   langsamen Berührung (bzw. zwischen größter akzeptierter und kleinster abgelehnter
+   Abweichung) liefert die Begründung für die Grenzwerte.
+
+| Beleuchtung | Aufgabe | beabsichtigt | korrekt akzeptiert | fälschlich akzeptiert |
+|---|---|---:|---:|---:|
+| (noch nicht durchgeführt) | | | | |
 
 > Alle In-Game-Auswahlen laufen über den Stift (Dwell). Nur die **Stiftfarbe** im
 > Startmenü wird per **Maus** gesetzt. Tastatur-Fallback: `q` Beenden, `d` Maske,
@@ -155,6 +198,9 @@ pytest
 | `tests/test_blade.py` | Trail, Geschwindigkeit, aktueller Punkt |
 | `tests/test_game.py` | Berührungs-Schnitt, Bombe, Miss, Spawning, Reset, Kombos |
 | `tests/test_difficulty.py` | 3 Leben überall, härter = schneller |
+| `tests/test_motion.py` | Bewegungsanalyse der Richtungsschnitte: vier Richtungen, Gegenrichtung, Winkelgrenzen, Tempo, Stillstand, Tracking-Lücke, ungültige Zeitstempel, unterschiedliche Bildraten |
+| `tests/test_challenge.py` | Challenge-Spielregeln: Richtungsfrüchte, Punkte, falsche Richtung, nur einmal werten, Timer, Leben, Rundenende |
+| `tests/test_cut_log.py` | Auswertung der Schnitt-Einträge aus dem Log |
 | `tests/test_perf.py`, `tests/test_perf_loop.py` | Frame-Zeit-Diagnose: Perzentile, Fenster, CSV, Overlay, Stufen in der echten Schleife |
 | `tests/test_screen.py` | Bildschirmgröße (Windows/macOS), Canvas im Bildschirmformat |
 | `tests/test_main_loop.py` | Die echte Spielschleife headless: Reihenfolge, Moduswechsel, YOLO nur bei Nutzung, eine Gesichtsdetektion pro Frame |
@@ -171,6 +217,11 @@ Marker/Kamera & allgemeine Konstanten in `config.py`:
 - `MIN_MARKER_AREA` / `MORPH_KERNEL` — Erkennung dünner Stifte / Rauschfilter.
 - `DWELL_SECONDS` / `SELECT_RADIUS` — Dauer & Größe der Dwell-Auswahl.
 - `COMBO_WINDOW_SECONDS` / `COMBO_MIN` / `COMBO_BONUS_PER_FRUIT` — Kombo-Regeln.
+- `CHALLENGE_SECONDS` / `CHALLENGE_DIRECTION_SHARE` / `CHALLENGE_POINTS` — Dauer,
+  Anteil der Richtungsfrüchte und Punkte im Challenge-Modus.
+- `CUT_MIN_SPEED` / `CUT_TOLERANCE_DEG` / `CUT_WINDOW` / `CUT_MAX_GAP` / `CUT_MAX_SPEED` —
+  Mindesttempo (Spielfeldbreiten/s), Winkeltoleranz, Zeitfenster der Richtungsmessung,
+  Lückengrenze und Plausibilitätsgrenze für Sprünge.
 - `TRACK_SCALE` / `GREEN_SCALE` — Verarbeitungsskala von Stiftsuche und Greenscreen
   (0,5 = halbe Breite/Höhe; `1.0` stellt die volle Auflösung wieder her).
 - `YOLO_EVERY_N` / `YOLO_MAX_MASK_AGE` — YOLO-Kadenz und maximales Alter der Maske.
@@ -196,6 +247,9 @@ Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.p
 | `yolo_seg.py` | Personensegmentierung (YOLOv8-seg, ONNX via `cv2.dnn`) für den `yolo`-Modus, wird erst bei Nutzung im Hintergrund geladen |
 | `perf.py` | Frame-Zeit-Diagnose (Frames/s, Median/P95 je Stufe, Log + CSV) |
 | `lightsaber.py` | Stift als Lichtschwert |
+| `motion.py` | Bewegungsanalyse (Stiftbahn aus Position und Zeitstempel, Richtung, Tempo) und Schnittentscheidung, ohne Kamera testbar |
+| `challenge.py` | Challenge-Modus: Richtungsfrüchte, Timer, Rückmeldung |
+| `tools/analyze_cuts.py` | Wertet die Schnitt-Einträge des Logs für den praktischen Versuch aus |
 | `cameras.py` | Kameras finden, öffnen, wechseln, Auswahl speichern |
 | `highscore.py` | Top-3 je Schwierigkeit mit Spielername (JSON-Persistenz) |
 | `face_id.py` | Spielererkennung (YuNet + SFace), Scan im Kreis, Einlernen |
