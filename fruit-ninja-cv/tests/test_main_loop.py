@@ -328,6 +328,29 @@ def test_saber_hilt_sits_on_the_glove_drawn_in_the_same_frame(monkeypatch, tmp_p
     assert skins == []                                       # no skin search with a glove
 
 
+def test_a_glove_from_the_previous_frame_is_not_reused(monkeypatch, tmp_path):
+    """Frame 1: suit with glove. Frame 2: no player mask, so no suit -- skin fallback."""
+    sabers, skins = _record_saber(monkeypatch)
+    original_dress, original_mask = m.suit.dress, m.background.greenscreen_mask
+    frames_seen = {"n": 0}
+
+    def mask_only_in_the_first_frame(*args, **kwargs):
+        frames_seen["n"] += 1
+        return original_mask(*args, **kwargs) if frames_seen["n"] == 1 else None
+
+    def dress_with_glove(frame, mask, *args, **kwargs):
+        out = original_dress(frame, mask, *args, **kwargs)
+        kwargs["renderer"].last_parts.append(dict(GLOVE))
+        return out
+    monkeypatch.setattr(m.background, "greenscreen_mask", mask_only_in_the_first_frame)
+    monkeypatch.setattr(m.suit, "dress", dress_with_glove)
+    run_loop(monkeypatch, tmp_path, FakeCamera([with_pen(green_frame(), 75)]), 2,
+             BG_MODE="greenscreen", SUIT_ENABLED=True)
+    first, _second = [s for s in sabers if s is not None]
+    assert _hilt_offset(first, GLOVE) <= 1.5                 # frame 1: on the drawn glove
+    assert skins == [1]                                      # frame 2: old glove ignored
+
+
 def test_a_glove_from_an_earlier_frame_is_never_used(monkeypatch, tmp_path):
     sabers, skins = _record_saber(monkeypatch)
     stale = types.SimpleNamespace(last_parts=[dict(GLOVE)])   # drawn long ago, not this frame

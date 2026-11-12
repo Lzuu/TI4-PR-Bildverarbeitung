@@ -12,9 +12,10 @@ vertical gradually. Drawing only -- the cutting still uses the pen point alone.
 
 With the EVA suit the hilt is attached to the glove the suit drew from the body
 pose (#46) -- like a weapon on a hand bone socket: the hilt centre sits on the
-glove's palm in every frame, no settling and no outlier filter (the pose is
-smoothed already). That reuses the pose the suit computes anyway, so the skin
-search is then skipped; it stays as the fallback without suit or pose.
+glove's palm in every frame, no settling, no outlier filter and no tilt limit
+(the pose is smoothed already and knows where the hand is). That reuses the pose
+the suit computes anyway, so the skin search is then skipped; it stays as the
+fallback without suit or pose.
 """
 
 import logging
@@ -216,14 +217,25 @@ class SaberTracker:
         return hands[side]
 
     def _on_glove(self, tip, grip, hilt):
-        """Hilt centre exactly on the glove's grip, the blade from the pen tip to it."""
+        """Hilt centre exactly on the glove's grip, the blade from the pen tip to it.
+
+        The hilt is placed around the grip itself, so it stays on the palm even
+        when the pen tip is closer than half a hilt (pen pointing at the camera);
+        the blade is then hidden under the hilt. Below 1 px the offset carries no
+        direction, so the last angle is kept.
+        """
         dx, dy = grip[0] - tip[0], grip[1] - tip[1]
         dist = math.hypot(dx, dy)
         if dist >= 1:                                # any tilt: the pose knows the hand
             self.angle = math.atan2(dx, dy)
-        self.length = max(dist - hilt / 2, 0.0)      # short when the pen points at the camera
+        self.length = max(dist - hilt / 2, 0.0)      # kept for a smooth skin fallback
         self._pending = self._missing = 0
-        return saber_toward(tip, (math.sin(self.angle), math.cos(self.angle)), self.length, hilt)
+        d = (math.sin(self.angle), math.cos(self.angle))
+        half = hilt / 2
+        as_int = lambda q: (int(round(q[0])), int(round(q[1])))
+        return Saber((int(tip[0]), int(tip[1])),
+                     as_int((grip[0] - d[0] * half, grip[1] - d[1] * half)),
+                     as_int((grip[0] + d[0] * half, grip[1] + d[1] * half)))
 
     def _note(self, source):
         """Log the hand source once a change has lasted a few frames -- never per frame."""

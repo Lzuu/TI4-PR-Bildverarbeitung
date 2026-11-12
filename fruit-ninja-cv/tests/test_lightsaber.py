@@ -329,14 +329,12 @@ def test_losing_the_glove_does_not_make_the_saber_jump():
     assert abs(math.dist(s.tip, s.hilt_top) - math.dist(held.tip, held.hilt_top)) < 1
 
 
-def test_glove_right_at_the_tip_gives_a_short_valid_saber():
+def test_glove_right_at_the_tip_still_centres_the_hilt_on_the_palm():
     grip = (305, 160)                                              # pen almost inside the fist
-    s = _tracker().update(POINT, None, hands={"r": grip})
-    assert s.tip == POINT
-    assert s.hilt_top != s.hilt_bottom
-    # the grip still lies on the hilt (top -> grip -> bottom is a straight line)
-    along = math.dist(s.hilt_top, grip) + math.dist(grip, s.hilt_bottom)
-    assert along - math.dist(s.hilt_top, s.hilt_bottom) < 1.5
+    s = _tracker().update(POINT, None, hands={"r": grip})          # closer than half a hilt (25)
+    assert s.tip == POINT                                          # still cuts at the pen
+    assert math.dist(_hilt_centre(s), grip) <= 1                   # hilt stays on the palm
+    assert abs(math.dist(s.hilt_top, s.hilt_bottom) - 50) < 2
 
 
 def test_hand_source_is_logged_once_per_lasting_change_not_per_frame(caplog):
