@@ -135,3 +135,53 @@ def test_switching_to_greenscreen_with_a_green_pen_falls_back_to_pink(monkeypatc
              BG_MODE="normal")
     assert GRUEN in colors                               # green was picked first
     assert colors[-1] is PINK                            # and replaced for greenscreen
+
+
+# -- PERF-07 (#42): YOLO is only loaded when the yolo mode is used ------------
+import pytest
+
+
+def _counting_create(monkeypatch, net):
+    calls = []
+
+    def create():
+        calls.append(1)
+        return yolo_seg.BodySegmenter(net, input_size=64, every_n=100)
+    monkeypatch.setattr(yolo_seg, "create_segmenter", create)
+    return calls
+
+
+@pytest.mark.parametrize("mode", ["off", "normal", "greenscreen"])
+def test_other_modes_start_without_loading_yolo(monkeypatch, tmp_path, mode):
+    calls = _counting_create(monkeypatch, FakeNet(*_blank_outputs()))
+    run_loop(monkeypatch, tmp_path, FakeCamera([green_frame()]), 4,
+             BG_MODE=mode, YOLO_ENABLED=True)
+    assert calls == []
+
+
+def test_yolo_is_loaded_once_when_first_selected(monkeypatch, tmp_path):
+    calls = _counting_create(monkeypatch, FakeNet(*_blank_outputs()))
+    bx, by, bw, bh = m.background_button(m.config.WIDTH, m.config.HEIGHT)
+
+    def click_mode(n, mouse):
+        if 2 <= n <= 9:                              # normal -> yolo -> ... -> yolo again
+            mouse(cv2.EVENT_LBUTTONDOWN, bx + 5, by + 5, 0, None)
+    run_loop(monkeypatch, tmp_path, FakeCamera([green_frame()]), 12, on_frame=click_mode,
+             BG_MODE="normal", YOLO_ENABLED=True)
+    assert calls == [1]                              # loaded on first use, then reused
+
+
+def test_loading_hint_while_the_model_loads(monkeypatch, tmp_path):
+    _counting_create(monkeypatch, FakeNet(*_blank_outputs()))
+    jobs = []
+    texts = []
+    original = m.draw_text
+
+    def recording(frame, text, *a, **k):
+        texts.append(text)
+        return original(frame, text, *a, **k)
+    monkeypatch.setattr(m, "draw_text", recording)
+    run_loop(monkeypatch, tmp_path, FakeCamera([green_frame()]), 3,
+             BG_MODE="yolo", YOLO_ENABLED=True, yolo_start=jobs.append)
+    assert len(jobs) == 1                            # one background load, never finished
+    assert any("wird geladen" in t for t in texts)

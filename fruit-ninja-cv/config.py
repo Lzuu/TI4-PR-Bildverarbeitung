@@ -65,6 +65,7 @@ YOLO_INPUT = 320                 # Inference input size (letterboxed square); sm
 YOLO_EVERY_N = 3                 # Infer every Nth frame, reuse the last mask in between (~15 ms/inference)
 YOLO_CONF = 0.4                  # Minimum person confidence
 YOLO_MASK_THRESH = 0.5           # Prototype-mask threshold
+YOLO_DOWNLOAD_TIMEOUT = 20       # Seconds a model download may stall before it fails
 
 # ---------------------------------------------------------------------------
 # Selection (VR-style dwell: hold the pen in a circle to confirm)

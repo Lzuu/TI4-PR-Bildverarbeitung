@@ -593,9 +593,10 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     if bg_mode not in background.MODES:
         bg_mode = config.BG_MODE
     logger.info("Background mode: %s", bg_mode)
-    # YOLO body segmenter for the "yolo" mode (downloaded on first use); None if
-    # the model is unavailable, then the mode falls back like "off".
-    segmenter = yolo_seg.create_segmenter() if config.YOLO_ENABLED else None
+    # YOLO body segmenter for the "yolo" mode: loaded in the background the first
+    # time the mode is used, not at start (#42, PERF-07). Until it is ready, or
+    # if it is unavailable, the mode falls back like "off".
+    yolo = yolo_seg.LazySegmenter() if config.YOLO_ENABLED else None
     mode_session = 0                 # +1 on every background mode change (YOLO cache source)
 
     last_frame_t = time.monotonic()
@@ -644,12 +645,15 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             t_stage = time.perf_counter()
             if bg_mode == background.MODE_GREENSCREEN:
                 mask = background.greenscreen_mask(clean, scale=config.GREEN_SCALE)
-            elif bg_mode == background.MODE_YOLO and segmenter is not None:
-                # person mask, no green screen needed; the cache is bound to the
-                # current camera and mode session (#41, CR-10)
-                mask = segmenter.segment(clean, source=(cap.index, mode_session))
-                if segmenter.failed:
-                    segmenter = None                 # off for good, other modes keep working
+            elif bg_mode == background.MODE_YOLO and yolo is not None:
+                yolo.request()                       # first use: start loading
+                segmenter = yolo.get()
+                if segmenter is not None:
+                    # person mask, no green screen needed; the cache is bound to the
+                    # current camera and mode session (#41, CR-10)
+                    mask = segmenter.segment(clean, source=(cap.index, mode_session))
+                    if segmenter.failed:
+                        yolo.mark_failed()           # off until chosen again (CR-09)
             elif bg_mode == background.MODE_NORMAL and reference is not None:
                 mask = background.foreground_mask(clean, reference)
             stats.add("segment", time.perf_counter() - t_stage)
@@ -696,6 +700,8 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                 if new_mode != bg_mode:          # click cycled the background mode
                     bg_mode = new_mode
                     mode_session += 1
+                    if bg_mode == background.MODE_YOLO and yolo is not None:
+                        yolo.retry()             # chosen again: a failed load may retry
                     if not pen_allowed(pen_color, bg_mode):
                         pen_color = pen_for_mode(pen_color, bg_mode)
                         tracker.set_color(pen_color)
@@ -898,10 +904,12 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             draw_text(frame, "Taste b: Weltall-Hintergrund",
                       (config.WIDTH // 2, int(config.HEIGHT * 0.96)),
                       scale=0.5, center=True)
-        elif bg_mode == background.MODE_YOLO and segmenter is None:
-            draw_text(frame, "YOLO-Modell nicht verfuegbar", (config.WIDTH // 2,
-                      int(config.HEIGHT * 0.96)), scale=0.5, color=(80, 80, 255),
-                      center=True)
+        elif bg_mode == background.MODE_YOLO and (yolo is None or yolo.get() is None):
+            loading = yolo is not None and yolo.state in (yolo.IDLE, yolo.LOADING)
+            draw_text(frame, "YOLO-Modell wird geladen ..." if loading
+                      else "YOLO-Modell nicht verfuegbar",
+                      (config.WIDTH // 2, int(config.HEIGHT * 0.96)), scale=0.5,
+                      color=(200, 200, 200) if loading else (80, 80, 255), center=True)
 
         if show_mask and tracker.last_mask is not None:
             cv2.imshow("mask (debug)",

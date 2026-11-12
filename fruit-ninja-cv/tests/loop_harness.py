@@ -9,6 +9,7 @@ import numpy as np
 
 import config
 import main as m
+import yolo_seg
 from sound import NullSound
 
 
@@ -44,11 +45,13 @@ class FakeCamera:
 
 
 def run_loop(monkeypatch, tmp_path, camera, frames_to_run, keys=None, on_frame=None,
-             identifier=None, **cfg):
+             identifier=None, yolo_start=None, **cfg):
     """Run ``_run_game_loop`` for ``frames_to_run`` frames, then quit.
 
     ``keys``: {frame_number: keycode}; ``on_frame(n, mouse_cb)`` runs before each
     waitKey (e.g. to click); ``cfg`` overrides config values for this run.
+    ``yolo_start`` replaces the background thread that loads YOLO; by default
+    the model is loaded synchronously so the tests stay deterministic.
     """
     settings = dict(SETTINGS_FILE=str(tmp_path / "settings.json"),
                     HIGHSCORE_FILE=str(tmp_path / "hs.json"),
@@ -68,6 +71,7 @@ def run_loop(monkeypatch, tmp_path, camera, frames_to_run, keys=None, on_frame=N
             return ord("q")
         return keys.get(state["n"], 255)
 
+    monkeypatch.setattr(yolo_seg, "start_loader", yolo_start or (lambda job: job()))
     monkeypatch.setattr(cv2, "imshow", lambda *a: None)
     monkeypatch.setattr(cv2, "namedWindow", lambda *a: None)
     monkeypatch.setattr(cv2, "setWindowProperty", lambda *a: None)

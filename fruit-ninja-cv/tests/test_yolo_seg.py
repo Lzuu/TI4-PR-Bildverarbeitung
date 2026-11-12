@@ -214,3 +214,119 @@ def test_cadence_for_an_unchanged_source_stays_the_same():
     for _ in range(6):
         seg.segment(frame, source=("cam", 0))
     assert net.calls == 2
+
+
+# -- PERF-07 (#42): load YOLO only when it is used, in the background --------
+import io
+import os
+
+import pytest
+
+import config
+
+
+class ManualStart:
+    """Collects the loader jobs instead of starting threads; run them by hand."""
+
+    def __init__(self):
+        self.jobs = []
+
+    def __call__(self, job):
+        self.jobs.append(job)
+
+    def run_all(self):
+        jobs, self.jobs = self.jobs, []
+        for job in jobs:
+            job()
+
+
+def _counting_factory(result):
+    calls = []
+
+    def factory():
+        calls.append(1)
+        return result
+    return factory, calls
+
+
+def test_lazy_segmenter_loads_nothing_until_requested():
+    factory, calls = _counting_factory(object())
+    lazy = y.LazySegmenter(factory, start=ManualStart())
+    assert lazy.state == y.LazySegmenter.IDLE
+    assert lazy.get() is None
+    assert calls == []
+
+
+def test_lazy_segmenter_loads_in_the_background_once():
+    seg = object()
+    factory, calls = _counting_factory(seg)
+    start = ManualStart()
+    lazy = y.LazySegmenter(factory, start=start)
+    lazy.request()
+    lazy.request()                                   # still loading: no second job
+    assert lazy.state == y.LazySegmenter.LOADING and lazy.get() is None
+    assert len(start.jobs) == 1
+    start.run_all()
+    assert lazy.state == y.LazySegmenter.READY and lazy.get() is seg
+    lazy.request()                                   # ready: reused, not reloaded
+    assert calls == [1] and start.jobs == []
+
+
+def test_lazy_segmenter_failure_is_kept_until_a_deliberate_retry():
+    factory, calls = _counting_factory(None)         # create_segmenter: None = unavailable
+    start = ManualStart()
+    lazy = y.LazySegmenter(factory, start=start)
+    lazy.request()
+    start.run_all()
+    assert lazy.state == y.LazySegmenter.FAILED
+    for _ in range(5):
+        lazy.request()                               # no retry per frame
+    assert start.jobs == [] and calls == [1]
+    lazy.retry()
+    lazy.request()
+    start.run_all()
+    assert calls == [1, 1]
+
+
+def test_lazy_segmenter_unexpected_error_counts_as_failed():
+    def broken():
+        raise ValueError("bad model")
+    start = ManualStart()
+    lazy = y.LazySegmenter(broken, start=start)
+    lazy.request()
+    start.run_all()
+    assert lazy.state == y.LazySegmenter.FAILED
+
+
+def test_inference_failure_marks_the_loader_failed():
+    seg = y.BodySegmenter(FailingNet(*_blank_outputs()), input_size=64)
+    start = ManualStart()
+    lazy = y.LazySegmenter(lambda: seg, start=start)
+    lazy.request()
+    start.run_all()
+    lazy.get().segment(np.zeros((48, 64, 3), np.uint8))
+    assert lazy.get() is None and lazy.state == y.LazySegmenter.FAILED
+
+
+def test_download_uses_a_timeout(monkeypatch, tmp_path):
+    seen = {}
+    payload = b"model-bytes"
+
+    def fake_urlopen(url, timeout=None):
+        seen["timeout"] = timeout
+        return io.BytesIO(payload)
+    monkeypatch.setattr(y.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(y, "MODEL", y.ModelFile("m.onnx", "http://example.invalid/m",
+                                                y.hashlib.sha256(payload).hexdigest()))
+    path = y.ensure_model(str(tmp_path))
+    assert seen["timeout"] == config.YOLO_DOWNLOAD_TIMEOUT
+    assert open(path, "rb").read() == payload
+
+
+def test_download_timeout_is_a_clean_failure(monkeypatch, tmp_path):
+    def slow(url, timeout=None):
+        raise TimeoutError("timed out")
+    monkeypatch.setattr(y.urllib.request, "urlopen", slow)
+    with pytest.raises(RuntimeError):
+        y.ensure_model(str(tmp_path))
+    assert os.listdir(tmp_path) == []                # no half-written .part file left

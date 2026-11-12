@@ -20,6 +20,8 @@ The model (``yolov8n-seg.onnx``) is exported from Ultralytics YOLOv8n-seg
 import hashlib
 import logging
 import os
+import shutil
+import threading
 import urllib.request
 from collections import namedtuple
 
@@ -68,8 +70,13 @@ def ensure_model(model_dir=MODEL_DIR, download=True):
         logger.info("Downloading %s ...", MODEL.filename)
         tmp = path + ".part"
         try:
-            urllib.request.urlretrieve(MODEL.url, tmp)
-        except OSError as exc:
+            # bounded wait: a dead network fails after the timeout instead of hanging
+            with urllib.request.urlopen(MODEL.url, timeout=config.YOLO_DOWNLOAD_TIMEOUT) as r, \
+                    open(tmp, "wb") as f:
+                shutil.copyfileobj(r, f)
+        except OSError as exc:                       # incl. TimeoutError / URLError
+            if os.path.exists(tmp):
+                os.remove(tmp)
             raise RuntimeError(f"Download von {MODEL.filename} fehlgeschlagen: {exc}")
         os.replace(tmp, path)
     if _sha256(path) != MODEL.sha256:
@@ -220,3 +227,64 @@ def create_segmenter():
         return None
     logger.info("Body segmentation ready (YOLOv8-seg, %dpx)", config.YOLO_INPUT)
     return BodySegmenter(net)
+
+
+def start_loader(job):
+    """Run ``job`` in a background thread (replaced by a direct call in tests)."""
+    threading.Thread(target=job, name="yolo-load", daemon=True).start()
+
+
+class LazySegmenter:
+    """Creates the YOLO segmenter only when the "yolo" mode is used (#42, PERF-07).
+
+    The first ``request()`` starts download/hash check/net loading in a
+    background thread, so the menu keeps responding; ``get()`` returns the
+    segmenter once it is ready, else None. The thread only *builds* the
+    segmenter and hands it over under a lock -- inference always runs in the
+    game loop's thread. A failure (model unavailable, or an inference error
+    reported via ``mark_failed``) is kept: nothing is reloaded per frame. Only
+    ``retry()`` -- the player selecting the mode again -- allows a new attempt.
+    """
+
+    IDLE, LOADING, READY, FAILED = "idle", "loading", "ready", "failed"
+
+    def __init__(self, factory=None, start=None):
+        self._factory = factory
+        self._start = start
+        self._lock = threading.Lock()
+        self.state = self.IDLE
+        self._segmenter = None
+
+    def request(self):
+        with self._lock:
+            if self.state != self.IDLE:
+                return
+            self.state = self.LOADING
+        logger.info("Loading body segmentation (YOLO) in the background")
+        (self._start or start_loader)(self._load)
+
+    def _load(self):
+        try:
+            segmenter = (self._factory or create_segmenter)()
+        except Exception:                            # never let the loader thread die silently
+            logger.error("Loading body segmentation (YOLO) failed", exc_info=True)
+            segmenter = None
+        with self._lock:
+            self._segmenter = segmenter
+            self.state = self.READY if segmenter is not None else self.FAILED
+
+    def get(self):
+        with self._lock:
+            if self.state == self.READY and getattr(self._segmenter, "failed", False):
+                self.state, self._segmenter = self.FAILED, None
+            return self._segmenter if self.state == self.READY else None
+
+    def mark_failed(self):
+        with self._lock:
+            self.state, self._segmenter = self.FAILED, None
+
+    def retry(self):
+        """Allow a new load after a failure (the player chose the mode again)."""
+        with self._lock:
+            if self.state == self.FAILED:
+                self.state = self.IDLE
