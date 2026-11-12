@@ -473,6 +473,52 @@ Kamera ─► main (Loop, States, Input)
   (ein Skript mit CRLF läuft auf dem Mac nicht). Die macOS-Version ist headless nur
   zum Teil testbar (Browsererkennung, Zuordnung, Zeilenenden); Öffnen und Schließen
   sind noch nicht auf einem echten Mac geprüft.
+- **Challenge-Modus mit Richtungsfrüchten (#33; `motion.py`, `challenge.py`).**
+  Eine Richtungsfrucht zählt nur bei räumlichem Treffer, ausreichender Geschwindigkeit und
+  passender Richtung. Bewegungsanalyse und Spielentscheidung sind getrennt und ohne Kamera
+  testbar: `StrokeTracker` (Stiftbahn aus Position + Zeitstempel) und `classify_stroke`
+  (gültig / zu langsam / falsche Richtung) in `motion.py`, die Spielregeln in
+  `ChallengeGame`.
+  - **Zeit statt Bilder.** Richtung und Tempo stammen aus der Nettobewegung innerhalb eines
+    kurzen Zeitfensters (`CUT_WINDOW`, 0,12 s; mindestens die letzten zwei Messpunkte). Bei
+    8 oder 120 Bildern pro Sekunde führt dieselbe Bewegung zur selben Entscheidung
+    (getestet für 8 bis 120 FPS). Das Tempo wird in **Spielfeldbreiten pro Sekunde**
+    gemessen und hängt damit nicht von der Auflösung ab. Zeitstempel ist die Zeit direkt
+    nach dem Kamerabild (`time.monotonic()`); USB-Latenz und Belichtung stecken nicht darin
+    und bleiben eine Zielgeräte-Messung.
+  - **Trefferprüfung mit der Strecke** zwischen den letzten zwei gültigen Positionen
+    (`point_segment_distance`), damit schnelle Bewegungen nicht zwischen zwei Bildern durch
+    eine Frucht springen.
+  - **Spiegelung.** Das Kamerabild wird *vor* dem Tracking gespiegelt, alle Koordinaten
+    (Stift, Früchte, Pfeile) sind die des angezeigten Bildes. „Links nach rechts“ ist also
+    immer das, was die Spielerin auf dem Bildschirm sieht (Test mit gespiegelter Kamera
+    durch die echte Schleife).
+  - **Tracking-Aussetzer, Sprünge, Zeitstempel.** Ein verlorener Stift beendet die Bahn, ein
+    wieder auftauchender Stift beginnt eine neue, also nie ein Schnitt quer über das Feld
+    (wie CR-01 aus #41). Dasselbe gilt für eine Lücke größer als `CUT_MAX_GAP` (0,3 s) und
+    für eine unmöglich schnelle Bewegung über `CUT_MAX_SPEED` (15 Spielfeldbreiten/s,
+    z. B. Tracker springt kurz auf ein anderes pinkes Objekt). Diese Grenze entstand aus
+    einem Testfall: Ein Sprung im Zeitfenster kippte die gemessene Richtung. Fehlende,
+    nicht endliche, wiederholte oder rückwärts laufende Zeitstempel werden verworfen und
+    gezählt (`rejected`), ohne Fehler und ohne Division durch null.
+  - **Entscheidung.** Zuerst das Tempo, dann die Richtung: Eine langsame Berührung ist nie
+    eine *falsche* Richtung. Falsche Richtung lässt die Frucht bestehen (kurzes rotes
+    Feedback, kein Lebensverlust); ein echter, aber zu langsamer Versuch (ab
+    `CUT_HINT_FRACTION` des Mindesttempos) bekommt „Schneller!“, Stillhalten bleibt still.
+    Rückmeldungen werden je Frucht höchstens alle 0,5 s gemeldet und geloggt, nicht pro
+    Frame. Jede Frucht zählt nur einmal (`sliced`).
+  - **Kennzeichnung.** Doppelring und Pfeil (nicht nur die Farbe). Vier Richtungen werden
+    in gemischten Runden gleichmäßig geworfen (ein gemischter „Beutel“ aus allen vier).
+    Normale Früchte und Bomben bleiben, mit den bekannten Regeln.
+  - **Modus und Bestenliste.** Im Startmenü gibt es einen eigenen Auswahlkreis
+    „Challenge“; danach folgt die Schwierigkeit (sie bestimmt das Tempo der Früchte). Die
+    Bestenliste heißt „Challenge <Stufe>“ und ist von den klassischen getrennt. Der Timer
+    läuft in echten Sekunden und ist von `time_scale` unabhängig.
+  - **Grenzwerte.** `CUT_MIN_SPEED = 1,0` und `CUT_TOLERANCE_DEG = 30` sind Startwerte. Sie
+    sind **noch nicht am Gerät belegt**: Jeder beurteilte Schnitt steht mit Tempo und
+    Winkel im Log, `tools/analyze_cuts.py` fasst das zusammen; das Vorgehen und die
+    Protokolltabelle stehen im README. Der praktische Versuch bei mindestens zwei
+    Beleuchtungsbedingungen ist offen.
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.

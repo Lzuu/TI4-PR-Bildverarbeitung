@@ -44,8 +44,10 @@ class Game:
         self.combo_banner_left = 0.0      # real seconds the banner is still shown
 
     # -- core update --------------------------------------------------------
-    def update(self, blade, dt=1.0 / config.REF_FPS):
+    def update(self, blade, dt=1.0 / config.REF_FPS, motion=None):
         """One camera frame: cut with the current blade, then advance ``dt`` seconds.
+
+        ``motion`` (a ``motion.StrokeTracker``) is only used by the challenge mode.
 
         Cutting uses the positions the player saw; afterwards the fruits move
         and new ones are thrown, each already advanced by the part of ``dt``
@@ -99,9 +101,13 @@ class Game:
             count = self.rng.choices((1, 2, 3),
                                      weights=self.difficulty.burst_weights)[0]
             for _ in range(count):
-                fruit = Fruit(self.width, self.height, self.difficulty, self.rng)
+                fruit = self._new_fruit()
                 fruit.update(age)
                 self.fruits.append(fruit)
+
+    def _new_fruit(self):
+        """One thrown object; the challenge mode adds direction fruits here."""
+        return Fruit(self.width, self.height, self.difficulty, self.rng)
 
     def _handle_slicing(self, blade):
         """Slice fruits the marker touches. Returns the number of fruits cut."""
@@ -115,7 +121,7 @@ class Game:
         cut_angle = blade.angle()
         sliced = 0
         for fruit in self.fruits:
-            if fruit.sliced:
+            if fruit.sliced or not self._touch_cuttable(fruit):
                 continue
             if point_segment_distance(fruit.center, prev, cur) <= fruit.radius:
                 fruit.slice(cut_angle)
@@ -129,6 +135,10 @@ class Game:
                 sliced += 1
                 self.sounds.play("slice")
         return sliced
+
+    def _touch_cuttable(self, fruit):
+        """Whether a touch of the blade cuts ``fruit`` (not for direction fruits)."""
+        return True
 
     # -- combos -------------------------------------------------------------
     def _update_combo(self, sliced, dt=1.0 / config.REF_FPS):
@@ -154,7 +164,23 @@ class Game:
         self._combo_count = 0
         self._combo_left = 0.0
 
+    # -- what the screens show ---------------------------------------------
+    @property
+    def board_name(self):
+        """Name of the leaderboard this game's score belongs to."""
+        return self.difficulty.name
+
+    @property
+    def title(self):
+        return "GAME OVER"
+
+    def result_text(self):
+        return str(self.score)
+
     # -- drawing ------------------------------------------------------------
+    def draw_feedback(self, frame):
+        """Short on-screen notices (the challenge mode shows cut results)."""
+
     def draw(self, frame):
         for fruit in self.fruits:
             fruit.draw(frame)
