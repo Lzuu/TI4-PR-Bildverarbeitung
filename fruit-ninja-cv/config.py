@@ -27,12 +27,15 @@ FULLSCREEN = True         # Open the window in fullscreen
 MIRROR = True             # Flip horizontally so moving right moves the hand right
 WINDOW_NAME = "Fruit Ninja CV"
 MAX_FRAME_FAILURES = 60   # Abort only after this many *consecutive* failed reads
+PERF_LOG_INTERVAL = 10.0  # Seconds per frame-time summary in the log (perf.py; key 'p' shows it)
+PERF_CSV = "logs/perf.csv"  # Summaries are also appended here (None = no CSV)
 
 # ---------------------------------------------------------------------------
 # Marker tracking (fixed colour ranges -- no self-calibration; see colors.py)
 # ---------------------------------------------------------------------------
-MIN_MARKER_AREA = 300            # Ignore contours smaller than this (noise/false blobs)
-MORPH_KERNEL = 5                 # Kernel size for open/close morphology
+MIN_MARKER_AREA = 300            # Ignore contours smaller than this (noise/false blobs), full-res px
+MORPH_KERNEL = 5                 # Kernel size for open/close morphology (full resolution)
+TRACK_SCALE = 0.5                # Tracking runs on a frame scaled by this (1.0 = full size); #42, PERF-04
 
 # ---------------------------------------------------------------------------
 # Space background (cut the player out of the camera, show a space backdrop)
@@ -52,7 +55,7 @@ BG_COUNTDOWN_SECONDS = 3.0       # "Step out of frame" countdown before capturin
 GREEN_LOWER_HSV = (30, 35, 25)   # OpenCV HSV: H 0-179, S/V 0-255
 GREEN_UPPER_HSV = (95, 255, 255)
 GREEN_DOMINANCE = 18             # G must beat max(B, R) by this to count as backdrop
-GREEN_SCALE = 1.0                # Full res: ~5 ms/frame; downscaling barely helps but blocks edges
+GREEN_SCALE = 0.5                # Greenscreen on a scaled frame: 12.5 -> 4.3 ms at 1080x720, 0.1 % edge pixels differ (#42)
 SUIT_ENABLED = True              # Dress the cut-out player in a space suit (suit.py)
 SUIT_FACE_DETECT_WIDTH = 320     # Face detection for placing the suit runs at this width
 
@@ -63,6 +66,8 @@ YOLO_INPUT = 320                 # Inference input size (letterboxed square); sm
 YOLO_EVERY_N = 3                 # Infer every Nth frame, reuse the last mask in between (~15 ms/inference)
 YOLO_CONF = 0.4                  # Minimum person confidence
 YOLO_MASK_THRESH = 0.5           # Prototype-mask threshold
+YOLO_MAX_MASK_AGE = 0.1          # A reused mask may be at most this old (s); older => infer early
+YOLO_DOWNLOAD_TIMEOUT = 20       # Seconds a model download may stall before it fails
 
 # ---------------------------------------------------------------------------
 # Selection (VR-style dwell: hold the pen in a circle to confirm)
@@ -85,8 +90,13 @@ SABER_HILT_LENGTH = 45           # Hilt length in px at REF_HEIGHT (scaled), bel
 SABER_HAND_RADIUS = 220          # Hand (skin blob) is searched within this distance of the pen tip
 
 # ---------------------------------------------------------------------------
-# Gameplay / physics (pixels per frame)
+# Gameplay / physics (pixels and seconds -- independent of the frame rate)
 # ---------------------------------------------------------------------------
+# The game advances by the real time between two frames (#42, PERF-01), so it
+# plays equally fast at 10 or 30 camera frames per second. The values were
+# originally tuned per frame at REF_FPS and converted 1:1.
+REF_FPS = 30                     # Frame rate the gameplay was tuned at (default step)
+MAX_FRAME_DT = 0.25              # Longer pauses (camera switch, hiccup) count as this much
 # Fruits are thrown UP from below the bottom edge: they start with an upward
 # velocity, gravity decelerates them, they peak and fall back down (projectile
 # arc). An un-sliced fruit is only "missed" once it falls back below the bottom.
@@ -95,15 +105,15 @@ SABER_HAND_RADIUS = 220          # Hand (skin blob) is searched within this dist
 # chance, lives) live in difficulty.py. The constants below are shared by all
 # difficulty levels.
 FRUIT_RADIUS = (34, 52)          # Radius range
-SLICE_ANIM_FRAMES = 25           # How long the two halves fly before removal
+SLICE_ANIM_SECONDS = 25 / 30     # How long the two halves fly before removal
 
 # ---------------------------------------------------------------------------
 # Combos (Fruit-Ninja-style: several fruits within one swipe / short window)
 # ---------------------------------------------------------------------------
-COMBO_WINDOW_FRAMES = 12         # Slices within this window belong to one combo
+COMBO_WINDOW_SECONDS = 0.4      # Slices within this window belong to one combo (game time)
 COMBO_MIN = 3                    # Minimum fruits for a combo bonus
 COMBO_BONUS_PER_FRUIT = 1        # Extra points per fruit in a qualifying combo
-COMBO_BANNER_FRAMES = 35         # How long the combo banner stays on screen
+COMBO_BANNER_SECONDS = 35 / 30   # How long the combo banner stays on screen (real time)
 
 # ---------------------------------------------------------------------------
 # Highscore

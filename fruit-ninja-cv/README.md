@@ -112,7 +112,9 @@ Kamera: Standard `CAMERA_INDEX = 1` (MacBook FaceTime HD). Andere Kamera in
 4. **Game Over:** **Neustart**, **Startmenü** oder **Quit** per Stift-Dwell wählen.
 
 > Alle In-Game-Auswahlen laufen über den Stift (Dwell). Nur die **Stiftfarbe** im
-> Startmenü wird per **Maus** gesetzt. Tastatur-Fallback: `q` Beenden, `d` Maske.
+> Startmenü wird per **Maus** gesetzt. Tastatur-Fallback: `q` Beenden, `d` Maske,
+> `p` Frame-Zeiten (FPS, Median/P95 je Stufe) im Bild ein-/ausblenden. Dieselben
+> Werte stehen alle 10 s in `logs/fruit-ninja.log` und in `logs/perf.csv`.
 
 ## Tests (test-case-basiert)
 ```bash
@@ -130,6 +132,9 @@ pytest
 | `tests/test_blade.py` | Trail, Geschwindigkeit, aktueller Punkt |
 | `tests/test_game.py` | Berührungs-Schnitt, Bombe, Miss, Spawning, Reset, Kombos |
 | `tests/test_difficulty.py` | 3 Leben überall, härter = schneller |
+| `tests/test_perf.py`, `tests/test_perf_loop.py` | Frame-Zeit-Diagnose: Perzentile, Fenster, CSV, Overlay, Stufen in der echten Schleife |
+| `tests/test_screen.py` | Bildschirmgröße (Windows/macOS), Canvas im Bildschirmformat |
+| `tests/test_main_loop.py` | Die echte Spielschleife headless: Reihenfolge, Moduswechsel, YOLO nur bei Nutzung, eine Gesichtsdetektion pro Frame |
 | `tests/test_cameras.py` | Kamerasuche, Auswahl/Fallback, Wechsel, Speichern, Menü-Layout (ohne echte Kamera) |
 | `tests/test_highscore.py` | Top-3 je Schwierigkeit, Ranking, Spielername, alte Dateien, defekte Datei |
 | `tests/test_face_id.py` | Gesichtsdetektion, Wiedererkennung auf anderem Foto, Gast, Scan im Kreis, Einlernen, Startablauf |
@@ -142,7 +147,11 @@ Marker/Kamera & allgemeine Konstanten in `config.py`:
 - `CAMERA_INDEX` — Standard-Kamera, solange keine im Menü gewählt wurde.
 - `MIN_MARKER_AREA` / `MORPH_KERNEL` — Erkennung dünner Stifte / Rauschfilter.
 - `DWELL_SECONDS` / `SELECT_RADIUS` — Dauer & Größe der Dwell-Auswahl.
-- `COMBO_WINDOW_FRAMES` / `COMBO_MIN` / `COMBO_BONUS_PER_FRUIT` — Kombo-Regeln.
+- `COMBO_WINDOW_SECONDS` / `COMBO_MIN` / `COMBO_BONUS_PER_FRUIT` — Kombo-Regeln.
+- `TRACK_SCALE` / `GREEN_SCALE` — Verarbeitungsskala von Stiftsuche und Greenscreen
+  (0,5 = halbe Breite/Höhe; `1.0` stellt die volle Auflösung wieder her).
+- `YOLO_EVERY_N` / `YOLO_MAX_MASK_AGE` — YOLO-Kadenz und maximales Alter der Maske.
+- `PERF_LOG_INTERVAL` / `PERF_CSV` — Frame-Zeit-Diagnose.
 
 Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.py`.
 
@@ -161,7 +170,8 @@ Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.p
 | `heart.py` | Herz-Sprite (parametrische Herzkurve) für die Lebensanzeige |
 | `background.py` | Spieler freistellen, Weltraum-Hintergrund (Modi: greenscreen/normal/yolo/off) |
 | `suit.py` | Animierter Ganzkörper-Raumanzug (Helm, Visier-Glanz, Brust-LEDs) |
-| `yolo_seg.py` | Personensegmentierung (YOLOv8-seg, ONNX via `cv2.dnn`) für den `yolo`-Modus |
+| `yolo_seg.py` | Personensegmentierung (YOLOv8-seg, ONNX via `cv2.dnn`) für den `yolo`-Modus, wird erst bei Nutzung im Hintergrund geladen |
+| `perf.py` | Frame-Zeit-Diagnose (Frames/s, Median/P95 je Stufe, Log + CSV) |
 | `lightsaber.py` | Stift als Lichtschwert |
 | `cameras.py` | Kameras finden, öffnen, wechseln, Auswahl speichern |
 | `highscore.py` | Top-3 je Schwierigkeit mit Spielername (JSON-Persistenz) |
