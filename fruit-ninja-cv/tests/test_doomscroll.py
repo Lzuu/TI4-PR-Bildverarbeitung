@@ -76,3 +76,29 @@ def test_windows_script_closes_only_its_own_profile():
     text = PS1.read_text(encoding="utf-8")
     assert "ClaudeScroll" in text and "Contains($profileDir)" in text
     assert "Stop-Process -Name" not in text and "taskkill.exe /IM" not in text
+
+
+# -- Firefox always gets YouTube Shorts (follow-up to #48) -------------------
+SHORTS = "https://www.youtube.com/shorts"
+ALL_URLS = {SHORTS, "https://www.instagram.com/reels/", "https://www.tiktok.com/foryou"}
+
+
+def test_firefox_always_opens_youtube_shorts_on_macos():
+    run = _bash('for i in $(seq 1 40); do pick_url firefox; done | sort -u')
+    assert run() == SHORTS
+
+
+@pytest.mark.parametrize("kind", ["chromium", "safari"])
+def test_other_browsers_still_pick_from_all_pages(kind):
+    run = _bash(f'for i in $(seq 1 60); do pick_url {kind}; done | sort -u')
+    picked = set(run().split())
+    assert picked <= ALL_URLS and len(picked) > 1
+
+
+def test_windows_script_forces_shorts_for_firefox():
+    text = PS1.read_text(encoding="utf-8")
+    # the URL is chosen after the browser is known, and Firefox overrides the random pick
+    assert text.index("$name = ") < text.index("Get-Random")
+    assert "-match 'firefox'" in text and "https://www.youtube.com/shorts" in text
+    firefox_rule = text[text.index("if ($name -match 'firefox')"):]
+    assert "$url = 'https://www.youtube.com/shorts'" in firefox_rule

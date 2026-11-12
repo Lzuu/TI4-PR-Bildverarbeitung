@@ -2,6 +2,7 @@
 
 Sobald du bei Claude Code eine Nachricht abschickst, öffnet sich ein neues Fenster
 des Standardbrowsers mit YouTube Shorts, Instagram Reels oder TikTok (zufällig).
+**Ist Firefox der Standardbrowser, öffnet sich immer YouTube Shorts.**
 Ist der Agent fertig, schließt sich genau dieses Fenster wieder. Das gehört nicht zum
 Spiel, jede Person richtet es auf ihrem eigenen Rechner ein (Issue #48).
 
