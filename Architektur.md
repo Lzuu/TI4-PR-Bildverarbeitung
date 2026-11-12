@@ -34,7 +34,7 @@ Kamera ─► main (Loop, States, Input)
 | `game.py` | Spielzustand: Spawning (Bursts), Kollision, Punkte, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve, Verlauf+Glanz) für die Leben |
 | `background.py` | Spieler freistellen (Referenz-Differenz) und vor das Weltall setzen |
-| `lightsaber.py` | Lichtschwert fester Länge: Spitze am Stiftpunkt, Richtung zur erkannten Hand |
+| `lightsaber.py` | Lichtschwert: Spitze am Stiftpunkt, Griff am Handschuh des Anzugs (Pose), sonst Richtung zur per Hautfarbe erkannten Hand |
 | `suit.py` / `suit_rig.py` | EVA-Körperteile, maskiertes Alpha-Compositing, Kameragesicht im klaren Visier |
 | `pose_tracking.py` | Lokale BlazePose-ONNX-Modelle, Gelenke, Flow, begrenzte Überbrückung |
 | `frame_metrics.py` | Optionale aggregierte Live-Zeiten ohne Pro-Frame-Logspam |
@@ -283,6 +283,28 @@ Kamera ─► main (Loop, States, Input)
      ein Sprung > 45° wird erst übernommen, wenn er 4 Frames anhält; Neigung höchstens
      75° aus der Senkrechten (Haut oberhalb der Spitze zählt nie); ohne Hand erst kurz
      halten, dann langsam in die Senkrechte zurückschwenken.
+  5. **Griff am Handschuh (#46).** Mit EVA-Anzug hängt der Griff am Handschuh, den der
+     Anzug pro Frame ohnehin aus BlazePose zeichnet (Handgelenk 15/16 → Zeigefinger
+     19/20; `SuitRenderer.last_parts`, Teile `glove_l`/`glove_r`) – wie eine Waffe am
+     Befestigungspunkt (Socket) des Hand-Knochens in einer Game-Engine. Die Griffmitte
+     liegt in jedem Frame auf der Handflächenmitte (`SABER_GLOVE_GRIP` = 45 % vom
+     Handgelenk zu den Fingerspitzen, passend zu `suit_assets/glove.png`); die Klinge
+     läuft von der Stiftspitze dorthin. Kein langsames Einpendeln, keine
+     4-Frame-Bestätigung und keine Neigungsgrenze: Die Pose ist schon geglättet
+     (`PoseTracker` mit LK-Flow), eine zweite Glättung würde nur verzögern – bei live
+     ~7,5 FPS brauchte das Einpendeln Sekunden. Es zählt der Handschuh, der dem Stift am
+     nächsten ist (innerhalb `SABER_HAND_RADIUS`); die andere Hand übernimmt nur, wenn
+     sie deutlich näher ist (`SABER_HAND_SWITCH` = 0,7). Handschuhdaten gelten nur für den
+     Frame, in dem der Anzug sie gezeichnet hat (`main` setzt sie pro Frame neu).
+     **Kosten:** keine zusätzliche Inferenz. Gemessen bei 1491×932 (MacBook Air M3)
+     entfallen Hautmaske (2,3 ms) und Handsuche (1,9 ms), zusammen ≈ 4,2 ms pro Frame; der
+     Griffpunkt kostet ~0,001 ms. Die Hauterkennung bleibt Fallback (Anzug aus, Modus
+     „Aus“, Pose verloren) und wird nur noch berechnet, wenn kein Handschuh in Reichweite
+     ist (`skin` als Callable). Verworfen: ein eigenes Handmodell (MediaPipe Hand
+     Landmarker, OpenCV-Zoo-Handpose) – zusätzliche Netzinferenz pro Frame und trotzdem
+     nicht deckungsgleich mit dem gezeichneten Handschuh. Die Kosten zeigt die Stufe `saber`
+     der Frame-Statistik (`perf.py`: Log, `logs/perf.csv`, Taste `p`); ein Wechsel der
+     Quelle (Handschuh ↔ Hautfarbe) wird erst geloggt, wenn er einige Frames anhält.
   Kosten: Handsuche ~5 ms (Abstände nur für Hautpixel statt für das ganze Fenster);
   die Gesichtserkennung wird pro Frame nur einmal berechnet und mit dem Raumanzug
   geteilt. Die Hauterkennung (YCrCb, halbe Auflösung) liegt in `lightsaber.py`, seit

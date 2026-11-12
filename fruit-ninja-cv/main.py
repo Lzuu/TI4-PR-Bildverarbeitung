@@ -652,6 +652,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
         if reference is not None and not reference_still_valid(reference_camera, cap.index):
             reference = None
             logger.info("Camera changed -- space background off until 'b' is pressed again")
+        saber_hands = {}                 # gloves the suit draws in THIS frame, never older ones (#46)
         if config.BG_ENABLED and space_img is not None and bg_mode != background.MODE_OFF:
             mask = None
             t_stage = time.perf_counter()
@@ -693,6 +694,8 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                                            original=clean, pose=body_pose,
                                            renderer=suit_renderer,
                                            source=(cap.index, mode_session))
+                    # the saber hilt attaches to these gloves (pose socket, no extra inference)
+                    saber_hands = lightsaber.glove_grips(suit_renderer.last_parts)
 
         quit_requested = False
         t_stage = time.perf_counter()
@@ -940,15 +943,16 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
 
         # the pen as a lightsaber, on every screen (drawn last, like a cursor)
         if config.SABER_ENABLED:
-            # tip = pen point (the only thing that cuts), hilt on the hand (skin colour);
-            # the face is excluded so it is never taken for the hand
+            # tip = pen point (the only thing that cuts); the hilt sits on the glove the
+            # suit drew from the pose (#46), otherwise on the hand found by skin colour --
+            # the skin mask is then computed only when needed; the face is never the hand
             if not face_checked and identifier is not None and point is not None:
                 with stats.stage("face"):
                     face_box = identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
                 face_checked = True
             with stats.stage("saber"):
-                skin = lightsaber.skin_mask(clean) if point is not None else None
-                lightsaber.draw_saber(frame, saber.update(point, skin, face_box),
+                skin = (lambda: lightsaber.skin_mask(clean)) if point is not None else None
+                lightsaber.draw_saber(frame, saber.update(point, skin, face_box, hands=saber_hands),
                                       pen_color.display)
 
         if show_perf:

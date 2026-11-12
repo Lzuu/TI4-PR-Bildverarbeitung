@@ -9,8 +9,16 @@ is smoothed, a sudden large change is only taken over once it lasts a few
 frames, the tilt is limited to MAX_TILT from vertical (skin above the tip, e.g.
 the face, is never the hand), and without a hand the saber swings back to
 vertical gradually. Drawing only -- the cutting still uses the pen point alone.
+
+With the EVA suit the hilt is attached to the glove the suit drew from the body
+pose (#46) -- like a weapon on a hand bone socket: the hilt centre sits on the
+glove's palm in every frame, no settling, no outlier filter and no tilt limit
+(the pose is smoothed already and knows where the hand is). That reuses the pose
+the suit computes anyway, so the skin search is then skipped; it stays as the
+fallback without suit or pose.
 """
 
+import logging
 import math
 from collections import namedtuple
 
@@ -19,7 +27,27 @@ import numpy as np
 
 import config
 
+logger = logging.getLogger(__name__)
+
 Saber = namedtuple("Saber", "tip hilt_top hilt_bottom")
+
+
+def glove_grips(parts, along=None):
+    """Grip points of the gloves the suit drew: {side: (x, y)}, e.g. {"l": ..., "r": ...}.
+
+    ``parts`` is ``SuitRenderer.last_parts`` of the current frame; a glove's
+    endpoints run from the wrist to the fingertips, the grip is the palm centre
+    ``along`` (config.SABER_GLOVE_GRIP) of the way.
+    """
+    along = config.SABER_GLOVE_GRIP if along is None else along
+    grips = {}
+    for part in parts or ():
+        name = part.get("name", "")
+        if name.startswith("glove_"):
+            a, b = np.asarray(part["endpoints"], np.float32)[:2]
+            grip = a + along * (b - a)
+            grips[name[len("glove_"):]] = (float(grip[0]), float(grip[1]))
+    return grips
 
 
 def saber_at(point, blade_length=None, hilt_length=None):
@@ -133,6 +161,8 @@ class SaberTracker:
         self.jump = math.radians(jump_angle)         # what counts as a big change
         self.keep_frames = keep_frames               # hold the direction while the hand is missed
         self.return_rate = return_rate               # then ease back to vertical per frame
+        self._source = None                          # logged hand source: "glove" or "skin"
+        self._streak = 0                             # frames the other source has lasted
         self._reset()
 
     def _reset(self):
@@ -140,9 +170,13 @@ class SaberTracker:
         self.length = None                           # current blade length (settles on the hand)
         self._pending = 0
         self._missing = 0
+        self._side = None                            # glove holding the pen ("l"/"r")
+
+    def _radius(self):
+        return self.radius if self.radius is not None else config.SABER_HAND_RADIUS * config.SCALE
 
     def _target(self, tip, skin, face):
-        radius = self.radius if self.radius is not None else config.SABER_HAND_RADIUS * config.SCALE
+        radius = self._radius()
         hand = find_hand(skin, tip, radius, face)
         if hand is None:
             return None
@@ -160,7 +194,68 @@ class SaberTracker:
         wanted = min(max(hand_dist - hilt / 2, lo), hi)
         self.length += (wanted - self.length) * self.adapt_rate
 
-    def update(self, tip, skin, face=None):
+    def _glove(self, tip, hands):
+        """Grip of the glove holding the pen, or None.
+
+        The glove nearest to the pen tip within reach; the current one is kept
+        unless the other is clearly closer (SABER_HAND_SWITCH), so a second hand
+        passing by does not take the saber.
+        """
+        radius = self._radius()
+        reach = {}
+        for side, grip in (hands or {}).items():
+            dist = math.dist(tip, grip)
+            if dist <= radius:
+                reach[side] = dist
+        if not reach:
+            self._side = None
+            return None
+        side = min(reach, key=reach.get)
+        if self._side in reach and reach[side] > config.SABER_HAND_SWITCH * reach[self._side]:
+            side = self._side                        # the other hand is only a bit closer
+        self._side = side
+        return hands[side]
+
+    def _on_glove(self, tip, grip, hilt):
+        """Hilt centre exactly on the glove's grip, the blade from the pen tip to it.
+
+        The hilt is placed around the grip itself, so it stays on the palm even
+        when the pen tip is closer than half a hilt (pen pointing at the camera);
+        the blade is then hidden under the hilt. Below 1 px the offset carries no
+        direction, so the last angle is kept.
+        """
+        dx, dy = grip[0] - tip[0], grip[1] - tip[1]
+        dist = math.hypot(dx, dy)
+        if dist >= 1:                                # any tilt: the pose knows the hand
+            self.angle = math.atan2(dx, dy)
+        self.length = max(dist - hilt / 2, 0.0)      # kept for a smooth skin fallback
+        self._pending = self._missing = 0
+        d = (math.sin(self.angle), math.cos(self.angle))
+        half = hilt / 2
+        as_int = lambda q: (int(round(q[0])), int(round(q[1])))
+        return Saber((int(tip[0]), int(tip[1])),
+                     as_int((grip[0] - d[0] * half, grip[1] - d[1] * half)),
+                     as_int((grip[0] + d[0] * half, grip[1] + d[1] * half)))
+
+    def _note(self, source):
+        """Log the hand source once a change has lasted a few frames -- never per frame."""
+        if source == self._source:
+            self._streak = 0
+            return
+        self._streak += 1
+        if self._streak >= self.confirm_frames:
+            self._source, self._streak = source, 0
+            logger.info("Saber hilt %s", "on the suit's glove (pose)" if source == "glove"
+                        else "on the hand found by skin colour (no glove within reach)")
+
+    def update(self, tip, skin, face=None, hands=None):
+        """Saber for this frame, or None without a pen point.
+
+        ``hands``: grip points of the gloves the suit drew in this frame (see
+        glove_grips). A glove within reach holds the hilt exactly. Otherwise the
+        hand is searched in ``skin`` -- which may be a callable, so the skin mask
+        is only computed when it is needed.
+        """
         if tip is None:
             self._reset()
             return None
@@ -169,6 +264,12 @@ class SaberTracker:
         if self.length is None:
             self.length = self.blade_length if self.blade_length is not None else \
                 config.SABER_LENGTH * config.SCALE
+        grip = self._glove(tip, hands)
+        self._note("glove" if grip is not None else "skin")
+        if grip is not None:
+            return self._on_glove(tip, grip, hilt)
+        if callable(skin):
+            skin = skin()
         found = self._target(tip, skin, face)
         target = found[0] if found is not None else None
         if target is None:
