@@ -455,7 +455,7 @@ class SuitRenderer:
                                  ('r',(12,14,16,20,24,26,28,32))]:
                 sh,el,wr,fi,hip,knee,ankle,toe=indices
                 for asset,a,b,factor,layer in [('thigh',hip,knee,.53,0),('shin',knee,ankle,.48,1),
-                                              ('upper_arm',sh,el,.56,8),('forearm',el,wr,.54,40)]:
+                                              ('upper_arm',sh,el,.504,8),('forearm',el,wr,.486,40)]:
                     part=self._limb(asset,asset+'_'+side,a,b,width*factor,pose,player,quad)
                     if part is not None:
                         # Far arms go behind the torso; near forearms cross in front.
@@ -474,9 +474,9 @@ class SuitRenderer:
                         a,b=pose.segment(el,wr);direction=b-a;length=float(np.linalg.norm(direction))
                     direction=direction/max(length,1)
                     wrist=hand[0].copy()
-                    hand=np.array((wrist-direction*width*.08,
-                                   wrist+direction*max(width*.40,min(np.linalg.norm(hand[1]-wrist),width*.62))))
-                    commands.append((45,self._part('glove','glove_'+side,hand,width*.55)))
+                    hand=np.array((wrist-direction*width*.072,
+                                   wrist+direction*max(width*.36,min(np.linalg.norm(hand[1]-wrist)*.9,width*.558))))
+                    commands.append((45,self._part('glove','glove_'+side,hand,width*.495)))
                 foot=pose.segment(ankle,toe)
                 if foot is not None:
                     if np.linalg.norm(foot[1]-foot[0])<width*.17:

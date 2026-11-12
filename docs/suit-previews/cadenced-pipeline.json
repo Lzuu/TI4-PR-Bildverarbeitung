@@ -12,9 +12,9 @@
     {
       "stage": "cadenced_pipeline_public_portrait",
       "iterations": 24,
-      "median_ms": 79.522,
-      "p95_ms": 99.827,
-      "mean_ms": 64.954,
+      "median_ms": 77.32,
+      "p95_ms": 96.705,
+      "mean_ms": 62.573,
       "opencv_threads": 16
     }
   ]
