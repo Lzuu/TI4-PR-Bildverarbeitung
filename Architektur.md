@@ -446,7 +446,8 @@ Kamera ─► main (Loop, States, Input)
   schließen. Safari kann kein eigenes Profil starten, dort wird das Fenster per
   AppleScript über seine ID geöffnet und geschlossen. Die Hooks stehen in der
   Benutzer-Konfiguration jeder Person (`~/.claude/settings.json`), nicht im Repo, weil
-  sie personen- und rechnerabhängig sind. `.gitattributes` erzwingt LF für `*.sh`
+  sie personen- und rechnerabhängig sind. Die Seite wird zufällig gewählt; ist Firefox
+  der Standardbrowser, ist es immer YouTube Shorts. `.gitattributes` erzwingt LF für `*.sh`
   (ein Skript mit CRLF läuft auf dem Mac nicht). Die macOS-Version ist headless nur
   zum Teil testbar (Browsererkennung, Zuordnung, Zeilenenden); Öffnen und Schließen
   sind noch nicht auf einem echten Mac geprüft.

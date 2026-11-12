@@ -32,7 +32,6 @@ if (Get-ScrollProcesses) { exit 0 }                           # already open (an
 $urls = @('https://www.youtube.com/shorts',
           'https://www.instagram.com/reels/',
           'https://www.tiktok.com/foryou')
-$url = $urls | Get-Random
 
 # default browser from the registry
 $progId = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice').ProgId
@@ -46,6 +45,10 @@ if (-not $exe -or -not (Test-Path $exe)) {
 
 New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
 $name = [IO.Path]::GetFileNameWithoutExtension($exe).ToLower()
+
+# Firefox always gets YouTube Shorts, every other browser a random page
+if ($name -match 'firefox') { $url = 'https://www.youtube.com/shorts' }
+else { $url = $urls | Get-Random }
 
 if ($name -match 'firefox') {
     $browserArgs = @('-no-remote', '-new-instance', '-profile', "`"$profileDir`"", '-new-window', $url)

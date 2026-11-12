@@ -34,6 +34,15 @@ parse_default_browser() {
     '
 }
 
+# The page to open: Firefox always gets YouTube Shorts, everything else a random one.
+pick_url() {
+    if [ "$1" = "firefox" ]; then
+        echo "${URLS[0]}"
+    else
+        echo "${URLS[RANDOM % ${#URLS[@]}]}"
+    fi
+}
+
 # "<kind>|<app name>" for a bundle id; kind: chromium | firefox | safari
 browser_info() {
     case "$1" in
@@ -60,12 +69,12 @@ scroll_running() {
 do_open() {
     scroll_running && return 0                       # already open (another session)
     mkdir -p "$ROOT"
-    local url="${URLS[RANDOM % ${#URLS[@]}]}"
-    local bundle info kind app
+    local bundle info kind app url
     bundle=$(defaults read com.apple.LaunchServices/com.apple.launchservices.secure LSHandlers 2>/dev/null | parse_default_browser)
     info=$(browser_info "$bundle")
     kind="${info%%|*}"
     app="${info#*|}"
+    url=$(pick_url "$kind")
     case "$kind" in
         chromium)
             open -n -a "$app" --args "--user-data-dir=$PROFILE" --new-window --no-first-run \
