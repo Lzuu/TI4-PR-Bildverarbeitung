@@ -6,6 +6,7 @@ camera images.
 
 import cv2
 import numpy as np
+import config
 
 from background import (foreground_mask, composite_space, load_space,
                         greenscreen_mask, next_mode, MODES, MODE_LABELS,
@@ -179,3 +180,28 @@ def test_next_mode_cycles_through_all_and_wraps():
         mode = next_mode(mode)
     assert seen == list(MODES)       # visits every mode in order
     assert mode == MODES[0]          # wraps back to the first
+
+
+# -- PERF-04 (#42): greenscreen on a reduced scale stays close to full size ---
+def _green_scene():
+    img = np.full((720, 1080, 3), (40, 190, 50), np.uint8)
+    cv2.rectangle(img, (350, 300), (700, 720), (90, 80, 70), -1)            # torso
+    cv2.circle(img, (525, 230), 70, (120, 150, 200), -1)                     # head
+    cv2.line(img, (700, 400), (820, 300), (120, 150, 200), 40)               # arm
+    return img
+
+
+def test_greenscreen_half_scale_stays_close_to_full_scale():
+    from background import greenscreen_mask
+    img = _green_scene()
+    full = greenscreen_mask(img, scale=1.0) > 0
+    half = greenscreen_mask(img, scale=0.5)
+    assert half.shape == img.shape[:2]                      # back at full size
+    half = half > 0
+    iou = (full & half).sum() / (full | half).sum()
+    assert iou > 0.99
+    assert (full ^ half).sum() < 0.002 * full.size          # < 0.2 % of the pixels differ
+
+
+def test_greenscreen_default_scale_comes_from_config():
+    assert config.GREEN_SCALE == 0.5

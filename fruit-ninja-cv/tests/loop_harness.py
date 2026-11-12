@@ -9,21 +9,30 @@ import numpy as np
 
 import config
 import main as m
+import yolo_seg
 from sound import NullSound
 
 
 class FakeCamera:
-    """Plays a list of frames; ``index`` and ``switch`` like cameras.Camera."""
+    """Plays a list of frames; ``index`` and ``switch`` like cameras.Camera.
 
-    def __init__(self, frames, index=0, switch_ok=True):
+    ``fail_reads``: numbers of the read calls (1-based) that fail.
+    """
+
+    def __init__(self, frames, index=0, switch_ok=True, fail_reads=()):
         self.frames = list(frames)
         self.index = index
         self.switch_ok = switch_ok
+        self.fail_reads = set(fail_reads)
         self.reads = 0
+        self.good_reads = 0
 
     def read(self):
-        frame = self.frames[min(self.reads, len(self.frames) - 1)]
         self.reads += 1
+        if self.reads in self.fail_reads:
+            return False, None
+        frame = self.frames[min(self.good_reads, len(self.frames) - 1)]
+        self.good_reads += 1
         return True, frame.copy()
 
     def switch(self, index):
@@ -36,15 +45,18 @@ class FakeCamera:
 
 
 def run_loop(monkeypatch, tmp_path, camera, frames_to_run, keys=None, on_frame=None,
-             identifier=None, **cfg):
+             identifier=None, yolo_start=None, **cfg):
     """Run ``_run_game_loop`` for ``frames_to_run`` frames, then quit.
 
     ``keys``: {frame_number: keycode}; ``on_frame(n, mouse_cb)`` runs before each
     waitKey (e.g. to click); ``cfg`` overrides config values for this run.
+    ``yolo_start`` replaces the background thread that loads YOLO; by default
+    the model is loaded synchronously so the tests stay deterministic.
     """
     settings = dict(SETTINGS_FILE=str(tmp_path / "settings.json"),
                     HIGHSCORE_FILE=str(tmp_path / "hs.json"),
-                    YOLO_ENABLED=False, POSE_ENABLED=False, MIRROR=False, FULLSCREEN=False)
+                    YOLO_ENABLED=False, POSE_ENABLED=False, MIRROR=False, FULLSCREEN=False,
+                    PERF_CSV=None)
     settings.update(cfg)
     for name, value in settings.items():
         monkeypatch.setattr(config, name, value)
@@ -59,6 +71,7 @@ def run_loop(monkeypatch, tmp_path, camera, frames_to_run, keys=None, on_frame=N
             return ord("q")
         return keys.get(state["n"], 255)
 
+    monkeypatch.setattr(yolo_seg, "start_loader", yolo_start or (lambda job: job()))
     monkeypatch.setattr(cv2, "imshow", lambda *a: None)
     monkeypatch.setattr(cv2, "namedWindow", lambda *a: None)
     monkeypatch.setattr(cv2, "setWindowProperty", lambda *a: None)

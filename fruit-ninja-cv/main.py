@@ -35,7 +35,6 @@ import lightsaber
 import yolo_seg
 import pose_tracking
 from suit_rig import SuitRenderer
-from frame_metrics import FrameMetrics
 from marker_tracker import MarkerTracker
 from blade import Blade
 from game import Game
@@ -48,6 +47,7 @@ from sound import SoundPlayer
 import cameras
 import face_id
 import highscore
+import perf
 import keyboard
 
 logger = logging.getLogger(__name__)
@@ -528,6 +528,15 @@ def main():
         logger.info("Shut down cleanly")
 
 
+def draw_perf_overlay(frame, lines):
+    """Frame-time statistics (key 'p') in the top-right corner (#42, PERF-06)."""
+    if not lines:
+        lines = ["Messung laeuft ..."]
+    x = config.WIDTH - _s(330)
+    for i, line in enumerate(lines[:12]):
+        draw_text(frame, line, (x, _s(28) + i * _s(22)), scale=0.45)
+
+
 def _run_game_loop(cap, sounds, previews=None, identifier=None):
     tracker = MarkerTracker(point_mode=config.PEN_POINT)   # tip = lightsaber tip, cuts
     blade = Blade()
@@ -553,6 +562,8 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     previews = dict(previews or {})  # thumbnails of the cameras found at startup
     frame_failures = 0
     click = [None]
+    stats = perf.FrameStats(interval=config.PERF_LOG_INTERVAL, csv_path=config.PERF_CSV)
+    show_perf = False
 
     def on_mouse(event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
@@ -577,7 +588,6 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     space_img = background.load_space((config.WIDTH, config.HEIGHT))
     suit_renderer = SuitRenderer() if config.SUIT_ENABLED else None
     pose_tracker = pose_tracking.create_tracker() if config.SUIT_ENABLED else None
-    metrics = FrameMetrics(config.SUIT_DIAGNOSTICS)
     saber = lightsaber.SaberTracker()
     reference = None
     reference_camera = None          # camera the reference was taken with
@@ -586,16 +596,19 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     if bg_mode not in background.MODES:
         bg_mode = config.BG_MODE
     logger.info("Background mode: %s", bg_mode)
-    # YOLO body segmenter for the "yolo" mode (downloaded on first use); None if
-    # the model is unavailable, then the mode falls back like "off".
-    segmenter = yolo_seg.create_segmenter() if config.YOLO_ENABLED else None
+    # YOLO body segmenter for the "yolo" mode: loaded in the background the first
+    # time the mode is used, not at start (#42, PERF-07). Until it is ready, or
+    # if it is unavailable, the mode falls back like "off".
+    yolo = yolo_seg.LazySegmenter() if config.YOLO_ENABLED else None
     mode_session = 0                 # +1 on every background mode change (YOLO cache source)
 
+    last_frame_t = time.monotonic()
     while True:
-        frame_started = time.perf_counter()
-        with metrics.measure('capture'):
+        stats.start_frame()
+        with stats.stage("read"):
             ok, frame = cap.read()
         if not ok:
+            stats.count("read_fail")
             frame_failures += 1
             if frame_failures >= config.MAX_FRAME_FAILURES:
                 logger.error("Lost camera after %d consecutive failed reads -- aborting",
@@ -605,25 +618,31 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             cv2.waitKey(10)
             continue
         frame_failures = 0
+        now = time.monotonic()
+        frame_dt, last_frame_t = now - last_frame_t, now   # real time since the last frame
 
-        frame = crop_to_aspect(frame, config.WIDTH / config.HEIGHT)
-        frame = cv2.resize(frame, (config.WIDTH, config.HEIGHT))
-        if config.MIRROR:
-            frame = cv2.flip(frame, 1)
-        clean = frame.copy()
+        with stats.stage("prep"):
+            frame = crop_to_aspect(frame, config.WIDTH / config.HEIGHT)
+            frame = cv2.resize(frame, (config.WIDTH, config.HEIGHT))
+            if config.MIRROR:
+                frame = cv2.flip(frame, 1)
+            clean = frame.copy()
         # perception first: one pen measurement per frame, used by suit, game and
         # drawing alike -- no stale mask from the previous frame (#41, CR-06)
-        with metrics.measure('marker'):
+        with stats.stage("track"):
             point = tracker.track(clean)
         pen_mask = tracker.last_mask
 
-        # Share a full scan with the renderer instead of running YuNet twice.
-        face_scan_result = None
+        # One face detection per frame, shared by suit, saber and the player scan
+        # (#42, PERF-05). In FACE_SCAN the scan's own detection (with recognition)
+        # is the one; otherwise a cheap detection runs at most once, on demand.
+        face_box = None
+        face_checked = False         # detection already done this frame (even if no face)
+        scan_result = None
         if state == STATE_FACE_SCAN and identifier is not None:
-            with metrics.measure('identity'):
-                face_scan_result = identifier.scan(clean)
-        face_box = face_scan_result[2] if face_scan_result is not None else None
-        face_detection_done = face_scan_result is not None
+            with stats.stage("face"):
+                scan_result = identifier.scan(clean)
+            face_box, face_checked = scan_result[2], True
         # --- space background: capture the reference, then cut the player out ---
         if bg_capture_at is not None and time.monotonic() >= bg_capture_at:
             reference = clean.copy()
@@ -635,42 +654,48 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             logger.info("Camera changed -- space background off until 'b' is pressed again")
         if config.BG_ENABLED and space_img is not None and bg_mode != background.MODE_OFF:
             mask = None
+            t_stage = time.perf_counter()
             if bg_mode == background.MODE_GREENSCREEN:
-                with metrics.measure('segmentation_green'):
-                    mask = background.greenscreen_mask(clean, scale=config.GREEN_SCALE)
-            elif bg_mode == background.MODE_YOLO and segmenter is not None:
-                # person mask, no green screen needed; the cache is bound to the
-                # current camera and mode session (#41, CR-10)
-                with metrics.measure('segmentation_yolo'):
+                mask = background.greenscreen_mask(clean, scale=config.GREEN_SCALE)
+            elif bg_mode == background.MODE_YOLO and yolo is not None:
+                yolo.request()                       # first use: start loading
+                segmenter = yolo.get()
+                if segmenter is not None:
+                    # person mask, no green screen needed; the cache is bound to the
+                    # current camera and mode session (#41, CR-10)
                     mask = segmenter.segment(clean, source=(cap.index, mode_session))
-                if segmenter.failed:
-                    segmenter = None                 # off for good, other modes keep working
+                    if segmenter.last_inference_seconds is not None:
+                        stats.add("yolo_infer", segmenter.last_inference_seconds)
+                    stats.maximum("mask_age_ms", segmenter.mask_age * 1000.0)
+                    if segmenter.failed:
+                        yolo.mark_failed()           # off until chosen again (CR-09)
             elif bg_mode == background.MODE_NORMAL and reference is not None:
-                with metrics.measure('segmentation_reference'):
-                    mask = background.foreground_mask(clean, reference)
+                mask = background.foreground_mask(clean, reference)
+            stats.add("segment", time.perf_counter() - t_stage)
             if mask is not None:
-                with metrics.measure('composite'):
+                with stats.stage("composite"):
                     frame = background.composite_space(frame, mask, space_img,
-                                                         feather=1.5 if config.SUIT_ENABLED else 0.)
-                if pen_mask is not None:
-                    cv2.copyTo(clean, pen_mask, frame)
+                                                       feather=1.5 if config.SUIT_ENABLED else 0.)
                 if config.SUIT_ENABLED:
                     # place the helmet at the face (if one is seen) -- detection only, ~3 ms
-                    with metrics.measure('face'):
-                        if not face_detection_done and identifier is not None:
-                            face_box = identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
-                            face_detection_done = True
-                    now = time.monotonic()
-                    with metrics.measure('pose'):
-                        body_pose = pose_tracker.update(clean, mask, now=now,
+                    if not face_checked and identifier is not None:
+                        with stats.stage("face"):
+                            face_box = identifier.largest_face_box(clean,
+                                                                   config.SUIT_FACE_DETECT_WIDTH)
+                        face_checked = True
+                    # the whole body becomes the suit; only the pen stays visible
+                    now_s = time.monotonic()
+                    with stats.stage("pose"):
+                        body_pose = pose_tracker.update(clean, mask, now=now_s,
                                                         source=(cap.index, mode_session))
-                    with metrics.measure('suit'):
-                        frame = suit.dress(frame, mask, face_box, pen_mask, now,
+                    with stats.stage("suit"):
+                        frame = suit.dress(frame, mask, face_box, pen_mask, now_s,
                                            original=clean, pose=body_pose,
                                            renderer=suit_renderer,
                                            source=(cap.index, mode_session))
 
         quit_requested = False
+        t_stage = time.perf_counter()
 
         if state == STATE_MENU:
             start_t = menu_start_target(config.WIDTH, config.HEIGHT)
@@ -698,6 +723,8 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                 if new_mode != bg_mode:          # click cycled the background mode
                     bg_mode = new_mode
                     mode_session += 1
+                    if bg_mode == background.MODE_YOLO and yolo is not None:
+                        yolo.retry()             # chosen again: a failed load may retry
                     if not pen_allowed(pen_color, bg_mode):
                         pen_color = pen_for_mode(pen_color, bg_mode)
                         tracker.set_color(pen_color)
@@ -775,7 +802,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                                                   config.WIDTH, config.HEIGHT)
                 click[0] = None
                 scanner.reset()          # restart the scan with the (new) camera
-            name, score, box, crop = face_scan_result
+            name, score, box, crop = scan_result      # detected once at the top of the frame
             inside = face_id.face_in_circle(box, circle) and not camera_open
             g_active, g_progress, g_confirmed = dwell.update(point, [guest_t])
             if camera_open:
@@ -850,7 +877,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
 
         elif state == STATE_PLAY:
             blade.add(point)
-            game.update(blade)
+            game.update(blade, frame_dt)      # seconds, not frames (#42, PERF-01)
             game.draw(frame)
             blade.draw(frame, pen_color.display if config.SABER_ENABLED else None)
             game.draw_hud(frame)
@@ -887,6 +914,8 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             elif confirmed == 2:            # Quit
                 quit_requested = True
 
+        stats.add("screen", time.perf_counter() - t_stage)
+
         if bg_capture_at is not None:
             secs = max(0, int(bg_capture_at - time.monotonic()) + 1)
             draw_text(frame, f"Aus dem Bild gehen: {secs}",
@@ -898,10 +927,12 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             draw_text(frame, "Taste b: Weltall-Hintergrund",
                       (config.WIDTH // 2, int(config.HEIGHT * 0.96)),
                       scale=0.5, center=True)
-        elif bg_mode == background.MODE_YOLO and segmenter is None:
-            draw_text(frame, "YOLO-Modell nicht verfuegbar", (config.WIDTH // 2,
-                      int(config.HEIGHT * 0.96)), scale=0.5, color=(80, 80, 255),
-                      center=True)
+        elif bg_mode == background.MODE_YOLO and (yolo is None or yolo.get() is None):
+            loading = yolo is not None and yolo.state in (yolo.IDLE, yolo.LOADING)
+            draw_text(frame, "YOLO-Modell wird geladen ..." if loading
+                      else "YOLO-Modell nicht verfuegbar",
+                      (config.WIDTH // 2, int(config.HEIGHT * 0.96)), scale=0.5,
+                      color=(200, 200, 200) if loading else (80, 80, 255), center=True)
 
         if show_mask and tracker.last_mask is not None:
             cv2.imshow("mask (debug)",
@@ -911,21 +942,30 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
         if config.SABER_ENABLED:
             # tip = pen point (the only thing that cuts), hilt on the hand (skin colour);
             # the face is excluded so it is never taken for the hand
-            if not face_detection_done and identifier is not None and point is not None:
-                face_box = identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
-            skin = lightsaber.skin_mask(clean) if point is not None else None
-            lightsaber.draw_saber(frame, saber.update(point, skin, face_box), pen_color.display)
+            if not face_checked and identifier is not None and point is not None:
+                with stats.stage("face"):
+                    face_box = identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
+                face_checked = True
+            with stats.stage("saber"):
+                skin = lightsaber.skin_mask(clean) if point is not None else None
+                lightsaber.draw_saber(frame, saber.update(point, skin, face_box),
+                                      pen_color.display)
 
-        with metrics.measure('display'):
+        if show_perf:
+            draw_perf_overlay(frame, stats.overlay_lines())
+        with stats.stage("show"):
             cv2.imshow(config.WINDOW_NAME, frame)
             key = cv2.waitKey(1) & 0xFF
-        metrics.finish(frame_started)
+        stats.end_frame()
 
         if state == STATE_NAME_ENTRY and keyboard.from_keycode(key) is not None:
             typed_key = keyboard.from_keycode(key)   # letters type here instead of q/d
         elif quit_requested or key == ord("q"):
             logger.info("Quit requested")
             break
+        elif key == ord("p"):
+            show_perf = not show_perf
+            logger.info("Perf overlay %s", "on" if show_perf else "off")
         elif key == ord("d"):
             show_mask = not show_mask
             logger.info("Debug mask %s", "on" if show_mask else "off")

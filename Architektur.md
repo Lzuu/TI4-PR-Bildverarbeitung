@@ -105,7 +105,7 @@ Kamera ─► main (Loop, States, Input)
   (höhere Gravitation + Wurfgeschwindigkeit + schnelleres Spawnen); **Leben bleiben
   immer 3**. `Game`/`Fruit` bekommen die gewählte Stufe injiziert → keine global
   verstreuten Magic Numbers. Jede Stufe hat ein **eigenes Leaderboard**.
-- **Kombos über ein Zeitfenster.** Mehrere Treffer innerhalb `COMBO_WINDOW_FRAMES`
+- **Kombos über ein Zeitfenster.** Mehrere Treffer innerhalb `COMBO_WINDOW_SECONDS`
   zählen als ein Swipe; ab `COMBO_MIN` Früchten gibt es Bonuspunkte.
 - **Spielererkennung per Gesicht mit vortrainierten Netzen (Issue #28).** Vor der
   Schwierigkeitsauswahl erkennt das Spiel den Spieler und ordnet ihm den Highscore
@@ -363,6 +363,79 @@ Kamera ─► main (Loop, States, Input)
 
     Auf dem Demo-Laptop gilt also: Canvas 1080×720 (3:2), Vollbild unverzerrt.
     macOS behält 16:10 bei voller Bildschirmhöhe (unverändert).
+- **Performance-Review #42 (PERF-01 bis PERF-08).** Reihenfolge wie im Issue:
+  erst messen, dann Zeitmodell, dann Initialisierung, dann Kosten senken.
+  - **PERF-06 Diagnose (`perf.py`).** `FrameStats` misst pro Frame die Stufen `read`,
+    `prep`, `track`, `segment`, `composite`, `face`, `suit`, `screen`, `saber`, `show`
+    und fasst alle 10 s zusammen: echte Frames/s, Median/P95 der Frame-Zeit und jeder
+    Stufe, Fehlreads, Maxima. Ausgabe als **eine** Logzeile pro Fenster, als CSV
+    (`logs/perf.csv`) und per Taste `p` im Bild. Eine Stufe zählt nur in den Frames,
+    in denen sie lief; die teure YOLO-Inferenz (alle N Frames) wird so nicht von den
+    billigen Cache-Frames verdeckt (`yolo_infer`, getrennt von `segment`).
+    Grenze: Gemessen wird Rechenzeit und Wartezeit *in der Schleife*. `read` zeigt,
+    wie lange auf die Kamera gewartet wurde. Die echte Latenz Kamera → Bildschirm
+    (Belichtung, USB, Anzeige) lässt sich nur von außen messen und bleibt eine
+    Zielgeräte-Abnahme.
+  - **PERF-01 Spielzeit in Sekunden.** `Game.update(blade, dt)` bekommt die echte Zeit
+    seit dem letzten Frame. Wurfparabel exakt (`y += v·dt + ½·g·dt²`), Spawn-Timer mit
+    Restzeit, Kombofenster und Schnittanimation in Sekunden, Kombo-Banner in Echtzeit.
+    `Game.time_scale` skaliert nur die Simulation (für die Zeitlupe aus #34), nicht
+    die Kameraauswertung und nicht UI-Timer. Pausen werden auf `MAX_FRAME_DT` (0,25 s)
+    gekappt. Der Schnitt wird vor der Bewegung ausgewertet (die Positionen, die der
+    Spieler sah), damit CR-01 erhalten bleibt. Die alten Werte (auf 30 FPS abgestimmt)
+    wurden 1:1 umgerechnet (Gravitation ·900, Geschwindigkeiten ·30, Intervalle /30).
+    Zufall ist per `rng` injizierbar, deshalb sind die Bahnen bei 15/30/60 FPS
+    deterministisch vergleichbar testbar.
+  - **PERF-07 YOLO bei Bedarf.** `LazySegmenter` lädt Download, Hashprüfung und Netz
+    erst beim ersten Wechsel auf den Modus `yolo`, in einem Hintergrundthread (das Menü
+    bleibt bedienbar, Hinweis „wird geladen“). Der Thread baut den Segmentierer nur;
+    die Inferenz läuft weiter im Spiel-Thread. Ein Fehler bleibt bestehen und löst
+    keinen Neuversuch pro Frame aus; erst die erneute Auswahl des Modus startet einen
+    neuen Versuch (abgestimmt mit CR-09). Der Download hat ein Timeout
+    (`YOLO_DOWNLOAD_TIMEOUT`).
+  - **PERF-05 Eine Gesichtsdetektion pro Frame.** Im Zustand FACE_SCAN liefert der Scan
+    (Detektion + Erkennung) die Box für Helm und Lichtschwert mit. Sonst läuft höchstens
+    eine günstige Detektion pro Frame, auch wenn sie kein Gesicht findet. Volle
+    Wiedererkennung gibt es nur in FACE_SCAN.
+  - **PERF-08 Maskenalter.** `BodySegmenter` meldet pro Aufruf `inferred`, `mask_age`
+    und `last_inference_seconds`. Budget `YOLO_MAX_MASK_AGE` (0,1 s): Eine
+    zu alte Maske wird früher aufgefrischt, aber nur, wenn eine Inferenz selbst günstig
+    ist (höchstens das halbe Budget). Sonst würde bei langsamer Hardware jede Inferenz
+    die Frames weiter verlangsamen (Rückkopplung, im Messlauf aufgetreten). Eine
+    asynchrone Inferenz ist bewusst nicht gebaut: Dafür müssten Thread-Besitz und
+    Frame-Identität erst festgelegt werden, und ohne belegten Bedarf kommt sie nicht.
+  - **PERF-04 Verarbeitungsskala.** `TRACK_SCALE = 0.5` und `GREEN_SCALE = 0.5`. Der Tracker
+    skaliert Morphologie- und Weichzeichner-Kernel und die Flächenschwelle mit
+    (ein fester 5×5-Kernel löschte Stifte unter 8 px komplett); Punkt und `last_mask`
+    liegen wieder in Frame-Koordinaten. Greenscreen skaliert die Maske mit linearem
+    Hochskalieren und Schwellwert zurück (glatte Kanten statt Blöcke). Gemessen auf
+    1080×720 (synthetisch: Körper, Haare, Arm, Stift): Greenscreen 12,5 → 4,3 ms bei
+    IoU 0,995 (0,1 % der Pixel am Rand weichen ab); Tracker 9,5 → 1,6 ms. Stifte von
+    3 bis 12 px Breite werden bei 0,5 weiterhin in 15/15 Frames gefunden, die Spitze
+    liegt etwa 2 bis 3 px ungenauer (bei Fruchtradien ab 34 px ohne Wirkung).
+    Die Skalen sind in `config.py` einstellbar, `1.0` stellt den alten Zustand her.
+    Offen als Zielgeräte-Abnahme: Vergleich mit realen Szenen (Hände, Haare, schnelle
+    Bewegung).
+
+  Vorher/Nachher-Messung am Demo-Laptop: identische aufgezeichnete Kamerabilder (1080p)
+  bzw. dieselbe synthetische Szene laufen durch die echte `_run_game_loop` des Stands vor
+  #42 (Canvas 1152×720) und des neuen Stands (1080×720), ohne Kamera-Wartezeit
+  und ohne Fenster; das Ergebnis ist reine Rechenzeit pro Schleifendurchlauf:
+
+  | Szene / Modus | vorher Median | nachher Median | vorher FPS (Mittel) | nachher FPS (Mittel) |
+  |---|---:|---:|---:|---:|
+  | Greenscreen + Anzug (synthetisch) | 119,1 ms | 50,9 ms | 8,7 | 15,0 |
+  | YOLO + Anzug (reale Bilder) | 131,3 ms | 119,1 ms | 7,8 | 8,4 |
+  | Aus, ohne Anzug (reale Bilder) | 35,3 ms | 39,1 ms | 24,0 | 22,5 |
+
+  Einordnung: Der Greenscreen-Pfad profitiert deutlich. Bei YOLO bleibt der Gewinn klein,
+  weil hier die Inferenz (auf diesem Laptop ca. 70 ms statt der im Review gemessenen
+  21 ms) und der Anzug (30 bis 58 ms in der Live-Schleife) dominieren. Der Unterschied
+  bei „Aus“ liegt im Rauschen (Läufe schwanken um ±10 %). Systemlast und Takt waren
+  nicht fixiert; es wird kein kausaler Speedup über einzelne Läufe hinaus behauptet.
+  Die Live-Messung mit der ELP-Kamera (Index 2) war nicht möglich, weil sie nicht
+  angeschlossen war (Kamera 0, 1920×1080, wurde stattdessen verwendet).
+  Offen: Der prozedurale Anzug ist auf diesem Gerät der größte Einzelposten.
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.

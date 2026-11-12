@@ -20,6 +20,9 @@ The model (``yolov8n-seg.onnx``) is exported from Ultralytics YOLOv8n-seg
 import hashlib
 import logging
 import os
+import shutil
+import threading
+import time
 import urllib.request
 from collections import namedtuple
 
@@ -68,8 +71,13 @@ def ensure_model(model_dir=MODEL_DIR, download=True):
         logger.info("Downloading %s ...", MODEL.filename)
         tmp = path + ".part"
         try:
-            urllib.request.urlretrieve(MODEL.url, tmp)
-        except OSError as exc:
+            # bounded wait: a dead network fails after the timeout instead of hanging
+            with urllib.request.urlopen(MODEL.url, timeout=config.YOLO_DOWNLOAD_TIMEOUT) as r, \
+                    open(tmp, "wb") as f:
+                shutil.copyfileobj(r, f)
+        except OSError as exc:                       # incl. TimeoutError / URLError
+            if os.path.exists(tmp):
+                os.remove(tmp)
             raise RuntimeError(f"Download von {MODEL.filename} fehlgeschlagen: {exc}")
         os.replace(tmp, path)
     if _sha256(path) != MODEL.sha256:
@@ -149,9 +157,13 @@ def assemble_mask(xywh, coeffs, idx, protos, size, thresh):
 class BodySegmenter:
     """Produces a 0/255 player mask from a BGR frame via YOLOv8-seg.
 
-    Inference is throttled to every ``every_n``-th frame (it costs ~15 ms); the
-    last mask is reused in between, which is fine for an overlay that moves
-    slowly relative to the frame rate. The cached mask belongs to a ``source``
+    Inference is throttled to every ``every_n``-th frame (it costs ~15-40 ms); the
+    last mask is reused in between. A reused mask lags behind the body, so its
+    age is capped at ``max_mask_age`` seconds: at a low frame rate, where every
+    N-th frame would be too old, the segmenter infers earlier (#42, PERF-08).
+    After each call ``inferred``, ``mask_age`` (s) and ``last_inference_seconds``
+    (None for cache frames) describe what happened, for the diagnostics. The
+    cached mask belongs to a ``source``
     (camera / mode session): a new source always gets a fresh inference (#41,
     CR-10). An inference error switches the segmenter off for good (``failed``)
     with one log entry instead of crashing the game (#41, CR-09).
@@ -159,8 +171,16 @@ class BodySegmenter:
 
     INFERENCE_ERRORS = (cv2.error, ValueError, IndexError)
 
-    def __init__(self, net, input_size=None, conf=None, mask_thresh=None, every_n=None):
+    def __init__(self, net, input_size=None, conf=None, mask_thresh=None, every_n=None,
+                 max_mask_age=None, clock=time.monotonic):
         self.net = net
+        self._clock = clock
+        self.max_mask_age = config.YOLO_MAX_MASK_AGE if max_mask_age is None else max_mask_age
+        self._inferred_at = None
+        self._inference_cost = None
+        self.inferred = False
+        self.mask_age = 0.0
+        self.last_inference_seconds = None
         self.input = input_size or config.YOLO_INPUT
         self.conf = config.YOLO_CONF if conf is None else conf
         self.mask_thresh = config.YOLO_MASK_THRESH if mask_thresh is None else mask_thresh
@@ -183,6 +203,16 @@ class BodySegmenter:
         crop = small[py:py + nh, px:px + nw]           # drop the letterbox padding
         return cv2.resize(crop, (w, h), interpolation=cv2.INTER_NEAREST)
 
+    def _too_old(self, age):
+        """Early refresh for an over-age mask -- only while inference is cheap.
+
+        If one inference alone takes more than half the age budget, an extra one
+        per frame would slow every frame down further (feedback loop), so the
+        plain cadence stays.
+        """
+        cost = self._inference_cost
+        return age > self.max_mask_age and (cost is None or cost <= self.max_mask_age / 2)
+
     def segment(self, frame, source=None):
         """Return the 0/255 player mask for ``frame`` (throttled; reuses last).
 
@@ -192,12 +222,17 @@ class BodySegmenter:
         """
         if self.failed:
             return None
+        now = self._clock()
+        age = 0.0 if self._inferred_at is None else now - self._inferred_at
         run = (self._counter % self.every_n == 0
                or self._last is None
                or self._last.shape != frame.shape[:2]
-               or source != self._source)
+               or source != self._source
+               or self._too_old(age))
         self._counter += 1
         self._source = source
+        self.inferred = run
+        self.last_inference_seconds = None
         if run:
             try:
                 self._last = self._infer(frame)
@@ -206,6 +241,12 @@ class BodySegmenter:
                              exc_info=True)
                 self.failed, self._last = True, None
                 return None
+            self._counter = 1                    # cadence restarts after any inference
+            self._inferred_at = now
+            self.mask_age = 0.0
+            self.last_inference_seconds = self._inference_cost = self._clock() - now
+        else:
+            self.mask_age = age
         return self._last
 
 
@@ -220,3 +261,64 @@ def create_segmenter():
         return None
     logger.info("Body segmentation ready (YOLOv8-seg, %dpx)", config.YOLO_INPUT)
     return BodySegmenter(net)
+
+
+def start_loader(job):
+    """Run ``job`` in a background thread (replaced by a direct call in tests)."""
+    threading.Thread(target=job, name="yolo-load", daemon=True).start()
+
+
+class LazySegmenter:
+    """Creates the YOLO segmenter only when the "yolo" mode is used (#42, PERF-07).
+
+    The first ``request()`` starts download/hash check/net loading in a
+    background thread, so the menu keeps responding; ``get()`` returns the
+    segmenter once it is ready, else None. The thread only *builds* the
+    segmenter and hands it over under a lock -- inference always runs in the
+    game loop's thread. A failure (model unavailable, or an inference error
+    reported via ``mark_failed``) is kept: nothing is reloaded per frame. Only
+    ``retry()`` -- the player selecting the mode again -- allows a new attempt.
+    """
+
+    IDLE, LOADING, READY, FAILED = "idle", "loading", "ready", "failed"
+
+    def __init__(self, factory=None, start=None):
+        self._factory = factory
+        self._start = start
+        self._lock = threading.Lock()
+        self.state = self.IDLE
+        self._segmenter = None
+
+    def request(self):
+        with self._lock:
+            if self.state != self.IDLE:
+                return
+            self.state = self.LOADING
+        logger.info("Loading body segmentation (YOLO) in the background")
+        (self._start or start_loader)(self._load)
+
+    def _load(self):
+        try:
+            segmenter = (self._factory or create_segmenter)()
+        except Exception:                            # never let the loader thread die silently
+            logger.error("Loading body segmentation (YOLO) failed", exc_info=True)
+            segmenter = None
+        with self._lock:
+            self._segmenter = segmenter
+            self.state = self.READY if segmenter is not None else self.FAILED
+
+    def get(self):
+        with self._lock:
+            if self.state == self.READY and getattr(self._segmenter, "failed", False):
+                self.state, self._segmenter = self.FAILED, None
+            return self._segmenter if self.state == self.READY else None
+
+    def mark_failed(self):
+        with self._lock:
+            self.state, self._segmenter = self.FAILED, None
+
+    def retry(self):
+        """Allow a new load after a failure (the player chose the mode again)."""
+        with self._lock:
+            if self.state == self.FAILED:
+                self.state = self.IDLE

@@ -214,3 +214,204 @@ def test_cadence_for_an_unchanged_source_stays_the_same():
     for _ in range(6):
         seg.segment(frame, source=("cam", 0))
     assert net.calls == 2
+
+
+# -- PERF-07 (#42): load YOLO only when it is used, in the background --------
+import io
+import os
+
+import pytest
+
+import config
+
+
+class ManualStart:
+    """Collects the loader jobs instead of starting threads; run them by hand."""
+
+    def __init__(self):
+        self.jobs = []
+
+    def __call__(self, job):
+        self.jobs.append(job)
+
+    def run_all(self):
+        jobs, self.jobs = self.jobs, []
+        for job in jobs:
+            job()
+
+
+def _counting_factory(result):
+    calls = []
+
+    def factory():
+        calls.append(1)
+        return result
+    return factory, calls
+
+
+def test_lazy_segmenter_loads_nothing_until_requested():
+    factory, calls = _counting_factory(object())
+    lazy = y.LazySegmenter(factory, start=ManualStart())
+    assert lazy.state == y.LazySegmenter.IDLE
+    assert lazy.get() is None
+    assert calls == []
+
+
+def test_lazy_segmenter_loads_in_the_background_once():
+    seg = object()
+    factory, calls = _counting_factory(seg)
+    start = ManualStart()
+    lazy = y.LazySegmenter(factory, start=start)
+    lazy.request()
+    lazy.request()                                   # still loading: no second job
+    assert lazy.state == y.LazySegmenter.LOADING and lazy.get() is None
+    assert len(start.jobs) == 1
+    start.run_all()
+    assert lazy.state == y.LazySegmenter.READY and lazy.get() is seg
+    lazy.request()                                   # ready: reused, not reloaded
+    assert calls == [1] and start.jobs == []
+
+
+def test_lazy_segmenter_failure_is_kept_until_a_deliberate_retry():
+    factory, calls = _counting_factory(None)         # create_segmenter: None = unavailable
+    start = ManualStart()
+    lazy = y.LazySegmenter(factory, start=start)
+    lazy.request()
+    start.run_all()
+    assert lazy.state == y.LazySegmenter.FAILED
+    for _ in range(5):
+        lazy.request()                               # no retry per frame
+    assert start.jobs == [] and calls == [1]
+    lazy.retry()
+    lazy.request()
+    start.run_all()
+    assert calls == [1, 1]
+
+
+def test_lazy_segmenter_unexpected_error_counts_as_failed():
+    def broken():
+        raise ValueError("bad model")
+    start = ManualStart()
+    lazy = y.LazySegmenter(broken, start=start)
+    lazy.request()
+    start.run_all()
+    assert lazy.state == y.LazySegmenter.FAILED
+
+
+def test_inference_failure_marks_the_loader_failed():
+    seg = y.BodySegmenter(FailingNet(*_blank_outputs()), input_size=64)
+    start = ManualStart()
+    lazy = y.LazySegmenter(lambda: seg, start=start)
+    lazy.request()
+    start.run_all()
+    lazy.get().segment(np.zeros((48, 64, 3), np.uint8))
+    assert lazy.get() is None and lazy.state == y.LazySegmenter.FAILED
+
+
+def test_download_uses_a_timeout(monkeypatch, tmp_path):
+    seen = {}
+    payload = b"model-bytes"
+
+    def fake_urlopen(url, timeout=None):
+        seen["timeout"] = timeout
+        return io.BytesIO(payload)
+    monkeypatch.setattr(y.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(y, "MODEL", y.ModelFile("m.onnx", "http://example.invalid/m",
+                                                y.hashlib.sha256(payload).hexdigest()))
+    path = y.ensure_model(str(tmp_path))
+    assert seen["timeout"] == config.YOLO_DOWNLOAD_TIMEOUT
+    assert open(path, "rb").read() == payload
+
+
+def test_download_timeout_is_a_clean_failure(monkeypatch, tmp_path):
+    def slow(url, timeout=None):
+        raise TimeoutError("timed out")
+    monkeypatch.setattr(y.urllib.request, "urlopen", slow)
+    with pytest.raises(RuntimeError):
+        y.ensure_model(str(tmp_path))
+    assert os.listdir(tmp_path) == []                # no half-written .part file left
+
+
+# -- PERF-08 (#42): mask age and inference time are visible and budgeted -----
+class Clock:
+    def __init__(self):
+        self.t = 100.0
+
+    def __call__(self):
+        return self.t
+
+
+def _seg(clock, every_n=3, max_age=None):
+    return y.BodySegmenter(FakeNet(*_blank_outputs()), input_size=64, every_n=every_n,
+                           max_mask_age=max_age, clock=clock)
+
+
+def test_age_is_zero_on_an_inference_frame_and_grows_on_cache_frames():
+    clock = Clock()
+    seg = _seg(clock, every_n=3, max_age=10.0)
+    frame = np.zeros((48, 64, 3), np.uint8)
+    seg.segment(frame)
+    assert seg.mask_age == 0.0 and seg.inferred
+    clock.t += 0.033
+    seg.segment(frame)
+    assert not seg.inferred
+    assert seg.mask_age == pytest.approx(0.033)
+    clock.t += 0.033
+    seg.segment(frame)
+    assert seg.mask_age == pytest.approx(0.066)
+    seg.segment(frame)                                    # 4th frame: inference again
+    assert seg.inferred and seg.mask_age == 0.0
+
+
+def test_inference_time_is_reported_only_for_inference_frames():
+    clock = Clock()
+    seg = _seg(clock, every_n=2, max_age=10.0)
+    frame = np.zeros((48, 64, 3), np.uint8)
+    seg.segment(frame)
+    assert seg.last_inference_seconds is not None
+    seg.segment(frame)
+    assert seg.last_inference_seconds is None             # cache hit: nothing to time
+
+
+def test_old_mask_is_refreshed_early_at_a_low_frame_rate():
+    clock = Clock()
+    seg = _seg(clock, every_n=3, max_age=0.1)
+    frame = np.zeros((48, 64, 3), np.uint8)
+    for _ in range(6):                                    # 10 fps: 0.1 s per frame
+        seg.segment(frame)
+        clock.t += 0.1
+    assert seg.net.calls > 2                              # more often than every 3rd frame
+
+
+def test_cadence_is_unchanged_at_a_fast_frame_rate():
+    clock = Clock()
+    seg = _seg(clock, every_n=3, max_age=0.1)
+    frame = np.zeros((48, 64, 3), np.uint8)
+    for _ in range(6):                                    # 60 fps: mask stays young
+        seg.segment(frame)
+        clock.t += 1 / 60
+    assert seg.net.calls == 2
+
+
+def test_mask_age_budget_defaults_to_config():
+    seg = y.BodySegmenter(FakeNet(*_blank_outputs()), input_size=64)
+    assert seg.max_mask_age == config.YOLO_MAX_MASK_AGE
+
+
+def test_no_early_refresh_when_inference_itself_is_expensive():
+    # on a slow machine an extra inference per frame would only make every frame
+    # slower (feedback loop) -- the plain cadence stays
+    clock = Clock()
+
+    class SlowNet(FakeNet):
+        def forward(self, names):
+            clock.t += 0.07                               # 70 ms per inference
+            return super().forward(names)
+    seg = y.BodySegmenter(SlowNet(*_blank_outputs()), input_size=64, every_n=3,
+                          max_mask_age=0.1, clock=clock)
+    frame = np.zeros((48, 64, 3), np.uint8)
+    for _ in range(6):
+        seg.segment(frame)
+        clock.t += 0.1                                    # slow frames: mask always > budget
+    assert seg.net.calls == 2                             # frames 0 and 3 only
+    assert seg.last_inference_seconds is None or seg.last_inference_seconds == pytest.approx(0.07)

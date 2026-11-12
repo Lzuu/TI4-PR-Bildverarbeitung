@@ -17,31 +17,31 @@ from difficulty import DEFAULT
 
 
 class Fruit:
-    def __init__(self, width, height, diff=None):
+    def __init__(self, width, height, diff=None, rng=random):
         diff = diff or DEFAULT
         scale = config.SCALE
         # Scaling radius + velocity + gravity by the same factor keeps the arc
-        # proportional to the resolution while the airtime (in frames) stays equal.
+        # proportional to the resolution while the airtime (in seconds) stays equal.
         self.gravity = diff.gravity * scale
-        self.radius = int(random.randint(*config.FRUIT_RADIUS) * scale)
+        self.radius = int(rng.randint(*config.FRUIT_RADIUS) * scale)
         # Launch from just below the bottom edge at a random horizontal position
         margin = int(0.12 * width)
-        self.x = float(random.randint(margin, width - margin))
+        self.x = float(rng.randint(margin, width - margin))
         self.y = float(height + self.radius)
         # Arc inward (toward the centre) so fruits stay on screen; throw upward
         direction = 1.0 if self.x < width / 2.0 else -1.0
-        self.vx = direction * random.uniform(*diff.drift_vx) * scale
-        self.vy = random.uniform(*diff.launch_vy) * scale   # negative => upward
+        self.vx = direction * rng.uniform(*diff.drift_vx) * scale
+        self.vy = rng.uniform(*diff.launch_vy) * scale      # px/s, negative => upward
 
-        self.is_bomb = random.random() < diff.bomb_probability
+        self.is_bomb = rng.random() < diff.bomb_probability
         if self.is_bomb:
             self.color = config.BOMB_COLOR
             self.name = "bomb"
         else:
-            self.name, self.color = random.choice(config.FRUIT_TYPES)
+            self.name, self.color = rng.choice(config.FRUIT_TYPES)
 
         self.sliced = False
-        self.slice_timer = 0
+        self.slice_time = 0.0      # seconds since the cut
         self.cut_angle = 0.0       # blade direction in radians (for the cut line)
 
     # -- state --------------------------------------------------------------
@@ -53,12 +53,14 @@ class Fruit:
         self.sliced = True
         self.cut_angle = cut_angle
 
-    def update(self):
+    def update(self, dt=1.0 / config.REF_FPS):
+        """Advance by ``dt`` seconds -- exact projectile motion, so the arc does
+        not depend on the step size (frame rate)."""
         if self.sliced:
-            self.slice_timer += 1
-        self.x += self.vx
-        self.y += self.vy
-        self.vy += self.gravity
+            self.slice_time += dt
+        self.x += self.vx * dt
+        self.y += self.vy * dt + 0.5 * self.gravity * dt * dt
+        self.vy += self.gravity * dt
 
     def is_missed(self, height):
         """True once an un-sliced fruit falls back out of the bottom.
@@ -70,7 +72,7 @@ class Fruit:
 
     def is_finished(self):
         """True once the slice animation has run its course (remove it)."""
-        return self.sliced and self.slice_timer >= config.SLICE_ANIM_FRAMES
+        return self.sliced and self.slice_time >= config.SLICE_ANIM_SECONDS - 1e-9
 
     # -- drawing ------------------------------------------------------------
     def draw(self, frame):
@@ -107,7 +109,7 @@ class Fruit:
 
     def _draw_halves(self, frame):
         """Two half-discs separating perpendicular to the cut."""
-        spread = self.slice_timer * 3
+        spread = self.slice_time * 90            # px/s apart
         # Perpendicular to the blade direction
         perp = self.cut_angle + math.pi / 2
         ox = math.cos(perp) * spread
