@@ -35,7 +35,6 @@ import lightsaber
 import yolo_seg
 import pose_tracking
 from suit_rig import SuitRenderer
-from frame_metrics import FrameMetrics
 from marker_tracker import MarkerTracker
 from blade import Blade
 from game import Game
@@ -589,7 +588,6 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     space_img = background.load_space((config.WIDTH, config.HEIGHT))
     suit_renderer = SuitRenderer() if config.SUIT_ENABLED else None
     pose_tracker = pose_tracking.create_tracker() if config.SUIT_ENABLED else None
-    metrics = FrameMetrics(config.SUIT_DIAGNOSTICS)
     saber = lightsaber.SaberTracker()
     reference = None
     reference_camera = None          # camera the reference was taken with
@@ -606,9 +604,8 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
 
     last_frame_t = time.monotonic()
     while True:
-        frame_started = time.perf_counter()
         stats.start_frame()
-        with stats.stage("read"), metrics.measure("capture"):
+        with stats.stage("read"):
             ok, frame = cap.read()
         if not ok:
             stats.count("read_fail")
@@ -632,7 +629,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             clean = frame.copy()
         # perception first: one pen measurement per frame, used by suit, game and
         # drawing alike -- no stale mask from the previous frame (#41, CR-06)
-        with stats.stage("track"), metrics.measure("marker"):
+        with stats.stage("track"):
             point = tracker.track(clean)
         pen_mask = tracker.last_mask
 
@@ -643,7 +640,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
         face_checked = False         # detection already done this frame (even if no face)
         scan_result = None
         if state == STATE_FACE_SCAN and identifier is not None:
-            with stats.stage("face"), metrics.measure("face"):
+            with stats.stage("face"):
                 scan_result = identifier.scan(clean)
             face_box, face_checked = scan_result[2], True
         # --- space background: capture the reference, then cut the player out ---
@@ -658,44 +655,41 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
         if config.BG_ENABLED and space_img is not None and bg_mode != background.MODE_OFF:
             mask = None
             t_stage = time.perf_counter()
-            with metrics.measure("segmentation_" + bg_mode):
-                if bg_mode == background.MODE_GREENSCREEN:
-                    mask = background.greenscreen_mask(clean, scale=config.GREEN_SCALE)
-                elif bg_mode == background.MODE_YOLO and yolo is not None:
-                    yolo.request()                       # first use: start loading
-                    segmenter = yolo.get()
-                    if segmenter is not None:
-                        # person mask, no green screen needed; the cache is bound to the
-                        # current camera and mode session (#41, CR-10)
-                        mask = segmenter.segment(clean, source=(cap.index, mode_session))
-                        if segmenter.last_inference_seconds is not None:
-                            stats.add("yolo_infer", segmenter.last_inference_seconds)
-                        stats.maximum("mask_age_ms", segmenter.mask_age * 1000.0)
-                        if segmenter.failed:
-                            yolo.mark_failed()           # off until chosen again (CR-09)
-                elif bg_mode == background.MODE_NORMAL and reference is not None:
-                    mask = background.foreground_mask(clean, reference)
-            segment_seconds = time.perf_counter() - t_stage
-            stats.add("segment", segment_seconds)
+            if bg_mode == background.MODE_GREENSCREEN:
+                mask = background.greenscreen_mask(clean, scale=config.GREEN_SCALE)
+            elif bg_mode == background.MODE_YOLO and yolo is not None:
+                yolo.request()                       # first use: start loading
+                segmenter = yolo.get()
+                if segmenter is not None:
+                    # person mask, no green screen needed; the cache is bound to the
+                    # current camera and mode session (#41, CR-10)
+                    mask = segmenter.segment(clean, source=(cap.index, mode_session))
+                    if segmenter.last_inference_seconds is not None:
+                        stats.add("yolo_infer", segmenter.last_inference_seconds)
+                    stats.maximum("mask_age_ms", segmenter.mask_age * 1000.0)
+                    if segmenter.failed:
+                        yolo.mark_failed()           # off until chosen again (CR-09)
+            elif bg_mode == background.MODE_NORMAL and reference is not None:
+                mask = background.foreground_mask(clean, reference)
+            stats.add("segment", time.perf_counter() - t_stage)
             if mask is not None:
-                with stats.stage("composite"), metrics.measure("composite"):
+                with stats.stage("composite"):
                     frame = background.composite_space(frame, mask, space_img,
-                                                         feather=1.5 if config.SUIT_ENABLED else 0.)
-                if pen_mask is not None:
-                    cv2.copyTo(clean, pen_mask, frame)
+                                                       feather=1.5 if config.SUIT_ENABLED else 0.)
                 if config.SUIT_ENABLED:
                     # place the helmet at the face (if one is seen) -- detection only, ~3 ms
                     if not face_checked and identifier is not None:
-                        with stats.stage("face"), metrics.measure("face"):
+                        with stats.stage("face"):
                             face_box = identifier.largest_face_box(clean,
                                                                    config.SUIT_FACE_DETECT_WIDTH)
                         face_checked = True
-                    suit_now = time.monotonic()
-                    with stats.stage("pose"), metrics.measure("pose"):
-                        body_pose = pose_tracker.update(clean, mask, now=suit_now,
+                    # the whole body becomes the suit; only the pen stays visible
+                    now_s = time.monotonic()
+                    with stats.stage("pose"):
+                        body_pose = pose_tracker.update(clean, mask, now=now_s,
                                                         source=(cap.index, mode_session))
-                    with stats.stage("suit"), metrics.measure("suit"):
-                        frame = suit.dress(frame, mask, face_box, pen_mask, suit_now,
+                    with stats.stage("suit"):
+                        frame = suit.dress(frame, mask, face_box, pen_mask, now_s,
                                            original=clean, pose=body_pose,
                                            renderer=suit_renderer,
                                            source=(cap.index, mode_session))
@@ -949,7 +943,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             # tip = pen point (the only thing that cuts), hilt on the hand (skin colour);
             # the face is excluded so it is never taken for the hand
             if not face_checked and identifier is not None and point is not None:
-                with stats.stage("face"), metrics.measure("face"):
+                with stats.stage("face"):
                     face_box = identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
                 face_checked = True
             with stats.stage("saber"):
@@ -959,11 +953,10 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
 
         if show_perf:
             draw_perf_overlay(frame, stats.overlay_lines())
-        with stats.stage("show"), metrics.measure("display"):
+        with stats.stage("show"):
             cv2.imshow(config.WINDOW_NAME, frame)
             key = cv2.waitKey(1) & 0xFF
         stats.end_frame()
-        metrics.finish(frame_started)
 
         if state == STATE_NAME_ENTRY and keyboard.from_keycode(key) is not None:
             typed_key = keyboard.from_keycode(key)   # letters type here instead of q/d

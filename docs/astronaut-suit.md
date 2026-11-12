@@ -208,4 +208,4 @@ Das ist keine Live-FPS-Messung. Schnelle reale Armbewegungen, Drehungen zur Kame
 und wechselnde Beleuchtung benötigen weiterhin eine Live-Abnahme.
 
 
-Integration: main / faa6023 mit den Performance-Änderungen aus PR #45 wurde übernommen. Lazy-YOLO-Laden, zeitbasierte Spielbewegung, halbaufgelöstes Tracking und die Performance-Anzeige bleiben erhalten. Pose-Rig und beide Diagnosepfade teilen sich weiterhin das unveränderte Kamerabild und eine Gesichtserkennung je Frame. Die gemeinsame Testsuite besteht aus 353 erfolgreichen Tests.
+Integration: main / faa6023 mit den Performance-Änderungen aus PR #45 wurde übernommen. Lazy-YOLO-Laden, zeitbasierte Spielbewegung, halbaufgelöstes Tracking und die Performance-Anzeige bleiben erhalten. Die zwischenzeitliche Integration auf demselben Branch (3e240c6) bleibt erhalten: Pose-Rig und gemeinsame Performance-Diagnose verwenden weiterhin das unveränderte Kamerabild und eine Gesichtserkennung je Frame. Die gemeinsame Testsuite besteht aus 353 erfolgreichen Tests.

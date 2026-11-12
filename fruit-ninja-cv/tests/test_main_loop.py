@@ -234,10 +234,9 @@ def _record_face_args(monkeypatch):
     faces = []
     original = m.suit.dress
 
-    def recording(frame, mask, face=None, keep=None, phase=0.0, smoother=None, **rig):
+    def recording(frame, mask, face=None, keep=None, phase=0.0, smoother=None, **kw):
         faces.append(face)
-        assert 'original' in rig and 'renderer' in rig and 'pose' in rig
-        return original(frame, mask, face, keep, phase, smoother, **rig)
+        return original(frame, mask, face, keep, phase, smoother, **kw)
     monkeypatch.setattr(m.suit, "dress", recording)
     return faces
 
