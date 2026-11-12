@@ -250,3 +250,15 @@ def test_no_face_found_is_not_searched_again_for_the_saber(monkeypatch, tmp_path
     run_loop(monkeypatch, tmp_path, FakeCamera([with_pen(green_frame(), 200)]), 3,
              identifier=ident, BG_MODE="greenscreen", SUIT_ENABLED=True, SABER_ENABLED=True)
     assert ident.box_calls == 3                      # one try per frame, not two
+
+
+# -- PERF-08 (#42): YOLO inference and mask age show up in the diagnostics ----
+def test_yolo_inference_and_mask_age_are_reported(monkeypatch, tmp_path, caplog):
+    import logging
+    caplog.set_level(logging.INFO)
+    _use_segmenter(monkeypatch, FakeNet(*_blank_outputs()))
+    run_loop(monkeypatch, tmp_path, FakeCamera([green_frame()]), 6,
+             BG_MODE="yolo", YOLO_ENABLED=True, PERF_LOG_INTERVAL=0.0)
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Perf ")]
+    assert lines
+    assert any("yolo_infer" in line and "max mask_age_ms=" in line for line in lines)

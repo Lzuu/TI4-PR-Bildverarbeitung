@@ -22,6 +22,7 @@ import logging
 import os
 import shutil
 import threading
+import time
 import urllib.request
 from collections import namedtuple
 
@@ -156,9 +157,13 @@ def assemble_mask(xywh, coeffs, idx, protos, size, thresh):
 class BodySegmenter:
     """Produces a 0/255 player mask from a BGR frame via YOLOv8-seg.
 
-    Inference is throttled to every ``every_n``-th frame (it costs ~15 ms); the
-    last mask is reused in between, which is fine for an overlay that moves
-    slowly relative to the frame rate. The cached mask belongs to a ``source``
+    Inference is throttled to every ``every_n``-th frame (it costs ~15-40 ms); the
+    last mask is reused in between. A reused mask lags behind the body, so its
+    age is capped at ``max_mask_age`` seconds: at a low frame rate, where every
+    N-th frame would be too old, the segmenter infers earlier (#42, PERF-08).
+    After each call ``inferred``, ``mask_age`` (s) and ``last_inference_seconds``
+    (None for cache frames) describe what happened, for the diagnostics. The
+    cached mask belongs to a ``source``
     (camera / mode session): a new source always gets a fresh inference (#41,
     CR-10). An inference error switches the segmenter off for good (``failed``)
     with one log entry instead of crashing the game (#41, CR-09).
@@ -166,8 +171,15 @@ class BodySegmenter:
 
     INFERENCE_ERRORS = (cv2.error, ValueError, IndexError)
 
-    def __init__(self, net, input_size=None, conf=None, mask_thresh=None, every_n=None):
+    def __init__(self, net, input_size=None, conf=None, mask_thresh=None, every_n=None,
+                 max_mask_age=None, clock=time.monotonic):
         self.net = net
+        self._clock = clock
+        self.max_mask_age = config.YOLO_MAX_MASK_AGE if max_mask_age is None else max_mask_age
+        self._inferred_at = None
+        self.inferred = False
+        self.mask_age = 0.0
+        self.last_inference_seconds = None
         self.input = input_size or config.YOLO_INPUT
         self.conf = config.YOLO_CONF if conf is None else conf
         self.mask_thresh = config.YOLO_MASK_THRESH if mask_thresh is None else mask_thresh
@@ -199,12 +211,17 @@ class BodySegmenter:
         """
         if self.failed:
             return None
+        now = self._clock()
+        age = 0.0 if self._inferred_at is None else now - self._inferred_at
         run = (self._counter % self.every_n == 0
                or self._last is None
                or self._last.shape != frame.shape[:2]
-               or source != self._source)
+               or source != self._source
+               or age > self.max_mask_age)
         self._counter += 1
         self._source = source
+        self.inferred = run
+        self.last_inference_seconds = None
         if run:
             try:
                 self._last = self._infer(frame)
@@ -213,6 +230,12 @@ class BodySegmenter:
                              exc_info=True)
                 self.failed, self._last = True, None
                 return None
+            self._counter = 1                    # cadence restarts after any inference
+            self._inferred_at = now
+            self.mask_age = 0.0
+            self.last_inference_seconds = self._clock() - now
+        else:
+            self.mask_age = age
         return self._last
 
 

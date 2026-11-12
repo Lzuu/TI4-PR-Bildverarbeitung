@@ -661,6 +661,9 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                     # person mask, no green screen needed; the cache is bound to the
                     # current camera and mode session (#41, CR-10)
                     mask = segmenter.segment(clean, source=(cap.index, mode_session))
+                    if segmenter.last_inference_seconds is not None:
+                        stats.add("yolo_infer", segmenter.last_inference_seconds)
+                    stats.maximum("mask_age_ms", segmenter.mask_age * 1000.0)
                     if segmenter.failed:
                         yolo.mark_failed()           # off until chosen again (CR-09)
             elif bg_mode == background.MODE_NORMAL and reference is not None:

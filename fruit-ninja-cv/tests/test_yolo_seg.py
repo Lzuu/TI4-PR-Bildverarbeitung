@@ -330,3 +330,69 @@ def test_download_timeout_is_a_clean_failure(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError):
         y.ensure_model(str(tmp_path))
     assert os.listdir(tmp_path) == []                # no half-written .part file left
+
+
+# -- PERF-08 (#42): mask age and inference time are visible and budgeted -----
+class Clock:
+    def __init__(self):
+        self.t = 100.0
+
+    def __call__(self):
+        return self.t
+
+
+def _seg(clock, every_n=3, max_age=None):
+    return y.BodySegmenter(FakeNet(*_blank_outputs()), input_size=64, every_n=every_n,
+                           max_mask_age=max_age, clock=clock)
+
+
+def test_age_is_zero_on_an_inference_frame_and_grows_on_cache_frames():
+    clock = Clock()
+    seg = _seg(clock, every_n=3, max_age=10.0)
+    frame = np.zeros((48, 64, 3), np.uint8)
+    seg.segment(frame)
+    assert seg.mask_age == 0.0 and seg.inferred
+    clock.t += 0.033
+    seg.segment(frame)
+    assert not seg.inferred
+    assert seg.mask_age == pytest.approx(0.033)
+    clock.t += 0.033
+    seg.segment(frame)
+    assert seg.mask_age == pytest.approx(0.066)
+    seg.segment(frame)                                    # 4th frame: inference again
+    assert seg.inferred and seg.mask_age == 0.0
+
+
+def test_inference_time_is_reported_only_for_inference_frames():
+    clock = Clock()
+    seg = _seg(clock, every_n=2, max_age=10.0)
+    frame = np.zeros((48, 64, 3), np.uint8)
+    seg.segment(frame)
+    assert seg.last_inference_seconds is not None
+    seg.segment(frame)
+    assert seg.last_inference_seconds is None             # cache hit: nothing to time
+
+
+def test_old_mask_is_refreshed_early_at_a_low_frame_rate():
+    clock = Clock()
+    seg = _seg(clock, every_n=3, max_age=0.1)
+    frame = np.zeros((48, 64, 3), np.uint8)
+    for _ in range(6):                                    # 10 fps: 0.1 s per frame
+        seg.segment(frame)
+        clock.t += 0.1
+    assert seg.net.calls > 2                              # more often than every 3rd frame
+
+
+def test_cadence_is_unchanged_at_a_fast_frame_rate():
+    clock = Clock()
+    seg = _seg(clock, every_n=3, max_age=0.1)
+    frame = np.zeros((48, 64, 3), np.uint8)
+    for _ in range(6):                                    # 60 fps: mask stays young
+        seg.segment(frame)
+        clock.t += 1 / 60
+    assert seg.net.calls == 2
+
+
+def test_mask_age_budget_defaults_to_config():
+    seg = y.BodySegmenter(FakeNet(*_blank_outputs()), input_size=64)
+    assert seg.max_mask_age == config.YOLO_MAX_MASK_AGE
