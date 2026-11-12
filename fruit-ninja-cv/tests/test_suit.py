@@ -125,19 +125,20 @@ def test_chest_panel_leds_blink_over_time():
 # --------------------------------------------------------------------------- #
 # Helmet (shell + visor) + animation
 # --------------------------------------------------------------------------- #
-def test_helmet_has_light_shell_and_dark_visor():
+def test_helmet_has_light_shell_and_clear_visor():
     frame = np.full((200, 200, 3), 120, np.uint8)
     suit.draw_helmet(frame, head=(60, 20, 80, 95), phase=0.0)
     assert int(frame[8, 100].mean()) > 190             # shell top is bright metal
-    assert int(frame[70, 100].mean()) < 120            # visor glass is dark
+    assert abs(int(frame[70, 100].mean()) - 120) <= 10 # real face remains visible
 
 
-def test_helmet_visor_sheen_is_animated():
+def test_helmet_reflections_do_not_hide_the_face_center():
     base = np.full((200, 200, 3), 120, np.uint8)
     a, b = base.copy(), base.copy()
     suit.draw_helmet(a, head=(60, 20, 80, 95), phase=0.0)
     suit.draw_helmet(b, head=(60, 20, 80, 95), phase=1.2)
-    assert not np.array_equal(a[70:120, 70:130], b[70:120, 70:130])  # moving sheen
+    assert np.max(np.abs(a[45:90,80:120].astype(int)-120)) <= 10
+    assert np.max(np.abs(b[45:90,80:120].astype(int)-120)) <= 10
 
 
 def test_helmet_without_head_is_a_noop():
@@ -179,7 +180,7 @@ def test_dress_puts_fabric_on_the_body_and_a_helmet_on_the_head():
     face = (255, 35, 90, 90)
     suit.dress(frame, mask, face=face, phase=0.3)
     assert int(frame[220, 300].mean()) > 150           # torso is now fabric
-    assert int(frame[70, 300, 0]) != 50                # head area changed (helmet)
+    assert abs(int(frame[70, 300, 0]) - 50) <= 10     # camera face survives the visor
     assert int(frame[380, 20].mean()) == 50            # far background untouched
 
 
@@ -229,4 +230,4 @@ def test_suit_is_still_drawn_around_the_protected_pen():
     before = frame.copy()
     out = suit.dress(frame, mask, face, keep, phase=0.0)
     assert not (out[200, 60] == before[200, 60]).all()   # fabric elsewhere
-    assert not (out[50, 130] == before[50, 130]).all()   # helmet elsewhere
+    assert not (out[8, 145] == before[8, 145]).all()     # white shell above the face

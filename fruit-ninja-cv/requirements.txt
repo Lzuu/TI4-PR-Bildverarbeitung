@@ -1,2 +1,3 @@
-opencv-python>=4.8
-numpy>=1.24
+# The shipped ONNX pipeline is validated on the OpenCV 4.x DNN runtime.
+opencv-python>=4.13,<5
+numpy>=1.24,<3

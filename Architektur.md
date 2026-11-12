@@ -35,7 +35,9 @@ Kamera ─► main (Loop, States, Input)
 | `heart.py` | Herz-Sprite (parametrische Herzkurve, Verlauf+Glanz) für die Leben |
 | `background.py` | Spieler freistellen (Referenz-Differenz) und vor das Weltall setzen |
 | `lightsaber.py` | Lichtschwert fester Länge: Spitze am Stiftpunkt, Richtung zur erkannten Hand |
-| `suit.py` | Animierter Ganzkörper-Raumanzug: Silhouette → Stoff, Helm mit Visier-Glanz, Brust-LEDs |
+| `suit.py` / `suit_rig.py` | EVA-Körperteile, maskiertes Alpha-Compositing, Kameragesicht im klaren Visier |
+| `pose_tracking.py` | Lokale BlazePose-ONNX-Modelle, Gelenke, Flow, begrenzte Überbrückung |
+| `frame_metrics.py` | Optionale aggregierte Live-Zeiten ohne Pro-Frame-Logspam |
 | `cameras.py` | Kameras finden (Indizes durchprobieren), öffnen (1080p MJPG, unter Windows MSMF), wechseln, Auswahl in `settings.json` merken |
 | `highscore.py` | Top-3-Highscore **je Schwierigkeit** mit Spielername (JSON-Persistenz) |
 | `face_id.py` | Spielererkennung per Gesicht: YuNet-Detektion, SFace-Merkmale, Abgleich mit `faces/`, Scan im Kreis (`FaceScanner`), Einlernen |
@@ -217,32 +219,51 @@ Kamera ─► main (Loop, States, Input)
     Die Wahl wird in `settings.json`
     (`background_mode`, via `cameras.load/save_background_mode`) **persistiert** –
     analog zur Kamerawahl. Default ist `normal` (unverändertes Verhalten).
-- **Animierter Ganzkörper-Raumanzug (`suit.py`, Issues #27/#38).** Sobald der Spieler
-  freigestellt ist, wird er zum **animierten Astronauten**. Frühere Ansätze (festes
-  Anzug-Bild am Gesicht; nur der Torso wird Stoff, Kopf/Hände bleiben frei; optionales
-  Textur-Bild `textures/suit.png`) sind **ersetzt**: ein Filmfiguren-Foto über den
-  Körper zu strecken sah schlecht aus und deckte Löcher (Arm-Kreis) falsch ab, und der
-  „nur Kleidung"-Ansatz ließ Kopf/Hände nackt. Entschieden – **der ganze Körper wird
-  Anzug**, rein prozedural:
-  - **Stoff:** Die **komplette Silhouette** (Rumpf, Arme, Hände = Handschuhe) wird zu
-    kühlem Weiß, zum Rand hin dunkler (Distanztransformation → runde, schlauchartige
-    Gliedmaßen), mit einem Hauch der echten Falten (Bild minus Weichzeichnung, Faktor
-    0,3, max. ±30). Nur der **Stift** bleibt sichtbar (Maske des Marker-Trackers als
-    `keep`). Keine Haut-/Kopf-Ausnahme mehr.
-  - **Helm (animiert):** über dem Kopf (Gesichts-Box von YuNet, 320 px, ~3 ms; ohne
-    Gesicht die Kopfregion der Bounding-Box) eine metallische Schale mit dunklem,
-    bläulichem **Visier**. Über das Visier wandert ein **Glanz-Reflex** (Gauß-Streifen,
-    dessen Position per `sin(phase)` läuft); oben blinkt ein Antennenlicht.
-  - **Brustpanel (animiert):** Steuerpanel mit **blinkenden LEDs** (Helligkeit per
-    `sin(phase + i)`), am Gesicht/Torso verankert, Position geglättet (`RectSmoother`).
-  - **Animation** läuft über `phase = time.monotonic()`, das `dress()` übergeben wird.
-  - **Masken-Quelle:** `dress()` nimmt die Spielermaske eines beliebigen Hintergrund-
-    Modus (greenscheen/normal/**yolo**) entgegen; mit der präzisen YOLO-Maske sitzt der
-    Anzug am saubersten (ohne Greenscreen). Rein klassische Bildverarbeitung (Masken,
-    Distanztransformation, Zeichnen), keine Posenerkennung (die kostete ~100–200 ms).
-  - **Performance:** Helligkeitskarte auf halber Auflösung und nur im Bildausschnitt
-    des Spielers, Schattierung per Tabelle, Visier/Panel auf kleinen ROIs → wenige
-    ms/Frame zusätzlich zum Compositing.
+- **Artikulierter EVA-Raumanzug mit durchsichtigem Visier (Weiterentwicklung #37/#38).**
+  `suit_rig.py` setzt acht lokal mitgelieferte RGBA-Teile zusammen: Rumpf mit
+  Halsring/Brustmodul, Oberarm, Unterarm, Handschuh, Oberschenkel, Unterschenkel,
+  Stiefel und starre weiße Helmschale. Materialdetails sind einmalig generierte
+  PNGs, keine API-/Bildgenerierung zur Laufzeit. Transparente Ränder und die echte
+  Visieröffnung werden validiert; Anker liegen in `suit_assets/anchors.json`.
+  - `pose_tracking.py`: BlazePose-Personeninitialisierung (224px, Hüfte/Skala/Drehung)
+    und 33 Landmarks (256px) aus OpenCV Zoo, ausschließlich `cv2.dnn` + NumPy.
+    Die zwei zusätzlichen Apache-2.0-ONNX-Modelle sind zusammen 17,55 MB, SHA256-geprüft
+    und lokal gecacht; keine zusätzlichen ML-Pythonpakete. Die vorhandene
+    Personenmaske wählt den Spieler aus. Initialisierung wird pro fünf
+    Landmark-Inferenzen erneuert; Pose-Inferenzen standardmäßig alle 0,10 s.
+  - Landmark-Koordinaten werden über die inverse affine ROI-Transformation korrekt
+    ins aktuelle Kamerabild zurückgeführt. Adaptive Glättung bremst kleine
+    Messfehler; große Bewegungen werden weitgehend sofort übernommen. Zwischen
+    Inferenzen folgt pyramidal Lucas-Kanade-Flow den sichtbaren Gelenken.
+    Ohne gültige Präsenz/Visibility keine Gliedmaße; außerhalb des Bilds liegende
+    Gelenke werden verworfen. Nach höchstens 0,20 s ohne verifizierte Pose endet
+    die Überbrückung. Quellenwechsel oder fehlender Körper setzen alle Puffer zurück.
+  - Rumpf per perspektivischer Vierpunktabbildung, Gliedmaßen separat entlang der
+    jeweiligen Knochenachse mit unabhängiger Breite; diese wird an der lokalen
+    Silhouette angepasst. Z-Tiefe bestimmt grob die Ebenenfolge. Das ist ein
+    **2,5D-Overlay**, kein physikalisch simulierter 3D-Anzug. Starkes Drehen aus
+    der Frontalansicht und verdeckte Gliedmaßen bleiben Grenzen.
+  - Aktuelles `clean` bleibt unverändert. YuNet-Box, beim kurzen Face-Ausfall
+    kalibrierte Pose-Augenabstände und begrenzte Historie verankern den Helm.
+    Das echte Gesicht wird unverzerrt aus `clean` in die tatsächliche Alphaöffnung
+    übernommen; Glas ist zentral nahezu klar, Reflexe liegen weich an der Seite.
+    Nach dem Verlust aller Kopfhinweise verschwindet der Helm. Bei komplett
+    fehlender Geometrie erscheint das Original statt eines weiß übermalten Gesichts.
+  - Premultipliziertes Alpha wird nur in geclippten Ziel-ROIs transformiert;
+    kein schwarzer Saum und keine wachsende Sammlung skalierter Sprites. Einmal
+    geladener, auf 384px begrenzter Asset-Satz benötigt rund 23 MiB Pixelpuffer.
+    Echte Löcher zwischen Armen bleiben erhalten. Inward-Feathering glättet
+    Segmentierungskanten, ohne die Personenmaske in den Hintergrund zu vergrößern.
+  - Reihenfolge: `clean` → aktueller Stift → Segmentierung/Gesicht/Pose → Hintergrund
+    → Stoffunterlage → Beine/ferne Arme → Rumpf/Schultern → Helm/Kameragesicht/Glas
+    → vordere Unterarme/Handschuhe → Original-Stiftpixel → Spiel/UI/Lichtschwert.
+    Der Stift bleibt auch dann sichtbar, wenn YOLO ihn aus der Personenmaske entfernt.
+    Ein Face-Scan wird mit dem Anzug geteilt, statt YuNet doppelt auszuführen.
+  - `FrameMetrics` misst optional Capture, Tracking, Segmentierung, Face, Pose,
+    Anzug, Ausgabe und Gesamtframe; aggregierte Median-/P95-Werte alle fünf Sekunden.
+    Start mit `--suit-diagnostics`. Echte Live-FPS werden erst mit angeschlossener
+    Kamera/Anzeige bestätigt. Reproduzierbare Vorschauen und Messungen:
+    [EVA-Implementierung und Prüfung](docs/astronaut-suit.md).
 - **Stift als Lichtschwert, Griff auf der Hand (`lightsaber.py`).** Am Stift wird auf
   jedem Bildschirm ein Lichtschwert gezeichnet. Die Klingenspitze ist der Punkt, der
   schneidet (die Stiftspitze); der **Griff sitzt auf der Hand**, die Klinge läuft von
@@ -451,3 +472,57 @@ Kamera ─► main (Loop, States, Input)
 ## Bewusste Nicht-Ziele
 - Kein ML für die Stifterkennung (klassische Bildverarbeitung). Ausnahme:
   Spielererkennung per Gesicht (siehe oben).
+
+
+## Einheitliche Passform (12.11.2026)
+
+Rumpf und Gliedmaßen verwenden jetzt eine gemeinsame, zeitlich stabilisierte
+Größenbasis aus Schulterabstand und mehreren Körperbreiten zwischen Schultern
+und Hüfte. Einzelne Arme/Beine werden nicht mehr separat schmalgerechnet.
+Links/rechts gelten identische Breitenverhältnisse. Schulterbereich und Taille
+passen zur gemeinsamen Körpergröße; an Ellbogen/Knien überlappen die Teile um
+zehn Prozent ihrer Segmentlänge. Handschuhe sind breiter als zuvor und haben eine
+Mindestlänge unabhängig von perspektivisch verkürzten Finger-Landmarks.
+
+Eine eng begrenzte Zugabe außerhalb der Kamerasilhouette (5,5 Prozent der
+Größenbasis, maximal 18 Pixel) lässt Raum für EVA-Polsterung und größere Hände.
+Geschlossene Zwischenräume zwischen Armen bleiben frei. Der Stift wird zuletzt
+aus dem Original wiederhergestellt. Helm-Asset und Helm-Rendering bleiben
+unverändert; neue Regressionen sichern die gemeinsame Größe und Mindesthandschuhe.
+
+Das ist eine Passformschätzung in Bildkoordinaten, keine Messung des tatsächlichen
+Körperumfangs in Zentimetern. Größere Teile kosten zusätzliche Renderzeit; aktuelle
+Messwerte stehen oben. Die Posen-Vorschauen wurden erneut erzeugt und geprüft.
+Ein neuer Live-Webcam-Test wurde für diese Korrektur nicht durchgeführt.
+
+
+## Bewegliche, zusammenhängende Ärmel (12.11.2026)
+
+Die tatsächlich sichtbaren Querschnitte der Oberarm- und Unterarmgrafik werden
+beim einmaligen Laden auf ein gemeinsames, leicht verjüngtes Ärmelprofil gebracht.
+Vorher war der Oberarmbund trotz ähnlicher Gesamtbreite erheblich schmaler als
+der anschließende Unterarmring. Die vorhandenen Texturen und Alpha-Kanten bleiben
+erhalten; Helmgrafik und Helm-Rendering werden nicht verändert.
+
+Oberarm/Unterarm sind breiter (56/54 Prozent der gemeinsamen Körpergrößenbasis),
+die Handschuhe werden dazu passend auf 55 Prozent skaliert. Die Schulteranschlüsse
+liegen unter dem Brustteil. An Armsegmentenden beträgt die Überlappung 22 Prozent
+der Ärmelbreite, unabhängig von der perspektivisch verkürzten Knochenlänge.
+Die breiteren Ärmel erhalten bis zu 16 Prozent der Größenbasis / maximal 48 Pixel
+Maskenzugabe, ausschließlich außerhalb geschlossener Zwischenräume. Ein gemeinsames
+Distanzfeld ersetzt dafür große Morphologiekernel. Die Positionen folgen den
+aktuellen Posepunkten ohne zusätzliche Glättung; es gibt keine gespeicherte alte
+Armmaske. Fehlende Gelenke blenden betroffene Teile aus. Der Stift bleibt zuletzt
+aus dem Originalbild wiederhergestellt.
+
+Vier zusätzliche Regressionen prüfen passende sichtbare Bundbreiten, kurze
+projizierte Armsegmente, schnelle Wechsel unten/seitlich/verschränkt/oben und
+Trackingverlust sowie die sichtbare Polsterbreite. Insgesamt 353 Tests bestanden (einschließlich der neuen Performance-Tests auf main).
+Die reproduzierbaren Vorschaubilder wurden erneuert und visuell geprüft.
+Render-Median bei 960×720: 37,4 ms; getaktete Testpipeline am öffentlichen
+Portrait: 65,0 ms Mittel (ca. 15,4 verarbeitete Testbilder/s), ohne Kamera/Anzeige.
+Das ist keine Live-FPS-Messung. Schnelle reale Armbewegungen, Drehungen zur Kamera
+und wechselnde Beleuchtung benötigen weiterhin eine Live-Abnahme.
+
+
+Integration: main / faa6023 mit den Performance-Änderungen aus PR #45 wurde übernommen. Lazy-YOLO-Laden, zeitbasierte Spielbewegung, halbaufgelöstes Tracking und die Performance-Anzeige bleiben erhalten. Die zwischenzeitliche Integration auf demselben Branch (3e240c6) bleibt erhalten: Pose-Rig und gemeinsame Performance-Diagnose verwenden weiterhin das unveränderte Kamerabild und eine Gesichtserkennung je Frame. Die gemeinsame Testsuite besteht aus 353 erfolgreichen Tests.

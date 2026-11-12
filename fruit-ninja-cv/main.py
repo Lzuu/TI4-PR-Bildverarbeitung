@@ -33,6 +33,8 @@ import background
 import suit
 import lightsaber
 import yolo_seg
+import pose_tracking
+from suit_rig import SuitRenderer
 from marker_tracker import MarkerTracker
 from blade import Blade
 from game import Game
@@ -584,7 +586,8 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     # capture would bake their silhouette into the background. They press 'b'
     # (then step out during the countdown) to grab a clean empty background.
     space_img = background.load_space((config.WIDTH, config.HEIGHT))
-    suit_smoother = suit.RectSmoother()
+    suit_renderer = SuitRenderer() if config.SUIT_ENABLED else None
+    pose_tracker = pose_tracking.create_tracker() if config.SUIT_ENABLED else None
     saber = lightsaber.SaberTracker()
     reference = None
     reference_camera = None          # camera the reference was taken with
@@ -671,7 +674,8 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             stats.add("segment", time.perf_counter() - t_stage)
             if mask is not None:
                 with stats.stage("composite"):
-                    frame = background.composite_space(frame, mask, space_img)
+                    frame = background.composite_space(frame, mask, space_img,
+                                                       feather=1.5 if config.SUIT_ENABLED else 0.)
                 if config.SUIT_ENABLED:
                     # place the helmet at the face (if one is seen) -- detection only, ~3 ms
                     if not face_checked and identifier is not None:
@@ -680,9 +684,15 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                                                                    config.SUIT_FACE_DETECT_WIDTH)
                         face_checked = True
                     # the whole body becomes the suit; only the pen stays visible
+                    now_s = time.monotonic()
+                    with stats.stage("pose"):
+                        body_pose = pose_tracker.update(clean, mask, now=now_s,
+                                                        source=(cap.index, mode_session))
                     with stats.stage("suit"):
-                        frame = suit.dress(frame, mask, face_box, pen_mask,
-                                           time.monotonic(), suit_smoother)
+                        frame = suit.dress(frame, mask, face_box, pen_mask, now_s,
+                                           original=clean, pose=body_pose,
+                                           renderer=suit_renderer,
+                                           source=(cap.index, mode_session))
 
         quit_requested = False
         t_stage = time.perf_counter()
@@ -968,4 +978,10 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--suit-diagnostics', action='store_true',
+                        help='Log aggregate live processing times every five seconds')
+    arguments = parser.parse_args()
+    config.SUIT_DIAGNOSTICS = config.SUIT_DIAGNOSTICS or arguments.suit_diagnostics
     main()
