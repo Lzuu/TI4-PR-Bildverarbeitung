@@ -207,3 +207,53 @@ def test_short_finger_projection_does_not_create_a_tiny_glove():
     glove=next(p for p in r.last_parts if p['name']=='glove_l')
     forearm=next(p for p in r.last_parts if p['name']=='forearm_l')
     assert np.linalg.norm(glove['endpoints'][1]-glove['endpoints'][0])>=forearm['width']*.8
+
+
+def test_sleeve_cuffs_have_matching_visible_widths_not_only_matching_canvases():
+    r=SuitRenderer()
+    widths=[]
+    for name,endpoint,factor in [('upper_arm',1,.56),('forearm',0,.54)]:
+        sprite=r.assets[name];meta=r.meta[name]
+        row=round(meta['anchors'][endpoint][1]*sprite.image.shape[0])
+        columns=np.flatnonzero(sprite.image[row,:,3]>128)
+        widths.append((columns[-1]-columns[0]+1)/(meta['width']*sprite.image.shape[1])*factor)
+    assert min(widths)/max(widths)>.9
+    assert min(widths)>.45
+
+
+def test_short_projected_arm_keeps_wide_sleeve_and_joint_overlap():
+    pose=sample_pose();pose.points[13,:2]=(57,70);pose.points[15,:2]=(90,68)
+    r=SuitRenderer();raw=np.full((200,160,3),80,np.uint8)
+    r.render(raw.copy(),raw,np.full((200,160),255,np.uint8),pose=pose,now=0)
+    parts={p['name']:p for p in r.last_parts}
+    arm=parts['upper_arm_l'];forearm=parts['forearm_l']
+    assert arm['width']>=r._body_size*.55
+    assert forearm['width']>=r._body_size*.53
+    assert np.linalg.norm(arm['fit_endpoints'][1]-pose.points[13,:2])>=arm['width']*.18
+    assert np.linalg.norm(forearm['fit_endpoints'][0]-pose.points[13,:2])>=forearm['width']*.18
+
+
+def test_sleeve_follows_fast_arm_motion_without_position_smoothing_or_ghosts():
+    from tools.preview_suit import scene
+    r=SuitRenderer()
+    for tick,kind in enumerate(('down','side','cross','up','down')):
+        raw,mask,pose,face,keep=scene(kind)
+        out=r.render(raw.copy(),raw,mask,pose,face,keep,now=tick*.033)
+        parts={p['name']:p for p in r.last_parts}
+        assert np.allclose(parts['forearm_l']['endpoints'],pose.points[[13,15],:2])
+        assert np.array_equal(out[keep>0],raw[keep>0])
+        assert parts['upper_arm_l']['width']==parts['upper_arm_r']['width']
+    # Losing one wrist hides its forearm immediately; do not retain the last pose.
+    pose.confidence[15]=0
+    r.render(raw.copy(),raw,mask,pose,face,keep,now=.2)
+    assert 'forearm_l' not in {p['name'] for p in r.last_parts}
+
+
+def test_sleeve_padding_is_not_cut_back_to_the_narrow_real_arm():
+    from tools.preview_suit import scene
+    raw,mask,pose,face,keep=scene('side')
+    out=SuitRenderer().render(raw.copy(),raw,mask,pose,face,keep,now=0)
+    # Mid upper arm: outside the real arm and old 10px allowance, inside EVA sleeve.
+    assert mask[280,330]==0
+    assert np.linalg.norm(out[280,330].astype(float)-raw[280,330])>80
+    assert np.array_equal(out[310,330],raw[310,330])

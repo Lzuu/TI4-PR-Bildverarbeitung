@@ -74,7 +74,7 @@ Körperpunkte sind dann deterministische Testeingaben. `--models` nutzt zusätzl
 die echten lokalen Netze auf dem vorhandenen gemeinfreien NASA-Porträt.
 Es werden keine privaten Team- oder Kamerafotos benötigt.
 
-**Tests: 288 bestanden, 0 fehlgeschlagen, 0 Fehler, 0 übersprungen.**
+**Tests: 292 bestanden, 0 fehlgeschlagen, 0 Fehler, 0 übersprungen.**
 
 Gezielte Regressionen decken Gesichtspixel im Visier, Originalpuffer,
 Hintergrund im Helminnenraum, Alpha-Ränder, Rotation/Anker, geclipptes Rendering,
@@ -115,15 +115,15 @@ keine gemessene Kamera-zu-Bildschirm-Latenz.** Keine garantierte Live-Framerate.
 
 | Schritt | Eingabe | Median ms | P95 ms |
 | --- | --- | ---: | ---: |
-| Artikulierter Anzug inkl. Eingabekopie | synthetisch 960×720 | 30.47 | 33.61 |
-| Stifttracking | synthetisch 960×720 | 2.16 | 2.57 |
-| Pose inkl. periodischer Initialisierung | Porträt 480×600 / 256px Netz | 16.39 | 41.60 |
-| YOLO-Inferenz+Decode | Porträt 480×600 / 320px Netz | 28.50 | 31.52 |
-| YuNet-Detektion | Porträt 480×600 / 320px Netz | 6.34 | 7.35 |
-| Alle Modelle und Rendering bei jedem Aufruf | Porträt 480×600 | 76.21 | 98.00 |
-| Getaktete Pipeline (Marker, N=3 YOLO, Pose/Flow, Face, Rendering) | Porträt 480×600 | 40.85 | 94.75 |
+| Artikulierter Anzug inkl. Eingabekopie | synthetisch 960×720 | 38.48 | 46.38 |
+| Stifttracking | synthetisch 960×720 | 2.60 | 3.01 |
+| Pose inkl. periodischer Initialisierung | Porträt 480×600 / 256px Netz | 13.96 | 34.19 |
+| YOLO-Inferenz+Decode | Porträt 480×600 / 320px Netz | 28.53 | 31.37 |
+| YuNet-Detektion | Porträt 480×600 / 320px Netz | 6.78 | 7.56 |
+| Alle Modelle und Rendering bei jedem Aufruf | Porträt 480×600 | 84.40 | 106.37 |
+| Getaktete Pipeline (Marker, N=3 YOLO, Pose/Flow, Face, Rendering) | Porträt 480×600 | 42.97 | 99.24 |
 
-Der getaktete Durchlauf benötigte im Mittel **56.75 ms**, entsprechend etwa **17.6 verarbeiteten Testbildern/s** ohne Capture/Anzeige. Das ist kein 720p-Live-FPS-Wert; Komponenten mit verschiedenen Eingabegrößen
+Der getaktete Durchlauf benötigte im Mittel **57.60 ms**, entsprechend etwa **17.4 verarbeiteten Testbildern/s** ohne Capture/Anzeige. Das ist kein 720p-Live-FPS-Wert; Komponenten mit verschiedenen Eingabegrößen
 dürfen nicht einfach addiert werden. Die zusätzliche Figur kostet Rechenzeit;
 30 oder 60 Live-FPS werden auf dieser Grundlage ausdrücklich nicht zugesichert.
 Ausgabeauflösung und Inferenzintervalle am Demogerät anhand Bildqualität UND
@@ -177,3 +177,32 @@ Das ist eine Passformschätzung in Bildkoordinaten, keine Messung des tatsächli
 Körperumfangs in Zentimetern. Größere Teile kosten zusätzliche Renderzeit; aktuelle
 Messwerte stehen oben. Die Posen-Vorschauen wurden erneut erzeugt und geprüft.
 Ein neuer Live-Webcam-Test wurde für diese Korrektur nicht durchgeführt.
+
+
+## Bewegliche, zusammenhängende Ärmel (12.11.2026)
+
+Die tatsächlich sichtbaren Querschnitte der Oberarm- und Unterarmgrafik werden
+beim einmaligen Laden auf ein gemeinsames, leicht verjüngtes Ärmelprofil gebracht.
+Vorher war der Oberarmbund trotz ähnlicher Gesamtbreite erheblich schmaler als
+der anschließende Unterarmring. Die vorhandenen Texturen und Alpha-Kanten bleiben
+erhalten; Helmgrafik und Helm-Rendering werden nicht verändert.
+
+Oberarm/Unterarm sind breiter (56/54 Prozent der gemeinsamen Körpergrößenbasis),
+die Handschuhe werden dazu passend auf 55 Prozent skaliert. Die Schulteranschlüsse
+liegen unter dem Brustteil. An Armsegmentenden beträgt die Überlappung 22 Prozent
+der Ärmelbreite, unabhängig von der perspektivisch verkürzten Knochenlänge.
+Die breiteren Ärmel erhalten bis zu 16 Prozent der Größenbasis / maximal 48 Pixel
+Maskenzugabe, ausschließlich außerhalb geschlossener Zwischenräume. Ein gemeinsames
+Distanzfeld ersetzt dafür große Morphologiekernel. Die Positionen folgen den
+aktuellen Posepunkten ohne zusätzliche Glättung; es gibt keine gespeicherte alte
+Armmaske. Fehlende Gelenke blenden betroffene Teile aus. Der Stift bleibt zuletzt
+aus dem Originalbild wiederhergestellt.
+
+Vier zusätzliche Regressionen prüfen passende sichtbare Bundbreiten, kurze
+projizierte Armsegmente, schnelle Wechsel unten/seitlich/verschränkt/oben und
+Trackingverlust sowie die sichtbare Polsterbreite. Insgesamt 292 Tests bestanden.
+Die reproduzierbaren Vorschaubilder wurden erneuert und visuell geprüft.
+Render-Median bei 960×720: 38,5 ms; getaktete Testpipeline am öffentlichen
+Portrait: 57,6 ms Mittel (ca. 17,4 verarbeitete Testbilder/s), ohne Kamera/Anzeige.
+Das ist keine Live-FPS-Messung. Schnelle reale Armbewegungen, Drehungen zur Kamera
+und wechselnde Beleuchtung benötigen weiterhin eine Live-Abnahme.

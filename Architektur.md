@@ -421,3 +421,32 @@ Das ist eine Passformschätzung in Bildkoordinaten, keine Messung des tatsächli
 Körperumfangs in Zentimetern. Größere Teile kosten zusätzliche Renderzeit; aktuelle
 Messwerte stehen oben. Die Posen-Vorschauen wurden erneut erzeugt und geprüft.
 Ein neuer Live-Webcam-Test wurde für diese Korrektur nicht durchgeführt.
+
+
+## Bewegliche, zusammenhängende Ärmel (12.11.2026)
+
+Die tatsächlich sichtbaren Querschnitte der Oberarm- und Unterarmgrafik werden
+beim einmaligen Laden auf ein gemeinsames, leicht verjüngtes Ärmelprofil gebracht.
+Vorher war der Oberarmbund trotz ähnlicher Gesamtbreite erheblich schmaler als
+der anschließende Unterarmring. Die vorhandenen Texturen und Alpha-Kanten bleiben
+erhalten; Helmgrafik und Helm-Rendering werden nicht verändert.
+
+Oberarm/Unterarm sind breiter (56/54 Prozent der gemeinsamen Körpergrößenbasis),
+die Handschuhe werden dazu passend auf 55 Prozent skaliert. Die Schulteranschlüsse
+liegen unter dem Brustteil. An Armsegmentenden beträgt die Überlappung 22 Prozent
+der Ärmelbreite, unabhängig von der perspektivisch verkürzten Knochenlänge.
+Die breiteren Ärmel erhalten bis zu 16 Prozent der Größenbasis / maximal 48 Pixel
+Maskenzugabe, ausschließlich außerhalb geschlossener Zwischenräume. Ein gemeinsames
+Distanzfeld ersetzt dafür große Morphologiekernel. Die Positionen folgen den
+aktuellen Posepunkten ohne zusätzliche Glättung; es gibt keine gespeicherte alte
+Armmaske. Fehlende Gelenke blenden betroffene Teile aus. Der Stift bleibt zuletzt
+aus dem Originalbild wiederhergestellt.
+
+Vier zusätzliche Regressionen prüfen passende sichtbare Bundbreiten, kurze
+projizierte Armsegmente, schnelle Wechsel unten/seitlich/verschränkt/oben und
+Trackingverlust sowie die sichtbare Polsterbreite. Insgesamt 292 Tests bestanden.
+Die reproduzierbaren Vorschaubilder wurden erneuert und visuell geprüft.
+Render-Median bei 960×720: 38,5 ms; getaktete Testpipeline am öffentlichen
+Portrait: 57,6 ms Mittel (ca. 17,4 verarbeitete Testbilder/s), ohne Kamera/Anzeige.
+Das ist keine Live-FPS-Messung. Schnelle reale Armbewegungen, Drehungen zur Kamera
+und wechselnde Beleuchtung benötigen weiterhin eine Live-Abnahme.

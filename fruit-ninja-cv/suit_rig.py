@@ -31,6 +31,39 @@ class Sprite:
         return cls(image, rgba, cv2.boundingRect(image[:, :, 3]))
 
 
+def _fit_sleeve_artwork(image, anchors, proximal, distal):
+    """Match actual fabric cross-sections, rather than transparent canvas widths.
+
+    The upper-arm artwork has a very narrow cuff. A single affine scale cannot
+    join it to the much wider forearm ring. Refit rows once at asset load, keeping
+    the original texture, alpha edges and a mild taper along the sleeve.
+    """
+    h,w=image.shape[:2]
+    bounds=cv2.boundingRect((image[:,:,3]>32).astype(np.uint8))
+    yy,xx=np.mgrid[:h,:w].astype(np.float32)
+    source_x=xx.copy()
+    for y in range(h):
+        columns=np.flatnonzero(image[y,:,3]>32)
+        if len(columns)<2:
+            continue
+        t=float(np.clip((y/h-anchors[0][1])/(anchors[1][1]-anchors[0][1]),0,1))
+        target=bounds[2]*(proximal*(1-t)+distal*t+.035*np.sin(np.pi*t))
+        # Keep the authored rounded shoulder and cuff ends outside the bone
+        # anchors; expanding those tiny end rows would create square shoulders.
+        anchor_y=round(np.clip(y,anchors[0][1]*h,anchors[1][1]*h))
+        reference=np.flatnonzero(image[anchor_y,:,3]>32)
+        if len(reference)>1 and (y<anchors[0][1]*h or y>anchors[1][1]*h):
+            target*=min(1.,len(columns)/len(reference))
+        scale=min(3.5,target/(columns[-1]-columns[0]+1))
+        source_x[y]=(xx[y]-w*.5)/scale+(columns[0]+columns[-1])*.5
+    # Premultiplied resampling keeps the refitted alpha border free of dark edges.
+    premult=Sprite.prepare(image).premultiplied
+    fitted=cv2.remap(premult,source_x,yy,cv2.INTER_LINEAR,borderMode=cv2.BORDER_CONSTANT)
+    alpha=fitted[:,:,3:4]
+    color=np.divide(fitted[:,:,:3],alpha,out=np.zeros_like(fitted[:,:,:3]),where=alpha>1e-6)
+    return np.clip(np.concatenate((color,alpha*255),axis=2),0,255).astype(np.uint8)
+
+
 @lru_cache(maxsize=1)
 def load_assets():
     """One bounded decoded set (8 × at most 384²), no growing scale cache."""
@@ -43,11 +76,16 @@ def load_assets():
         factor = min(1., 384 / max(image.shape[:2]))
         if factor < 1:
             image = cv2.resize(image, None, fx=factor, fy=factor, interpolation=cv2.INTER_AREA)
+        if name in ('upper_arm','forearm'):
+            profile=(.94,.90) if name=='upper_arm' else (.94,.86)
+            image=_fit_sleeve_artwork(image,meta[name]['anchors'],*profile)
         assets[name] = Sprite.prepare(image)
         if 'width' in meta[name]:
             # Generated artwork need not obey the requested margin exactly.
             # Fit actual opaque garment width, not transparent canvas padding.
-            meta[name]['width']=assets[name].bounds[2]/image.shape[1]
+            fit_bounds=(cv2.boundingRect((image[:,:,3]>32).astype(np.uint8))
+                        if name in ('upper_arm','forearm') else assets[name].bounds)
+            meta[name]['width']=fit_bounds[2]/image.shape[1]
         if name=='helmet':
             transparent=(image[:,:,3]<20).astype(np.uint8)
             _,labels=cv2.connectedComponents(transparent)
@@ -240,9 +278,14 @@ class SuitRenderer:
     def _limb(self, asset, label, a, b, width, pose, mask=None, torso=None):
         endpoints=pose.segment(a,b)
         if endpoints is None or np.linalg.norm(endpoints[1]-endpoints[0])<3:return None
-        # Overlap cuffs at each joint; do not expose transparent asset margins.
+        # Sleeve overlap follows garment width, not projected bone length: an
+        # elbow pointing at the camera still needs a full-size padded joint.
         delta=endpoints[1]-endpoints[0]
-        fitted=np.array((endpoints[0]-delta*.10,endpoints[1]+delta*.10))
+        if asset in ('upper_arm','forearm'):
+            extension=delta/np.linalg.norm(delta)*width*.22
+        else:
+            extension=delta*.10
+        fitted=np.array((endpoints[0]-extension,endpoints[1]+extension))
         part=self._part(asset,label,fitted,width)
         part['fit_endpoints']=fitted
         part['endpoints']=endpoints
@@ -412,7 +455,7 @@ class SuitRenderer:
                                  ('r',(12,14,16,20,24,26,28,32))]:
                 sh,el,wr,fi,hip,knee,ankle,toe=indices
                 for asset,a,b,factor,layer in [('thigh',hip,knee,.53,0),('shin',knee,ankle,.48,1),
-                                              ('upper_arm',sh,el,.46,20),('forearm',el,wr,.44,40)]:
+                                              ('upper_arm',sh,el,.56,8),('forearm',el,wr,.54,40)]:
                     part=self._limb(asset,asset+'_'+side,a,b,width*factor,pose,player,quad)
                     if part is not None:
                         # Far arms go behind the torso; near forearms cross in front.
@@ -433,7 +476,7 @@ class SuitRenderer:
                     wrist=hand[0].copy()
                     hand=np.array((wrist-direction*width*.08,
                                    wrist+direction*max(width*.40,min(np.linalg.norm(hand[1]-wrist),width*.62))))
-                    commands.append((45,self._part('glove','glove_'+side,hand,width*.46)))
+                    commands.append((45,self._part('glove','glove_'+side,hand,width*.55)))
                 foot=pose.segment(ankle,toe)
                 if foot is not None:
                     if np.linalg.norm(foot[1]-foot[0])<width*.17:
@@ -445,27 +488,37 @@ class SuitRenderer:
             # getPerspectiveTransform wants perimeter order, not two rows.
             matrix=cv2.getPerspectiveTransform(source_quad[[0,1,3,2]].astype(np.float32),quad[[0,1,3,2]])
             commands.append((10,dict(name='torso',asset='torso',matrix=matrix,endpoints=quad)))
+        arm_clip=clip
         if width>=8:
             margin=max(2,min(18,round(width*.055)))
-            kernel=cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(margin*2+1,margin*2+1))
-            padded=cv2.dilate(player,kernel)
+            # One linear-time distance map for both padding radii, rather than
+            # a large morphology kernel per sleeve on every moving frame.
+            outside_distance=cv2.distanceTransform((player==0).astype(np.uint8),cv2.DIST_L2,3)
+            padded=outside_distance<=margin
             # Flood exterior background from an explicit padded image border.
             exterior=cv2.copyMakeBorder((player==0).astype(np.uint8),1,1,1,1,cv2.BORDER_CONSTANT,value=1)
             cv2.floodFill(exterior,None,(0,0),2)
             allowed=(player>0)|((exterior[1:-1,1:-1]==2)&(padded>0))
             clip=(allowed.astype(np.uint8)*255)
+            # Only measured sleeve sprites get extra room for EVA padding.
+            # Keep enclosed background holes free and never retain old arm masks.
+            arm_margin=max(2,min(48,round(width*.16)))
+            arm_padded=outside_distance<=arm_margin
+            arm_clip=(((player>0)|((exterior[1:-1,1:-1]==2)&(arm_padded>0))).astype(np.uint8)*255)
         # Keep upper-arm/torso below the helmet, wrists/gloves can occlude it.
         for layer,part in sorted(commands,key=lambda item:item[0]):
             if layer>=40:
                 continue
-            alpha_over(frame,self.assets[part['asset']],part['matrix'],clip)
+            alpha_over(frame,self.assets[part['asset']],part['matrix'],
+                       arm_clip if part['asset'] in ('upper_arm','forearm','glove') else clip)
             self.last_parts.append(part)
         if head is not None:
             self._helmet(frame,original,head,now,player)
         for layer,part in sorted(commands,key=lambda item:item[0]):
             if layer<40:
                 continue
-            alpha_over(frame,self.assets[part['asset']],part['matrix'],clip)
+            alpha_over(frame,self.assets[part['asset']],part['matrix'],
+                       arm_clip if part['asset'] in ('upper_arm','forearm','glove') else clip)
             self.last_parts.append(part)
         if keep is not None:
             cv2.copyTo(original,keep,frame)  # includes pen excluded by the person model
