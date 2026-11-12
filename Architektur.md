@@ -437,6 +437,20 @@ Kamera ─► main (Loop, States, Input)
   angeschlossen war (Kamera 0, 1920×1080, wurde stattdessen verwendet).
   Offen: Der prozedurale Anzug ist auf diesem Gerät der größte Einzelposten.
 
+- **Agent-Wartezeit: Short-Video-Fenster per Hook (#48, `fruit-ninja-cv/tools/doomscroll/`).**
+  Kein Teil des Spiels. Claude-Code-Hooks (`UserPromptSubmit` öffnet, `Stop`,
+  `StopFailure`, `SessionEnd` schließen) rufen ein Skript je System auf: `doomscroll.ps1`
+  (Windows) und `doomscroll.sh` (macOS). Entscheidung zum gezielten Schließen: Das
+  Fenster läuft in einem eigenen Browserprofil, und `close` beendet nur Prozesse mit
+  diesem Profilpfad. Ein pauschales Beenden des Browsers würde die normalen Tabs
+  schließen. Safari kann kein eigenes Profil starten, dort wird das Fenster per
+  AppleScript über seine ID geöffnet und geschlossen. Die Hooks stehen in der
+  Benutzer-Konfiguration jeder Person (`~/.claude/settings.json`), nicht im Repo, weil
+  sie personen- und rechnerabhängig sind. `.gitattributes` erzwingt LF für `*.sh`
+  (ein Skript mit CRLF läuft auf dem Mac nicht). Die macOS-Version ist headless nur
+  zum Teil testbar (Browsererkennung, Zuordnung, Zeilenenden); Öffnen und Schließen
+  sind noch nicht auf einem echten Mac geprüft.
+
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.
 - **Logging:** `logs/fruit-ninja.log` (rotierend), Konsole zeigt nur Warnungen/Fehler.
