@@ -185,3 +185,68 @@ def test_loading_hint_while_the_model_loads(monkeypatch, tmp_path):
              BG_MODE="yolo", YOLO_ENABLED=True, yolo_start=jobs.append)
     assert len(jobs) == 1                            # one background load, never finished
     assert any("wird geladen" in t for t in texts)
+
+
+# -- PERF-05 (#42): one face detection per frame, shared by suit, saber and scan
+class CountingIdentifier:
+    """Stands in for FaceIdentifier; counts how often a detection is run."""
+
+    persons = []
+    BOX = (120, 90, 80, 80)
+
+    def __init__(self):
+        self.scan_calls = 0
+        self.box_calls = 0
+
+    def scan(self, frame):
+        self.scan_calls += 1
+        return None, 0.0, self.BOX, None
+
+    def largest_face_box(self, frame, width=320):
+        self.box_calls += 1
+        return self.BOX
+
+
+def _scan_loop(monkeypatch, tmp_path, state, frames=4, **cfg):
+    ident = CountingIdentifier()
+    monkeypatch.setattr(m, "initial_state", lambda identifier: state)
+    dress = _record_face_args(monkeypatch)
+    run_loop(monkeypatch, tmp_path, FakeCamera([with_pen(green_frame(), 200)]), frames,
+             identifier=ident, BG_MODE="greenscreen", SUIT_ENABLED=True,
+             SABER_ENABLED=True, **cfg)
+    return ident, dress
+
+
+def _record_face_args(monkeypatch):
+    faces = []
+    original = m.suit.dress
+
+    def recording(frame, mask, face=None, keep=None, phase=0.0, smoother=None):
+        faces.append(face)
+        return original(frame, mask, face, keep, phase, smoother)
+    monkeypatch.setattr(m.suit, "dress", recording)
+    return faces
+
+
+def test_face_scan_detects_once_per_frame_and_shares_the_box(monkeypatch, tmp_path):
+    ident, faces = _scan_loop(monkeypatch, tmp_path, m.STATE_FACE_SCAN)
+    assert ident.scan_calls == 4
+    assert ident.box_calls == 0                      # no second detection for suit / saber
+    assert faces == [CountingIdentifier.BOX] * 4     # helmet placed from the scan result
+
+
+def test_menu_detects_once_per_frame_without_recognition(monkeypatch, tmp_path):
+    ident, faces = _scan_loop(monkeypatch, tmp_path, m.STATE_MENU)
+    assert ident.scan_calls == 0                     # no full recognition outside FACE_SCAN
+    assert ident.box_calls == 4                      # suit and saber share one detection
+    assert faces == [CountingIdentifier.BOX] * 4
+
+
+def test_no_face_found_is_not_searched_again_for_the_saber(monkeypatch, tmp_path):
+    ident = CountingIdentifier()
+    ident.largest_face_box = lambda frame, width=320: setattr(
+        ident, "box_calls", ident.box_calls + 1)     # finds nothing
+    monkeypatch.setattr(m, "initial_state", lambda identifier: m.STATE_MENU)
+    run_loop(monkeypatch, tmp_path, FakeCamera([with_pen(green_frame(), 200)]), 3,
+             identifier=ident, BG_MODE="greenscreen", SUIT_ENABLED=True, SABER_ENABLED=True)
+    assert ident.box_calls == 3                      # one try per frame, not two

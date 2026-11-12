@@ -630,7 +630,16 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             point = tracker.track(clean)
         pen_mask = tracker.last_mask
 
-        face_box = None              # face found this frame (shared by suit and saber)
+        # One face detection per frame, shared by suit, saber and the player scan
+        # (#42, PERF-05). In FACE_SCAN the scan's own detection (with recognition)
+        # is the one; otherwise a cheap detection runs at most once, on demand.
+        face_box = None
+        face_checked = False         # detection already done this frame (even if no face)
+        scan_result = None
+        if state == STATE_FACE_SCAN and identifier is not None:
+            with stats.stage("face"):
+                scan_result = identifier.scan(clean)
+            face_box, face_checked = scan_result[2], True
         # --- space background: capture the reference, then cut the player out ---
         if bg_capture_at is not None and time.monotonic() >= bg_capture_at:
             reference = clean.copy()
@@ -662,10 +671,11 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                     frame = background.composite_space(frame, mask, space_img)
                 if config.SUIT_ENABLED:
                     # place the helmet at the face (if one is seen) -- detection only, ~3 ms
-                    with stats.stage("face"):
-                        face_box = (identifier.largest_face_box(clean,
-                                                                config.SUIT_FACE_DETECT_WIDTH)
-                                    if identifier is not None else None)
+                    if not face_checked and identifier is not None:
+                        with stats.stage("face"):
+                            face_box = identifier.largest_face_box(clean,
+                                                                   config.SUIT_FACE_DETECT_WIDTH)
+                        face_checked = True
                     # the whole body becomes the suit; only the pen stays visible
                     with stats.stage("suit"):
                         frame = suit.dress(frame, mask, face_box, pen_mask,
@@ -779,7 +789,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                                                   config.WIDTH, config.HEIGHT)
                 click[0] = None
                 scanner.reset()          # restart the scan with the (new) camera
-            name, score, box, crop = identifier.scan(clean)
+            name, score, box, crop = scan_result      # detected once at the top of the frame
             inside = face_id.face_in_circle(box, circle) and not camera_open
             g_active, g_progress, g_confirmed = dwell.update(point, [guest_t])
             if camera_open:
@@ -919,9 +929,10 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
         if config.SABER_ENABLED:
             # tip = pen point (the only thing that cuts), hilt on the hand (skin colour);
             # the face is excluded so it is never taken for the hand
-            if face_box is None and identifier is not None and point is not None:
+            if not face_checked and identifier is not None and point is not None:
                 with stats.stage("face"):
                     face_box = identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
+                face_checked = True
             with stats.stage("saber"):
                 skin = lightsaber.skin_mask(clean) if point is not None else None
                 lightsaber.draw_saber(frame, saber.update(point, skin, face_box),
