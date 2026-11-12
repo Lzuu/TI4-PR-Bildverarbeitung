@@ -212,13 +212,13 @@ def test_short_finger_projection_does_not_create_a_tiny_glove():
 def test_sleeve_cuffs_have_matching_visible_widths_not_only_matching_canvases():
     r=SuitRenderer()
     widths=[]
-    for name,endpoint,factor in [('upper_arm',1,.56),('forearm',0,.54)]:
+    for name,endpoint,factor in [('upper_arm',1,.504),('forearm',0,.486)]:
         sprite=r.assets[name];meta=r.meta[name]
         row=round(meta['anchors'][endpoint][1]*sprite.image.shape[0])
         columns=np.flatnonzero(sprite.image[row,:,3]>128)
         widths.append((columns[-1]-columns[0]+1)/(meta['width']*sprite.image.shape[1])*factor)
     assert min(widths)/max(widths)>.9
-    assert min(widths)>.45
+    assert min(widths)>.405
 
 
 def test_short_projected_arm_keeps_wide_sleeve_and_joint_overlap():
@@ -227,8 +227,9 @@ def test_short_projected_arm_keeps_wide_sleeve_and_joint_overlap():
     r.render(raw.copy(),raw,np.full((200,160),255,np.uint8),pose=pose,now=0)
     parts={p['name']:p for p in r.last_parts}
     arm=parts['upper_arm_l'];forearm=parts['forearm_l']
-    assert arm['width']>=r._body_size*.55
-    assert forearm['width']>=r._body_size*.53
+    assert np.isclose(arm['width'],r._body_size*.56*.9)
+    assert np.isclose(forearm['width'],r._body_size*.54*.9)
+    assert np.isclose(parts['glove_l']['width'],r._body_size*.55*.9)
     assert np.linalg.norm(arm['fit_endpoints'][1]-pose.points[13,:2])>=arm['width']*.18
     assert np.linalg.norm(forearm['fit_endpoints'][0]-pose.points[13,:2])>=forearm['width']*.18
 
