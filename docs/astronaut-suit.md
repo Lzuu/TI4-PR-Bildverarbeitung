@@ -74,7 +74,7 @@ Körperpunkte sind dann deterministische Testeingaben. `--models` nutzt zusätzl
 die echten lokalen Netze auf dem vorhandenen gemeinfreien NASA-Porträt.
 Es werden keine privaten Team- oder Kamerafotos benötigt.
 
-**Tests: 286 bestanden, 0 fehlgeschlagen, 0 Fehler, 0 übersprungen.**
+**Tests: 288 bestanden, 0 fehlgeschlagen, 0 Fehler, 0 übersprungen.**
 
 Gezielte Regressionen decken Gesichtspixel im Visier, Originalpuffer,
 Hintergrund im Helminnenraum, Alpha-Ränder, Rotation/Anker, geclipptes Rendering,
@@ -115,15 +115,15 @@ keine gemessene Kamera-zu-Bildschirm-Latenz.** Keine garantierte Live-Framerate.
 
 | Schritt | Eingabe | Median ms | P95 ms |
 | --- | --- | ---: | ---: |
-| Artikulierter Anzug inkl. Eingabekopie | synthetisch 960×720 | 25.22 | 27.94 |
-| Stifttracking | synthetisch 960×720 | 2.69 | 3.22 |
-| Pose inkl. periodischer Initialisierung | Porträt 480×600 / 256px Netz | 13.62 | 34.09 |
-| YOLO-Inferenz+Decode | Porträt 480×600 / 320px Netz | 27.74 | 30.98 |
-| YuNet-Detektion | Porträt 480×600 / 320px Netz | 6.18 | 7.90 |
-| Alle Modelle und Rendering bei jedem Aufruf | Porträt 480×600 | 69.38 | 90.72 |
-| Getaktete Pipeline (Marker, N=3 YOLO, Pose/Flow, Face, Rendering) | Porträt 480×600 | 32.11 | 72.49 |
+| Artikulierter Anzug inkl. Eingabekopie | synthetisch 960×720 | 30.47 | 33.61 |
+| Stifttracking | synthetisch 960×720 | 2.16 | 2.57 |
+| Pose inkl. periodischer Initialisierung | Porträt 480×600 / 256px Netz | 16.39 | 41.60 |
+| YOLO-Inferenz+Decode | Porträt 480×600 / 320px Netz | 28.50 | 31.52 |
+| YuNet-Detektion | Porträt 480×600 / 320px Netz | 6.34 | 7.35 |
+| Alle Modelle und Rendering bei jedem Aufruf | Porträt 480×600 | 76.21 | 98.00 |
+| Getaktete Pipeline (Marker, N=3 YOLO, Pose/Flow, Face, Rendering) | Porträt 480×600 | 40.85 | 94.75 |
 
-Der getaktete Durchlauf benötigte im Mittel **45.51 ms**, entsprechend etwa **22.0 verarbeiteten Testbildern/s** ohne Capture/Anzeige. Das ist kein 720p-Live-FPS-Wert; Komponenten mit verschiedenen Eingabegrößen
+Der getaktete Durchlauf benötigte im Mittel **56.75 ms**, entsprechend etwa **17.6 verarbeiteten Testbildern/s** ohne Capture/Anzeige. Das ist kein 720p-Live-FPS-Wert; Komponenten mit verschiedenen Eingabegrößen
 dürfen nicht einfach addiert werden. Die zusätzliche Figur kostet Rechenzeit;
 30 oder 60 Live-FPS werden auf dieser Grundlage ausdrücklich nicht zugesichert.
 Ausgabeauflösung und Inferenzintervalle am Demogerät anhand Bildqualität UND
@@ -155,3 +155,25 @@ angepasst, aber Stoff wird nicht physikalisch simuliert. Bei fehlenden Modellen
 oder unsicheren Gelenken gibt es einen begrenzten Rumpf-/Stoffpfad; ein längerer
 vollständiger Trackingverlust zeigt den echten Spieler statt schwebender Teile.
 Keine Ritterrüstung und kein neues Multiplayer-/Spielregel-Feature in dieser Änderung.
+
+
+## Einheitliche Passform (12.11.2026)
+
+Rumpf und Gliedmaßen verwenden jetzt eine gemeinsame, zeitlich stabilisierte
+Größenbasis aus Schulterabstand und mehreren Körperbreiten zwischen Schultern
+und Hüfte. Einzelne Arme/Beine werden nicht mehr separat schmalgerechnet.
+Links/rechts gelten identische Breitenverhältnisse. Schulterbereich und Taille
+passen zur gemeinsamen Körpergröße; an Ellbogen/Knien überlappen die Teile um
+zehn Prozent ihrer Segmentlänge. Handschuhe sind breiter als zuvor und haben eine
+Mindestlänge unabhängig von perspektivisch verkürzten Finger-Landmarks.
+
+Eine eng begrenzte Zugabe außerhalb der Kamerasilhouette (5,5 Prozent der
+Größenbasis, maximal 18 Pixel) lässt Raum für EVA-Polsterung und größere Hände.
+Geschlossene Zwischenräume zwischen Armen bleiben frei. Der Stift wird zuletzt
+aus dem Original wiederhergestellt. Helm-Asset und Helm-Rendering bleiben
+unverändert; neue Regressionen sichern die gemeinsame Größe und Mindesthandschuhe.
+
+Das ist eine Passformschätzung in Bildkoordinaten, keine Messung des tatsächlichen
+Körperumfangs in Zentimetern. Größere Teile kosten zusätzliche Renderzeit; aktuelle
+Messwerte stehen oben. Die Posen-Vorschauen wurden erneut erzeugt und geprüft.
+Ein neuer Live-Webcam-Test wurde für diese Korrektur nicht durchgeführt.

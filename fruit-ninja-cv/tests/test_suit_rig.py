@@ -186,3 +186,24 @@ def test_torso_waist_adapts_to_body_outline_not_only_distance_between_hip_joints
     r=SuitRenderer();r.render(raw.copy(),raw,wide,pose=pose,now=0)
     second=next(p for p in r.last_parts if p['name']=='torso')['endpoints']
     assert np.linalg.norm(second[3]-second[2])>np.linalg.norm(first[3]-first[2])
+
+
+def test_common_fit_uses_torso_outline_and_is_bilateral():
+    pose=sample_pose();mask=np.zeros((200,160),np.uint8);mask[55:150,20:140]=255
+    r=SuitRenderer()
+    scale=r.body_scale(pose,mask)
+    assert scale>=np.linalg.norm(pose.points[11,:2]-pose.points[12,:2])
+    raw=np.full((200,160,3),80,np.uint8)
+    r.render(raw.copy(),raw,mask,pose=pose,now=0)
+    parts={p['name']:p for p in r.last_parts}
+    assert parts['forearm_l']['width']==parts['forearm_r']['width']
+    assert parts['glove_l']['width']>=parts['forearm_l']['width']
+
+
+def test_short_finger_projection_does_not_create_a_tiny_glove():
+    pose=sample_pose();pose.points[19,:2]=pose.points[15,:2]+(0,1)
+    raw=np.full((200,160,3),80,np.uint8)
+    r=SuitRenderer();r.render(raw.copy(),raw,np.full((200,160),255,np.uint8),pose=pose,now=0)
+    glove=next(p for p in r.last_parts if p['name']=='glove_l')
+    forearm=next(p for p in r.last_parts if p['name']=='forearm_l')
+    assert np.linalg.norm(glove['endpoints'][1]-glove['endpoints'][0])>=forearm['width']*.8

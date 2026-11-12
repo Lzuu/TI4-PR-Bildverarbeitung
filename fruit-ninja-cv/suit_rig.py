@@ -166,6 +166,7 @@ class SuitRenderer:
         self.last_parts = []
         self.last_ms = 0.
         self._widths={}
+        self._body_size=None
         self._face_calibration=None
 
     def reset(self):
@@ -173,6 +174,7 @@ class SuitRenderer:
         self._head_time = None
         self.last_parts = []
         self._widths={}
+        self._body_size=None
         self._face_calibration=None
 
     def _head(self, face, pose, now):
@@ -208,34 +210,43 @@ class SuitRenderer:
             self.head = None
         return self.head
 
+    def body_scale(self, pose, mask):
+        """One shared garment size from shoulders and robust torso cross-sections.
+
+        These are image-space widths, not an inferred physical circumference.
+        Keep a generous fit and never resize left/right limbs independently.
+        """
+        shoulder=float(np.linalg.norm(pose.points[11,:2]-pose.points[12,:2]))
+        if shoulder<8:return shoulder
+        top=pose.points[[11,12],:2].mean(axis=0)
+        bottom=(pose.points[[23,24],:2].mean(axis=0)
+                if all(pose.valid(i) for i in (23,24)) else top+(0,shoulder*1.4))
+        samples=[]
+        for t in (.25,.4,.55,.7):
+            cx,cy=np.rint(top*(1-t)+bottom*t).astype(int)
+            if not (0<=cy<mask.shape[0] and 0<=cx<mask.shape[1] and mask[cy,cx]):continue
+            left=right=cx
+            limit=int(shoulder*.85)
+            while left>max(0,cx-limit) and mask[cy,left-1]:left-=1
+            while right<min(mask.shape[1]-1,cx+limit) and mask[cy,right+1]:right+=1
+            samples.append(right-left)
+        measured=max(shoulder,float(np.percentile(samples,35))*1.12 if samples else shoulder)
+        measured=min(measured,shoulder*1.65)
+        if self._body_size is not None and abs(measured/self._body_size-1)<.15:
+            measured=self._body_size*.6+measured*.4
+        self._body_size=measured
+        return measured
+
     def _limb(self, asset, label, a, b, width, pose, mask=None, torso=None):
-        endpoints = pose.segment(a, b)
-        if endpoints is None or np.linalg.norm(endpoints[1]-endpoints[0]) < 3:
-            return None
-        if mask is not None:
-            midpoint=endpoints.mean(axis=0)
-            inside=(torso is not None and cv2.pointPolygonTest(torso[[0,1,3,2]],tuple(map(float,midpoint)),False)>=0)
-            if not inside or asset=='upper_arm':
-                delta=endpoints[1]-endpoints[0]
-                normal=np.array((delta[1],-delta[0]))/max(np.linalg.norm(delta),1)
-                span=np.linspace(-width*.95,width*.95,65)
-                sizes=[]
-                for fraction in (.3,.5,.7):
-                    center=endpoints[0]+delta*fraction
-                    samples=np.rint(center+span[:,None]*normal).astype(int)
-                    valid=(samples[:,0]>=0)&(samples[:,0]<mask.shape[1])&(samples[:,1]>=0)&(samples[:,1]<mask.shape[0])
-                    hits=np.zeros(65,bool)
-                    hits[valid]=mask[samples[valid,1],samples[valid,0]]>0
-                    if not hits[32]:continue
-                    left=right=32
-                    while left>0 and hits[left-1]:left-=1
-                    while right<64 and hits[right+1]:right+=1
-                    sizes.append(span[right]-span[left])
-                if sizes:
-                    measured=float(np.clip(np.percentile(sizes,35)*1.06,width*.8,width*1.75))
-                    self._widths[label]=measured/width
-            width*=self._widths.get(label,1.)
-        return self._part(asset, label, endpoints, width)
+        endpoints=pose.segment(a,b)
+        if endpoints is None or np.linalg.norm(endpoints[1]-endpoints[0])<3:return None
+        # Overlap cuffs at each joint; do not expose transparent asset margins.
+        delta=endpoints[1]-endpoints[0]
+        fitted=np.array((endpoints[0]-delta*.10,endpoints[1]+delta*.10))
+        part=self._part(asset,label,fitted,width)
+        part['fit_endpoints']=fitted
+        part['endpoints']=endpoints
+        return part
 
     def _part(self, asset, label, endpoints, width):
         sprite, meta = self.assets[asset], self.meta[asset]
@@ -248,7 +259,7 @@ class SuitRenderer:
             normal=matrix[:,0].copy()
             matrix[:,2]+=normal*(2*anchors[0,0])
             matrix[:,0]=-normal
-        return dict(name=label, asset=asset, matrix=matrix, endpoints=np.asarray(endpoints).copy())
+        return dict(name=label, asset=asset, matrix=matrix, endpoints=np.asarray(endpoints).copy(),width=float(width))
 
     def _torso(self, pose, bbox, face):
         if pose is not None and all(pose.valid(i) for i in (11, 12)):
@@ -385,17 +396,23 @@ class SuitRenderer:
         cv2.copyTo(base,region,frame)
         width=0
         if pose is not None and pose.segment(11,12) is not None:
-            width=float(np.linalg.norm(pose.points[11,:2]-pose.points[12,:2]))
+            width=self.body_scale(pose,player)
         commands=[]
         quad=self._torso(pose,bbox,face_box)
         if quad is not None and pose is not None:
             quad=self._fit_waist(quad,player)
+            span=quad[1]-quad[0]
+            length=float(np.linalg.norm(span))
+            if length>2 and width>=8:
+                center=(quad[0]+quad[1])/2
+                half=span/length*max(length,width*1.1)/2
+                quad[0],quad[1]=center-half,center+half
         if width>=8:
             for side,indices in [('l',(11,13,15,19,23,25,27,31)),
                                  ('r',(12,14,16,20,24,26,28,32))]:
                 sh,el,wr,fi,hip,knee,ankle,toe=indices
-                for asset,a,b,factor,layer in [('thigh',hip,knee,.42,0),('shin',knee,ankle,.34,1),
-                                              ('upper_arm',sh,el,.42,20),('forearm',el,wr,.29,40)]:
+                for asset,a,b,factor,layer in [('thigh',hip,knee,.53,0),('shin',knee,ankle,.48,1),
+                                              ('upper_arm',sh,el,.46,20),('forearm',el,wr,.44,40)]:
                     part=self._limb(asset,asset+'_'+side,a,b,width*factor,pose,player,quad)
                     if part is not None:
                         # Far arms go behind the torso; near forearms cross in front.
@@ -408,18 +425,35 @@ class SuitRenderer:
                     direction=(b-a)/max(np.linalg.norm(b-a),1)
                     hand=np.array((b,b+direction*width*.27))
                 if hand is not None:
-                    commands.append((45,self._part('glove','glove_'+side,hand,width*.26)))
+                    direction=hand[1]-hand[0]
+                    length=float(np.linalg.norm(direction))
+                    if length<width*.12 and pose.segment(el,wr) is not None:
+                        a,b=pose.segment(el,wr);direction=b-a;length=float(np.linalg.norm(direction))
+                    direction=direction/max(length,1)
+                    wrist=hand[0].copy()
+                    hand=np.array((wrist-direction*width*.08,
+                                   wrist+direction*max(width*.40,min(np.linalg.norm(hand[1]-wrist),width*.62))))
+                    commands.append((45,self._part('glove','glove_'+side,hand,width*.46)))
                 foot=pose.segment(ankle,toe)
                 if foot is not None:
                     if np.linalg.norm(foot[1]-foot[0])<width*.17:
                         foot[1]=foot[0]+(0,width*.25)
-                    commands.append((2,self._part('boot','boot_'+side,foot,width*.34)))
+                    commands.append((2,self._part('boot','boot_'+side,foot,width*.50)))
         if quad is not None:
             sprite=self.assets['torso']
             source_quad=np.asarray(self.meta['torso']['quad'],np.float32)*(sprite.image.shape[1],sprite.image.shape[0])
             # getPerspectiveTransform wants perimeter order, not two rows.
             matrix=cv2.getPerspectiveTransform(source_quad[[0,1,3,2]].astype(np.float32),quad[[0,1,3,2]])
             commands.append((10,dict(name='torso',asset='torso',matrix=matrix,endpoints=quad)))
+        if width>=8:
+            margin=max(2,min(18,round(width*.055)))
+            kernel=cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(margin*2+1,margin*2+1))
+            padded=cv2.dilate(player,kernel)
+            # Flood exterior background from an explicit padded image border.
+            exterior=cv2.copyMakeBorder((player==0).astype(np.uint8),1,1,1,1,cv2.BORDER_CONSTANT,value=1)
+            cv2.floodFill(exterior,None,(0,0),2)
+            allowed=(player>0)|((exterior[1:-1,1:-1]==2)&(padded>0))
+            clip=(allowed.astype(np.uint8)*255)
         # Keep upper-arm/torso below the helmet, wrists/gloves can occlude it.
         for layer,part in sorted(commands,key=lambda item:item[0]):
             if layer>=40:

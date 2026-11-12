@@ -399,3 +399,25 @@ Kamera ─► main (Loop, States, Input)
 ## Bewusste Nicht-Ziele
 - Kein ML für die Stifterkennung (klassische Bildverarbeitung). Ausnahme:
   Spielererkennung per Gesicht (siehe oben).
+
+
+## Einheitliche Passform (12.11.2026)
+
+Rumpf und Gliedmaßen verwenden jetzt eine gemeinsame, zeitlich stabilisierte
+Größenbasis aus Schulterabstand und mehreren Körperbreiten zwischen Schultern
+und Hüfte. Einzelne Arme/Beine werden nicht mehr separat schmalgerechnet.
+Links/rechts gelten identische Breitenverhältnisse. Schulterbereich und Taille
+passen zur gemeinsamen Körpergröße; an Ellbogen/Knien überlappen die Teile um
+zehn Prozent ihrer Segmentlänge. Handschuhe sind breiter als zuvor und haben eine
+Mindestlänge unabhängig von perspektivisch verkürzten Finger-Landmarks.
+
+Eine eng begrenzte Zugabe außerhalb der Kamerasilhouette (5,5 Prozent der
+Größenbasis, maximal 18 Pixel) lässt Raum für EVA-Polsterung und größere Hände.
+Geschlossene Zwischenräume zwischen Armen bleiben frei. Der Stift wird zuletzt
+aus dem Original wiederhergestellt. Helm-Asset und Helm-Rendering bleiben
+unverändert; neue Regressionen sichern die gemeinsame Größe und Mindesthandschuhe.
+
+Das ist eine Passformschätzung in Bildkoordinaten, keine Messung des tatsächlichen
+Körperumfangs in Zentimetern. Größere Teile kosten zusätzliche Renderzeit; aktuelle
+Messwerte stehen oben. Die Posen-Vorschauen wurden erneut erzeugt und geprüft.
+Ein neuer Live-Webcam-Test wurde für diese Korrektur nicht durchgeführt.
