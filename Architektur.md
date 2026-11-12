@@ -485,9 +485,14 @@ Kamera ─► main (Loop, States, Input)
   (Branches `FruitninjaLeon` und `FruitninjaNoah`). Das Team hat sich für Noahs
   Projekt entschieden (modularer Aufbau, mehr Funktionen, umfangreichere Tests).
   `FruitninjaNoah` wurde mit seiner Historie in `main` übernommen; Leons Stand bleibt
-  im Branch `FruitninjaLeon` erhalten und kann als Ideenquelle dienen (z. B.
+  im Tag `archiv/FruitninjaLeon` erhalten und kann als Ideenquelle dienen (z. B.
   Kalibrierung per Farbhistogramm, Schnitt erst ab Mindestgeschwindigkeit,
   Kamera-Setup für die ELP-USB-Kamera unter Windows).
+- **Branches aufgeräumt (12.11.2026).** Auf GitHub gibt es nur noch `main`. Vollständig
+  gemergte Branches wurden gelöscht; nicht gemergte Stände liegen als Tags unter
+  `archiv/` (`archiv/FruitninjaLeon`, `archiv/setup-projektstruktur`, Letzteres zum
+  geschlossenen PR #25). Neue Arbeit läuft weiter über einen Branch pro Issue; nach
+  dem Merge wird der Branch gelöscht.
 - **Maßgeblich ist `aufgabenstellung.md`.** Noahs frühere `Aufgabenstellung.md`
   wurde nicht übernommen (veraltet; kollidiert unter Windows wegen gleicher
   Schreibweise bis auf Groß-/Kleinschreibung).
