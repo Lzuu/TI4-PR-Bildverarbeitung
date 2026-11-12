@@ -1,17 +1,15 @@
-"""Space suit: turn the whole cut-out player into an animated space suit.
+"""Space suit: dress the whole cut-out player in an animated space suit.
 
-Unlike the first version (only the torso became fabric, head and hands stayed
-free), the *entire* silhouette is dressed: body, arms and hands become suit
-fabric (the hands read as gloves), the head gets a rendered **helmet** with a
-dark visor, and small details are **animated** over time. Only the pen stays
-visible (it is the controller). Per frame, on top of the space background:
+The entire silhouette -- body, arms, hands (= gloves) and head -- becomes suit
+fabric; there is no helmet. Only the pen (the controller) stays visible. Per
+frame, on top of the space background:
 
   player mask (background.py / yolo_seg.py)
   -> full-body region (silhouette minus the pen)
-  -> fabric: cool white, darker towards the edge (rounded, tube-like limbs),
-     keeping a little of the real clothes' folds
-  -> animated helmet over the head (shell + visor with a moving sheen, blinking
-     antenna light) and an animated chest panel (blinking LEDs)
+  -> fabric: tinted with ``config.SUIT_FABRIC_BGR`` (coloured, not plain white),
+     darker towards the edge (rounded, tube-like limbs), keeping a little of the
+     real clothes' folds, with a ``config.SUIT_ACCENT_BGR`` outline
+  -> an animated chest panel (blinking LEDs)
 
 Classical image processing only (masks, distance transform, blur, draw) -- no
 pose network. ``phase`` (seconds) drives the animation.
@@ -22,6 +20,8 @@ import logging
 import cv2
 import numpy as np
 
+import config
+
 logger = logging.getLogger(__name__)
 
 MIN_PLAYER_FRAC = 0.01           # blobs smaller than this frame fraction are noise
@@ -29,9 +29,6 @@ SUIT_WIDTH_PER_FACE = 3.2        # chest-panel reference width = face width * th
 SPRITE_H, SPRITE_W = 480, 400    # aspect used when placing the chest panel from a bbox
 FOLD_STRENGTH = 0.3              # how much of the real clothes' folds shows (opaque!)
 FOLD_LIMIT = 30                  # strong patterns (stripes, prints) are capped
-
-EDGE_COLOR = (90, 90, 95)        # silhouette outline
-FABRIC_COOL = 0.96               # red factor -> slightly cool white fabric
 
 
 # --------------------------------------------------------------------------- #
@@ -74,17 +71,6 @@ def full_body_region(mask, keep=None):
     return region
 
 
-def head_box(face=None, bbox=None):
-    """Head region (x, y, w, h) for the helmet: the face box, or the top of the bbox."""
-    if face is not None:
-        return tuple(int(v) for v in face)
-    if bbox is not None:
-        bx, by, bw, bh = bbox
-        hw, hh = int(bw * 0.5), int(bh * 0.28)
-        return int(bx + bw / 2 - hw / 2), int(by), hw, hh
-    return None
-
-
 # --------------------------------------------------------------------------- #
 # Fabric (silhouette -> suit cloth)
 # --------------------------------------------------------------------------- #
@@ -101,12 +87,14 @@ _SHADE_LUT = (150.0 + 90.0 * (1.0 - np.exp(-np.arange(256) / 12.0))).astype(np.f
 
 
 def paint_fabric(frame, region):
-    """Turn ``region`` of ``frame`` into cool-white suit fabric (in place).
+    """Turn ``region`` of ``frame`` into tinted suit fabric (in place).
 
     Brightness is high in the middle and darker towards the silhouette edge
     (distance transform -> rounded limbs), plus a little of the fine light/dark
-    detail of the real clothes (capped, so the fabric stays opaque). The
-    silhouette gets a thin dark outline so the suit shape reads clearly.
+    detail of the real clothes (capped, so the fabric stays opaque). The shaded
+    brightness is tinted with ``config.SUIT_FABRIC_BGR`` (so the suit is coloured,
+    not plain white) and the silhouette gets a thin ``config.SUIT_ACCENT_BGR``
+    outline so the suit shape reads clearly.
     """
     if cv2.countNonZero(region) == 0:
         return frame
@@ -125,67 +113,12 @@ def paint_fabric(frame, region):
     dist = cv2.distanceTransform(small_region, cv2.DIST_L2, 3)
     shade = _SHADE_LUT[np.minimum(dist * 2, 255).astype(np.uint8)]   # dist in full-res px
     value = np.clip(cv2.scaleAdd(detail, FOLD_STRENGTH, shade), 0, 255)
-    v = value.astype(np.uint8)
-    small_fabric = cv2.merge([v, v, cv2.multiply(v, FABRIC_COOL)])    # slightly cool white
+    tint = np.array(config.SUIT_FABRIC_BGR, np.float32) / 255.0        # base colour
+    small_fabric = np.clip(value[..., None] * tint, 0, 255).astype(np.uint8)
     fabric = _full(small_fabric, roi.shape)
     cv2.copyTo(fabric, roi_region, roi)
     contours, _ = cv2.findContours(small_region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    cv2.drawContours(roi, [c * 2 for c in contours], -1, EDGE_COLOR, 2)
-    return frame
-
-
-# --------------------------------------------------------------------------- #
-# Animated helmet
-# --------------------------------------------------------------------------- #
-def _draw_visor(frame, center, axes, phase):
-    """Dark glass visor with a vertical gradient and a horizontally sweeping sheen."""
-    cx, cy = center
-    ax, ay = axes
-    x0, y0 = max(cx - ax, 0), max(cy - ay, 0)
-    x1, y1 = min(cx + ax, frame.shape[1]), min(cy + ay, frame.shape[0])
-    if x1 <= x0 or y1 <= y0:
-        return
-    roi = frame[y0:y1, x0:x1]
-    h, w = roi.shape[:2]
-    vis = np.zeros((h, w), np.uint8)
-    cv2.ellipse(vis, (cx - x0, cy - y0), (ax, ay), 0, 0, 360, 255, -1, cv2.LINE_AA)
-
-    grad = np.linspace(58, 14, h, dtype=np.float32)[:, None]     # lighter at the top
-    glass = np.empty((h, w, 3), np.float32)
-    glass[..., 0] = grad * 1.7            # B (bluish dark glass)
-    glass[..., 1] = grad * 1.1            # G
-    glass[..., 2] = grad * 0.7            # R
-    xs = np.arange(w, dtype=np.float32)[None, :]
-    ys = np.arange(h, dtype=np.float32)[:, None]
-    band = (xs - ys * 0.5) / max(w, 1)
-    pos = np.sin(phase * 1.6) * 0.5 + 0.5                        # sweeps 0..1 over time
-    glass += np.exp(-((band - pos) ** 2) / (2 * 0.02 ** 2))[..., None] * 130.0
-    cv2.copyTo(np.clip(glass, 0, 255).astype(np.uint8), vis, roi)
-    cv2.ellipse(frame, center, axes, 0, 0, 360, (170, 170, 180), max(2, ax // 14), cv2.LINE_AA)
-
-
-def draw_helmet(frame, head, phase=0.0):
-    """Draw an animated astronaut helmet over the ``head`` box (x, y, w, h), in place."""
-    if head is None:
-        return frame
-    hx, hy, hw, hh = head
-    cx, cy = int(hx + hw / 2), int(hy + hh * 0.42)
-    rx, ry = max(6, int(hw * 0.9)), max(6, int(hh * 1.0))
-
-    cv2.ellipse(frame, (cx, cy), (rx, ry), 0, 0, 360, (228, 228, 232), -1, cv2.LINE_AA)
-    cv2.ellipse(frame, (cx, int(cy - ry * 0.45)), (int(rx * 0.5), int(ry * 0.28)),
-                0, 0, 360, (246, 246, 250), -1, cv2.LINE_AA)        # soft top highlight
-    cv2.ellipse(frame, (cx, cy), (rx, ry), 0, 0, 360, (140, 140, 150),
-                max(2, rx // 11), cv2.LINE_AA)                      # rim
-
-    _draw_visor(frame, (cx, int(cy + ry * 0.16)), (int(rx * 0.66), int(ry * 0.52)), phase)
-
-    pod = max(3, rx // 7)
-    cv2.circle(frame, (cx - rx, cy), pod, (120, 120, 132), -1, cv2.LINE_AA)
-    cv2.circle(frame, (cx + rx, cy), pod, (120, 120, 132), -1, cv2.LINE_AA)
-    blink = 0.5 + 0.5 * np.sin(phase * 6.0)                        # antenna light
-    cv2.circle(frame, (cx, int(cy - ry)), max(2, rx // 13),
-               (60, int(60 + 150 * blink), 230), -1, cv2.LINE_AA)
+    cv2.drawContours(roi, [c * 2 for c in contours], -1, config.SUIT_ACCENT_BGR, 2)
     return frame
 
 
@@ -268,10 +201,10 @@ class RectSmoother:
 def dress(frame, mask, face=None, keep=None, phase=0.0, smoother=None):
     """Dress the whole player found in ``mask`` as a space suit (no player -> unchanged).
 
-    The entire silhouette becomes fabric (arms and hands too); ``keep`` (the pen)
-    stays visible. A helmet is drawn over the head (``face`` box if known, else
-    the top of the bounding box) and an animated chest panel on the torso.
-    ``phase`` (seconds) drives the helmet sheen and the blinking lights.
+    The entire silhouette becomes tinted fabric (arms, hands and head too); only
+    ``keep`` (the pen) stays visible. An animated chest panel is drawn on the torso
+    (placed from the ``face`` box if known); ``phase`` (seconds) drives the blinking
+    lights.
     """
     bbox = player_bbox(mask)
     if bbox is None:
@@ -283,5 +216,4 @@ def dress(frame, mask, face=None, keep=None, phase=0.0, smoother=None):
     if smoother is not None:
         rect = smoother.update(rect)
     draw_chest_panel(frame, rect, phase)
-    draw_helmet(frame, head_box(face, bbox), phase)
     return frame

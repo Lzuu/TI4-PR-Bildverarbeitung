@@ -40,7 +40,7 @@ MORPH_KERNEL = 5                 # Kernel size for open/close morphology
 # the startup countdown). Each live frame is diffed against it to segment the
 # player; the rest is replaced by assets/space.png (generated if missing).
 BG_ENABLED = True                # Master switch; the menu "Aus" mode disables it per run
-BG_MODE = "normal"               # Default mode: "greenscreen" | "normal" (absdiff) | "off"
+BG_MODE = "yolo"                 # Default mode: "yolo" (YOLOv8-seg) | "greenscreen" | "normal" (absdiff) | "off"
 BG_DIFF_THRESHOLD = 30           # Per-pixel grey diff above which a pixel is "player"
 BG_MORPH_KERNEL = 5              # Open/close kernel to clean the foreground mask
 BG_MIN_BLOB_FRAC = 0.003         # Drop foreground blobs smaller than this frame fraction
@@ -54,14 +54,25 @@ GREEN_DOMINANCE = 18             # G must beat max(B, R) by this to count as bac
 GREEN_SCALE = 1.0                # Full res: ~5 ms/frame; downscaling barely helps but blocks edges
 SUIT_ENABLED = True              # Dress the cut-out player in a space suit (suit.py)
 SUIT_FACE_DETECT_WIDTH = 320     # Face detection for placing the suit runs at this width
+# Suit look. The body becomes tinted, tube-shaded fabric in this base colour
+# (no longer plain white); the head/face stays visible (no helmet). Change these
+# two BGR values to recolour the whole suit.
+SUIT_FABRIC_BGR = (30, 105, 225)   # base fabric colour (BGR) -- NASA ACES orange
+SUIT_ACCENT_BGR = (15, 50, 110)    # silhouette outline / trim (BGR), darker than the fabric
 
 # Background mode "yolo": cut the player out with a YOLOv8-seg person mask
 # (ONNX via cv2.dnn, no torch) so no green screen is needed. See yolo_seg.py.
 YOLO_ENABLED = True              # Make the "yolo" background mode available
-YOLO_INPUT = 320                 # Inference input size (letterboxed square); smaller = faster
+YOLO_INPUT = 320                 # Inference input size (letterboxed square); the ONNX model is exported for 320
 YOLO_EVERY_N = 3                 # Infer every Nth frame, reuse the last mask in between (~15 ms/inference)
 YOLO_CONF = 0.4                  # Minimum person confidence
 YOLO_MASK_THRESH = 0.5           # Prototype-mask threshold
+# Edge refinement: a guided filter snaps the coarse person mask to the real image
+# edges (He et al.; just box filters, no opencv-contrib) so the body/head boundary
+# is tracked precisely instead of staying a blocky silhouette. Run at 1/SCALE for speed.
+YOLO_GF_RADIUS = 8               # Guided-filter window radius (full-res px)
+YOLO_GF_EPS = 1e-3               # Guided-filter regularisation (mask is 0..1); smaller = sharper edges
+YOLO_GF_SCALE = 2                # Compute the guided filter at 1/this resolution (fast guided filter)
 
 # ---------------------------------------------------------------------------
 # Selection (VR-style dwell: hold the pen in a circle to confirm)

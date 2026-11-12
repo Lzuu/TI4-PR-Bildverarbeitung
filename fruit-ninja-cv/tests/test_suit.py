@@ -1,13 +1,14 @@
-"""Tests for the animated full-body space suit (suit.py).
+"""Tests for the animated body space suit (suit.py).
 
 Pure, headless logic -- no camera, no GUI. Synthetic masks/frames stand in for
-the player. The suit now dresses the *whole* silhouette (head -> helmet, hands
--> gloves); only the pen (``keep``) stays visible.
+the player. The suit dresses the whole silhouette (head and hands -> gloves) in
+tinted fabric; there is no helmet and only the pen (``keep``) stays visible.
 """
 
 import cv2
 import numpy as np
 
+import config
 import suit
 
 
@@ -45,11 +46,11 @@ def test_bbox_uses_the_largest_blob():
 
 
 # --------------------------------------------------------------------------- #
-# Full-body region (the big behaviour change)
+# Full-body region (whole silhouette incl. head becomes suit; only the pen free)
 # --------------------------------------------------------------------------- #
 def test_region_covers_head_and_hands():
     region = suit.full_body_region(_body())
-    assert region[80, 300] == 255        # head is now part of the suit (helmet goes on top)
+    assert region[80, 300] == 255        # head is part of the suit
     assert region[130, 220] == 255       # hand is covered (glove)
 
 
@@ -66,29 +67,16 @@ def test_region_empty_without_player():
 
 
 # --------------------------------------------------------------------------- #
-# Head box for the helmet
-# --------------------------------------------------------------------------- #
-def test_head_box_from_face():
-    assert suit.head_box(face=(255, 30, 90, 90)) == (255, 30, 90, 90)
-
-
-def test_head_box_from_bbox_is_at_the_top():
-    bbox = (200, 35, 160, 300)
-    hx, hy, hw, hh = suit.head_box(bbox=bbox)
-    assert hy == 35                      # starts at the top of the player
-    assert hh < 300 * 0.5                # only the head, not the whole body
-    assert 200 <= hx <= 360
-
-
-# --------------------------------------------------------------------------- #
 # Fabric
 # --------------------------------------------------------------------------- #
-def test_fabric_is_light_and_opaque():
+def test_fabric_is_tinted_not_white_and_opaque():
     frame = np.full((H, W, 3), 40, np.uint8)           # dark shirt
     region = _blank()
     cv2.rectangle(region, (200, 150), (360, 290), 255, -1)
     suit.paint_fabric(frame, region)
-    assert int(frame[220, 280].mean()) > 170           # fabric is bright
+    b, g, r = (int(c) for c in frame[220, 280])
+    assert r > b + 20                                  # orange tint (R dominant), not plain white/grey
+    assert (b + g + r) / 3 > 90                         # fabric is bright and opaque
     assert int(frame[5, 5].mean()) == 40               # background untouched
 
 
@@ -97,8 +85,8 @@ def test_fabric_is_darker_at_the_edge_than_in_the_middle():
     region = _blank()
     cv2.rectangle(region, (200, 150), (360, 290), 255, -1)
     suit.paint_fabric(frame, region)
-    middle = int(frame[220, 280, 0])
-    near_edge = int(frame[220, 208, 0])
+    middle = int(frame[220, 280, 2])                   # R channel (dominant in the orange tint)
+    near_edge = int(frame[220, 208, 2])
     assert middle > near_edge + 15                     # rounded, tube-like shading
 
 
@@ -120,30 +108,6 @@ def test_chest_panel_leds_blink_over_time():
     suit.draw_chest_panel(b, rect, phase=0.9)
     assert not np.array_equal(a, np.full((H, W, 3), 180, np.uint8))   # something was drawn
     assert not np.array_equal(a[135:210, 290:350], b[135:210, 290:350])  # LEDs animated
-
-
-# --------------------------------------------------------------------------- #
-# Helmet (shell + visor) + animation
-# --------------------------------------------------------------------------- #
-def test_helmet_has_light_shell_and_dark_visor():
-    frame = np.full((200, 200, 3), 120, np.uint8)
-    suit.draw_helmet(frame, head=(60, 20, 80, 95), phase=0.0)
-    assert int(frame[8, 100].mean()) > 190             # shell top is bright metal
-    assert int(frame[70, 100].mean()) < 120            # visor glass is dark
-
-
-def test_helmet_visor_sheen_is_animated():
-    base = np.full((200, 200, 3), 120, np.uint8)
-    a, b = base.copy(), base.copy()
-    suit.draw_helmet(a, head=(60, 20, 80, 95), phase=0.0)
-    suit.draw_helmet(b, head=(60, 20, 80, 95), phase=1.2)
-    assert not np.array_equal(a[70:120, 70:130], b[70:120, 70:130])  # moving sheen
-
-
-def test_helmet_without_head_is_a_noop():
-    frame = np.full((50, 50, 3), 10, np.uint8)
-    out = suit.draw_helmet(frame, head=None)
-    assert np.array_equal(out, np.full((50, 50, 3), 10, np.uint8))
 
 
 # --------------------------------------------------------------------------- #
@@ -173,13 +137,13 @@ def test_smoother_resets_when_player_gone():
 # --------------------------------------------------------------------------- #
 # dress (top level)
 # --------------------------------------------------------------------------- #
-def test_dress_puts_fabric_on_the_body_and_a_helmet_on_the_head():
+def test_dress_puts_fabric_on_the_whole_body_incl_head():
     frame = np.full((H, W, 3), 50, np.uint8)
     mask = _body()
     face = (255, 35, 90, 90)
     suit.dress(frame, mask, face=face, phase=0.3)
-    assert int(frame[220, 300].mean()) > 150           # torso is now fabric
-    assert int(frame[70, 300, 0]) != 50                # head area changed (helmet)
+    assert int(frame[220, 300].mean()) != 50           # torso is now fabric
+    assert int(frame[80, 300].mean()) != 50            # head is now fabric too (no helmet)
     assert int(frame[380, 20].mean()) == 50            # far background untouched
 
 

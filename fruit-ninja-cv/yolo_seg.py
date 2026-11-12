@@ -15,6 +15,10 @@ unit-tested headlessly (no model, no GPU):
 
 The model (``yolov8n-seg.onnx``) is exported from Ultralytics YOLOv8n-seg
 (AGPL-3.0) and hosted as a release asset for runtime download.
+
+The coarse 320px mask is refined with a **guided filter** (``guided_filter`` /
+``refine_edges``) that snaps its edges to the real camera image, so the body and
+head boundary is tracked precisely rather than staying a blocky silhouette.
 """
 
 import hashlib
@@ -124,23 +128,79 @@ def nms(xywh, confs, conf, iou=NMS_IOU):
     return list(np.array(idx).flatten()) if len(idx) else []
 
 
-def person_mask(coeffs, protos, box, size, thresh):
-    """One detection's 0/255 mask at ``size``x``size``, cropped to its ``box``."""
+def person_prob(coeffs, protos, box, size):
+    """One detection's *continuous* 0..1 mask at ``size``x``size``, cropped to its ``box``.
+
+    The raw prototype mask is resized to ``size`` and kept as floating-point
+    probabilities (not yet thresholded), so the caller can upscale it to the full
+    frame and threshold there -- a boundary at full-frame precision instead of the
+    coarse ``size`` grid.
+    """
     gh, gw = protos.shape[1:]
     m = _sigmoid(coeffs @ protos.reshape(protos.shape[0], -1)).reshape(gh, gw)
-    m = cv2.resize(m, (size, size))
-    box_mask = np.zeros((size, size), np.uint8)
+    m = cv2.resize(m, (size, size)).astype(np.float32)
+    box_mask = np.zeros((size, size), np.float32)
     x, y, w, h = box
-    box_mask[max(0, int(y)):int(y + h), max(0, int(x)):int(x + w)] = 1
-    return (((m > thresh) & (box_mask > 0)).astype(np.uint8)) * 255
+    box_mask[max(0, int(y)):int(y + h), max(0, int(x)):int(x + w)] = 1.0
+    return m * box_mask                                  # zeroed outside the box
+
+
+def person_mask(coeffs, protos, box, size, thresh):
+    """One detection's 0/255 mask at ``size``x``size``, cropped to its ``box``."""
+    return ((person_prob(coeffs, protos, box, size) > thresh).astype(np.uint8)) * 255
+
+
+def assemble_prob(xywh, coeffs, idx, protos, size):
+    """Continuous 0..1 union (element-wise max) of the kept detections ``idx``."""
+    full = np.zeros((size, size), np.float32)
+    for i in idx:
+        full = np.maximum(full, person_prob(coeffs[i], protos, xywh[i], size))
+    return full
 
 
 def assemble_mask(xywh, coeffs, idx, protos, size, thresh):
     """Union (0/255) of the person masks for the kept detections ``idx``."""
-    full = np.zeros((size, size), np.uint8)
-    for i in idx:
-        full = np.maximum(full, person_mask(coeffs[i], protos, xywh[i], size, thresh))
-    return full
+    return ((assemble_prob(xywh, coeffs, idx, protos, size) > thresh).astype(np.uint8)) * 255
+
+
+# --------------------------------------------------------------------------- #
+# Edge refinement (guided filter: snap the coarse mask to the real image edges)
+# --------------------------------------------------------------------------- #
+def guided_filter(guide, src, radius, eps):
+    """Edge-aware refinement of the float mask ``src`` (0..1), guided by grey ``guide``.
+
+    Classic He-et-al. guided filter, built from box filters only (so it needs no
+    opencv-contrib). The output follows ``src`` but snaps its edges to those of
+    ``guide`` (the real camera image), so the coarse person mask tracks the true
+    body/head boundary instead of staying a blocky low-resolution silhouette.
+    """
+    g = guide.astype(np.float32) / 255.0
+    p = src.astype(np.float32)
+    k = (radius, radius)
+    mean_g = cv2.boxFilter(g, -1, k)
+    mean_p = cv2.boxFilter(p, -1, k)
+    cov = cv2.boxFilter(g * p, -1, k) - mean_g * mean_p
+    var = cv2.boxFilter(g * g, -1, k) - mean_g * mean_g
+    a = cov / (var + eps)
+    b = mean_p - a * mean_g
+    return cv2.boxFilter(a, -1, k) * g + cv2.boxFilter(b, -1, k)
+
+
+def refine_edges(guide, prob, radius, eps, scale):
+    """Guided-filter ``prob`` against ``guide``, computed at 1/``scale`` resolution.
+
+    Running the box filters on a downscaled copy (fast guided filter) and scaling
+    the result back is a few times cheaper than full resolution, with no visible
+    loss for a soft mask. ``guide``/``prob`` are full-resolution, same shape.
+    """
+    h, w = prob.shape[:2]
+    if scale > 1:
+        sw, sh = max(1, w // scale), max(1, h // scale)
+        gs = cv2.resize(guide, (sw, sh), interpolation=cv2.INTER_AREA)
+        ps = cv2.resize(prob, (sw, sh), interpolation=cv2.INTER_AREA)
+        out = guided_filter(gs, ps, max(1, radius // scale), eps)
+        return cv2.resize(out, (w, h), interpolation=cv2.INTER_LINEAR)
+    return guided_filter(guide, prob, radius, eps)
 
 
 # --------------------------------------------------------------------------- #
@@ -160,6 +220,9 @@ class BodySegmenter:
         self.conf = config.YOLO_CONF if conf is None else conf
         self.mask_thresh = config.YOLO_MASK_THRESH if mask_thresh is None else mask_thresh
         self.every_n = max(1, config.YOLO_EVERY_N if every_n is None else every_n)
+        self.gf_radius = config.YOLO_GF_RADIUS
+        self.gf_eps = config.YOLO_GF_EPS
+        self.gf_scale = config.YOLO_GF_SCALE
         self._counter = 0
         self._last = None
 
@@ -171,10 +234,16 @@ class BodySegmenter:
         out0, out1 = self.net.forward(self.net.getUnconnectedOutLayersNames())
         xywh, confs, coeffs = person_detections(out0, self.conf)
         idx = nms(xywh, confs, self.conf)
-        small = assemble_mask(xywh, coeffs, idx, out1[0], self.input, self.mask_thresh)
+        prob = assemble_prob(xywh, coeffs, idx, out1[0], self.input)   # continuous 0..1
         h, w = frame.shape[:2]
-        crop = small[py:py + nh, px:px + nw]           # drop the letterbox padding
-        return cv2.resize(crop, (w, h), interpolation=cv2.INTER_NEAREST)
+        crop = prob[py:py + nh, px:px + nw]            # drop the letterbox padding
+        up = cv2.resize(crop, (w, h), interpolation=cv2.INTER_LINEAR)
+        # Snap the coarse 320px mask to the real image edges (guided filter) so the
+        # body/head boundary is tracked precisely, then threshold at full frame
+        # resolution -- a sharp, image-aligned silhouette instead of a blocky one.
+        guide = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        refined = refine_edges(guide, up, self.gf_radius, self.gf_eps, self.gf_scale)
+        return (refined > self.mask_thresh).astype(np.uint8) * 255
 
     def segment(self, frame):
         """Return the 0/255 player mask for ``frame`` (throttled; reuses last)."""

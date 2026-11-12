@@ -34,7 +34,7 @@ Kamera ─► main (Loop, States, Input)
 | `game.py` | Spielzustand: Spawning (Bursts), Kollision, Punkte, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve, Verlauf+Glanz) für die Leben |
 | `background.py` | Spieler freistellen (Referenz-Differenz) und vor das Weltall setzen |
-| `suit.py` | Animierter Ganzkörper-Raumanzug: Silhouette → Stoff, Helm mit Visier-Glanz, Brust-LEDs |
+| `suit.py` | Animierter Ganzkörper-Raumanzug: Silhouette inkl. Kopf → getönter Stoff (kein Helm), Brust-LEDs |
 | `cameras.py` | Kameras finden (Indizes durchprobieren), öffnen (1080p MJPG, unter Windows MSMF), wechseln, Auswahl in `settings.json` merken |
 | `highscore.py` | Top-3-Highscore **je Schwierigkeit** mit Spielername (JSON-Persistenz) |
 | `face_id.py` | Spielererkennung per Gesicht: YuNet-Detektion, SFace-Merkmale, Abgleich mit `faces/`, Scan im Kreis (`FaceScanner`), Einlernen |
@@ -206,41 +206,48 @@ Kamera ─► main (Loop, States, Input)
       fällt der Modus sauber auf „aus" zurück. Der Decode der rohen YOLO-Ausgaben
       (Boxen + 32 Masken-Koeffizienten × 32 Prototyp-Masken, Person-Klasse, NMS) liegt in
       **reinen, headless getesteten** Funktionen. Inferenz (~15 ms) läuft nur jeden
-      `YOLO_EVERY_N`-ten Frame auf 320px-Letterbox, die Maske wird dazwischen gehalten →
-      **~5 ms/Frame** im Schnitt. Diese Maske speist Freistellung **und** den
-      Ganzkörper-Anzug (`suit.py`). (Modell exportiert aus Ultralytics
-      YOLOv8n-seg, AGPL-3.0, als Release-Asset gehostet.)
+      `YOLO_EVERY_N`-ten Frame auf 320px-Letterbox, die Maske wird dazwischen gehalten.
+      **Präzise Kante statt grober Silhouette:** die Prototyp-Maske bleibt
+      **kontinuierlich** (`assemble_prob`, Wahrscheinlichkeiten statt 0/255), wird mit
+      `INTER_LINEAR` auf Vollbild skaliert und dann per **Guided Filter** (`guided_filter`/
+      `refine_edges`, He et al. – nur `boxFilter`, **ohne opencv-contrib**; zur Geschwindig-
+      keit bei 1/`YOLO_GF_SCALE` gerechnet) an die **echten Bildkanten eingerastet**, bevor
+      bei Vollauflösung geschwellt wird. So folgt die Maske dem tatsächlichen Körper-/Kopf-
+      Rand, statt am 320px-Raster zu stufen. (Ein höherer Modell-Input bräuchte ein neu
+      exportiertes ONNX – das 320-Modell liegt fest auf 320×320; bei 640 kostet die
+      Inferenz ~120 ms und ruckelt, daher bewusst 320 + Guided Filter.) Kosten gesamt
+      **~7 ms/Frame** im Schnitt (Inferenz ~15 ms + Guided Filter ~4 ms, nur jeder
+      `YOLO_EVERY_N`-te Frame). Die Maske speist Freistellung **und** den Anzug (`suit.py`).
+      (Modell exportiert aus Ultralytics YOLOv8n-seg, AGPL-3.0, als Release-Asset gehostet.)
     - `off` – kein Compositing, rohes Kamerabild.
     Alle Modi nutzen dasselbe `composite_space`; nur die Maskenquelle unterscheidet
     sich (greenscreen und absdiff teilen zusätzlich die Nachbearbeitung `_refine_mask`).
     Die Wahl wird in `settings.json`
     (`background_mode`, via `cameras.load/save_background_mode`) **persistiert** –
-    analog zur Kamerawahl. Default ist `normal` (unverändertes Verhalten).
+    analog zur Kamerawahl. Default ist **`yolo`** (`config.BG_MODE`): freistellen
+    ohne Greenscreen/Referenz direkt beim ersten Start.
 - **Animierter Ganzkörper-Raumanzug (`suit.py`, Issues #27/#38).** Sobald der Spieler
-  freigestellt ist, wird er zum **animierten Astronauten**. Frühere Ansätze (festes
-  Anzug-Bild am Gesicht; nur der Torso wird Stoff, Kopf/Hände bleiben frei; optionales
-  Textur-Bild `textures/suit.png`) sind **ersetzt**: ein Filmfiguren-Foto über den
-  Körper zu strecken sah schlecht aus und deckte Löcher (Arm-Kreis) falsch ab, und der
-  „nur Kleidung"-Ansatz ließ Kopf/Hände nackt. Entschieden – **der ganze Körper wird
-  Anzug**, rein prozedural:
-  - **Stoff:** Die **komplette Silhouette** (Rumpf, Arme, Hände = Handschuhe) wird zu
-    kühlem Weiß, zum Rand hin dunkler (Distanztransformation → runde, schlauchartige
-    Gliedmaßen), mit einem Hauch der echten Falten (Bild minus Weichzeichnung, Faktor
-    0,3, max. ±30). Nur der **Stift** bleibt sichtbar (Maske des Marker-Trackers als
-    `keep`). Keine Haut-/Kopf-Ausnahme mehr.
-  - **Helm (animiert):** über dem Kopf (Gesichts-Box von YuNet, 320 px, ~3 ms; ohne
-    Gesicht die Kopfregion der Bounding-Box) eine metallische Schale mit dunklem,
-    bläulichem **Visier**. Über das Visier wandert ein **Glanz-Reflex** (Gauß-Streifen,
-    dessen Position per `sin(phase)` läuft); oben blinkt ein Antennenlicht.
+  freigestellt ist, wird die **ganze Silhouette** zum animierten Anzug (Körper, Arme,
+  Hände **und Kopf**), **ohne Helm**. Frühere Ansätze (festes Anzug-Bild am Gesicht; nur
+  der Torso wird Stoff; optionales Textur-Bild `textures/suit.png`) sind **ersetzt**: ein
+  Filmfiguren-Foto über den Körper zu strecken sah schlecht aus und deckte Löcher
+  (Arm-Kreis) falsch ab. Rein prozedural:
+  - **Stoff:** die **komplette Silhouette** (Rumpf, Arme, Hände = Handschuhe, Kopf) wird zu
+    getöntem Anzugstoff, zum Rand hin dunkler (Distanztransformation → runde, schlauchartige
+    Gliedmaßen), mit einem Hauch der echten Falten (Bild minus Weichzeichnung, Faktor 0,3,
+    max. ±30). Der Stoff ist **nicht mehr fix weiß**, sondern mit `config.SUIT_FABRIC_BGR`
+    getönt (Default **NASA-ACES-Orange**) und bekommt eine `config.SUIT_ACCENT_BGR`-Kontur –
+    Farbe in einer Zeile umstellbar. Nur der **Stift** bleibt sichtbar (Maske des
+    Marker-Trackers als `keep`).
   - **Brustpanel (animiert):** Steuerpanel mit **blinkenden LEDs** (Helligkeit per
     `sin(phase + i)`), am Gesicht/Torso verankert, Position geglättet (`RectSmoother`).
   - **Animation** läuft über `phase = time.monotonic()`, das `dress()` übergeben wird.
   - **Masken-Quelle:** `dress()` nimmt die Spielermaske eines beliebigen Hintergrund-
-    Modus (greenscheen/normal/**yolo**) entgegen; mit der präzisen YOLO-Maske sitzt der
+    Modus (greenscreen/normal/**yolo**) entgegen; mit der präzisen YOLO-Maske sitzt der
     Anzug am saubersten (ohne Greenscreen). Rein klassische Bildverarbeitung (Masken,
     Distanztransformation, Zeichnen), keine Posenerkennung (die kostete ~100–200 ms).
   - **Performance:** Helligkeitskarte auf halber Auflösung und nur im Bildausschnitt
-    des Spielers, Schattierung per Tabelle, Visier/Panel auf kleinen ROIs → wenige
+    des Spielers, Schattierung per Tabelle, Panel auf kleinem ROI → wenige
     ms/Frame zusätzlich zum Compositing.
 
 ## Qualitätssicherung

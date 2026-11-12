@@ -62,24 +62,25 @@ gespeichert und beim nächsten Start wieder verwendet. Die Kameras werden einmal
 beim Start gesucht (ca. 1 s je Kamera).
 
 ## Raumanzug
-Ist der Weltraum-Hintergrund aktiv (ein Hintergrund-Modus außer „Aus"), wird der
-freigestellte Spieler zum **animierten Astronauten** – der **ganze Körper** wird
-Anzug, nicht nur die Kleidung:
-- Die komplette Silhouette (Rumpf, **Arme bis zu den Handschuhen**) wird zu weißem,
-  deckendem Anzugstoff, der sich mit dem Körper bewegt; zur Silhouettenkante hin
-  dunkler (runde, „schlauchartige" Gliedmaßen).
-- Über dem Kopf sitzt ein **Helm** mit metallischer Schale und dunklem **Visier**,
-  über das ein **Glanz-Reflex wandert**; oben blinkt ein kleines Antennenlicht.
+Ist der Weltraum-Hintergrund aktiv (ein Hintergrund-Modus außer „Aus"), wird die
+**ganze Silhouette** des freigestellten Spielers zum animierten Anzug – Körper, Arme,
+Hände **und Kopf**, **ohne Helm**:
+- Körper, **Arme bis zu den Handschuhen** und Kopf werden zu deckendem, **getöntem**
+  Anzugstoff (Default **NASA-ACES-Orange**, `config.SUIT_FABRIC_BGR`), der sich mit dem
+  Körper bewegt; zur Silhouettenkante hin dunkler (runde, „schlauchartige" Gliedmaßen) mit
+  einer `config.SUIT_ACCENT_BGR`-Kontur. Farbe in einer Zeile umstellbar.
 - Auf der Brust ein **Steuerpanel mit blinkenden LEDs**.
 - Nur der **Stift** bleibt sichtbar (Controller). Rein prozedural (keine Bilddatei),
   die Animation läuft über die Zeit. Abschalten: `SUIT_ENABLED = False` in `config.py`.
 
 **Hintergrund-Modi** (Button „Hintergrund" im Menü, links über „Stiftfarbe"):
-`Greenscreen` (Chroma-Key), `Normal` (Referenz per Taste `b`), **`YOLO`** und `Aus`.
+`YOLO` (**Standard**), `Greenscreen` (Chroma-Key), `Normal` (Referenz per Taste `b`) und `Aus`.
 Im **`YOLO`-Modus** erkennt eine YOLOv8-seg-Personensegmentierung (ONNX über `cv2.dnn`,
 kein `torch`) den Körper – das stellt den Spieler **ohne Greenscreen und ohne Referenz**
-frei und zieht ihm den Anzug an. Das Modell (`yolov8n-seg.onnx`, ~13 MB) lädt das Spiel
-beim ersten Start nach `models/`; fehlt es, fällt der Modus auf „Aus" zurück.
+frei und zieht ihm den Anzug an. Ein **Guided Filter** rastet die Maske an den echten
+Bildkanten ein → **Körper und Kopf werden präzise getrackt** statt grob als Silhouette
+ausgeschnitten. Das Modell (`yolov8n-seg.onnx`, ~13 MB) lädt das Spiel beim ersten Start
+nach `models/`; fehlt es, fällt der Modus auf „Aus" zurück.
 
 ## Installation & Start
 ```bash
@@ -124,7 +125,7 @@ pytest
 | `tests/test_cameras.py` | Kamerasuche, Auswahl/Fallback, Wechsel, Speichern, Menü-Layout (ohne echte Kamera) |
 | `tests/test_highscore.py` | Top-3 je Schwierigkeit, Ranking, Spielername, alte Dateien, defekte Datei |
 | `tests/test_face_id.py` | Gesichtsdetektion, Wiedererkennung auf anderem Foto, Gast, Scan im Kreis, Einlernen, Startablauf |
-| `tests/test_suit.py` | Spieler-Box/Schwerpunkt, Ganzkörper-Region (Kopf/Hände dabei, Stift frei), Stoff hell/rund, Helm (Schale/Visier) + animierter Glanz, Brustpanel mit blinkenden LEDs, Glättung |
+| `tests/test_suit.py` | Spieler-Box/Schwerpunkt, Ganzkörper-Region (Kopf/Hände dabei, Stift frei), getönter Stoff (rund, orange/nicht weiß), Brustpanel mit blinkenden LEDs, Glättung |
 | `tests/test_keyboard.py` | Bildschirmtastatur: Layout, Großschreibung, Löschen, Leerzeichen, Länge, echte Tastatur |
 
 ## Tuning
@@ -150,7 +151,7 @@ Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.p
 | `game.py` | Spawning, Kollision, Score, Leben, Kombos |
 | `heart.py` | Herz-Sprite (parametrische Herzkurve) für die Lebensanzeige |
 | `background.py` | Spieler freistellen, Weltraum-Hintergrund (Modi: greenscreen/normal/yolo/off) |
-| `suit.py` | Animierter Ganzkörper-Raumanzug (Helm, Visier-Glanz, Brust-LEDs) |
+| `suit.py` | Animierter Ganzkörper-Raumanzug (getönter Stoff inkl. Kopf, kein Helm, Brust-LEDs) |
 | `yolo_seg.py` | Personensegmentierung (YOLOv8-seg, ONNX via `cv2.dnn`) für den `yolo`-Modus |
 | `cameras.py` | Kameras finden, öffnen, wechseln, Auswahl speichern |
 | `highscore.py` | Top-3 je Schwierigkeit mit Spielername (JSON-Persistenz) |

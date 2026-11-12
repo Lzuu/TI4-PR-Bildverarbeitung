@@ -568,7 +568,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             if mask is not None:
                 frame = background.composite_space(frame, mask, space_img)
                 if config.SUIT_ENABLED:
-                    # place the helmet at the face (if one is seen) -- detection only, ~3 ms
+                    # find the face (if one is seen) to place the chest panel -- ~3 ms
                     face_box = (identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
                                 if identifier is not None else None)
                     # the whole body becomes the suit; only the pen stays visible

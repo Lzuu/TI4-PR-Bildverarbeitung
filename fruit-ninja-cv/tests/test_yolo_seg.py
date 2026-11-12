@@ -4,6 +4,7 @@ Pure, headless logic -- no ONNX model, no camera, no GPU. Synthetic raw-output
 tensors stand in for the network; a FakeNet drives the segmenter.
 """
 
+import cv2
 import numpy as np
 import pytest
 
@@ -96,6 +97,63 @@ def test_assemble_mask_no_detections_is_blank():
     protos = np.zeros((32, 8, 8), np.float32)
     full = y.assemble_mask(np.empty((0, 4)), np.empty((0, 32)), [], protos, 16, 0.5)
     assert full.max() == 0
+
+
+# --------------------------------------------------------------------------- #
+# Continuous mask (finer edges: threshold at full resolution, not the input grid)
+# --------------------------------------------------------------------------- #
+def test_assemble_prob_is_continuous_with_intermediate_edge_values():
+    protos = np.zeros((32, 4, 4), np.float32)
+    protos[0, :, 2:] = 6.0                            # right half ~1, left half ~0 (a ramp)
+    protos[0, :, :2] = -6.0
+    coeffs = np.array([[1.0] + [0.0] * 31], np.float32)
+    xywh = np.array([[0, 0, 8, 8]], np.float32)
+    prob = y.assemble_prob(xywh, coeffs, [0], protos, size=8)
+    assert prob.dtype == np.float32
+    assert prob.max() > 0.9 and prob.min() < 0.1
+    assert ((prob > 0.2) & (prob < 0.8)).any()       # genuine intermediate values at the edge
+
+
+def test_full_res_threshold_gives_a_finer_edge_than_nearest():
+    """Upscaling the continuous mask (bilinear) and thresholding at full
+    resolution follows a diagonal boundary at far more sub-grid positions than
+    nearest-upscaling a mask already thresholded on the coarse input grid."""
+    size, big = 8, 64
+    r = np.linspace(0.0, 1.0, size, dtype=np.float32)
+    ramp = (r[None, :] + r[:, None]) / 2.0           # diagonal gradient 0..1
+
+    fine = cv2.resize(ramp, (big, big), interpolation=cv2.INTER_LINEAR) > 0.5
+    coarse = cv2.resize((ramp > 0.5).astype(np.uint8), (big, big),
+                        interpolation=cv2.INTER_NEAREST) > 0
+
+    def edge_cols(m):
+        return {int(np.argmax(row)) if row.any() else big for row in m}
+
+    assert len(edge_cols(fine)) > len(edge_cols(coarse))   # finer: more sub-grid edge positions
+
+
+# --------------------------------------------------------------------------- #
+# Guided-filter edge refinement (snap the coarse mask to the real image edges)
+# --------------------------------------------------------------------------- #
+def test_guided_filter_follows_the_guide_edge():
+    guide = np.zeros((40, 100), np.uint8)
+    guide[:, 50:] = 255                                  # hard vertical image edge at col 50
+    soft = cv2.GaussianBlur((guide > 0).astype(np.float32), (0, 0), 6)   # soft, spread mask edge
+    out = y.guided_filter(guide, soft, radius=12, eps=1e-4)
+    row = 20
+    assert out[row, 10] < 0.25                           # dark side stays background
+    assert out[row, 90] > 0.75                           # bright side stays player
+    # the refined edge is at least as sharp as the soft input (narrower uncertain band)
+    soft_band = int(((soft[row] > 0.25) & (soft[row] < 0.75)).sum())
+    out_band = int(((out[row] > 0.25) & (out[row] < 0.75)).sum())
+    assert out_band <= soft_band
+
+
+def test_refine_edges_preserves_shape_with_downscale():
+    guide = (np.random.default_rng(0).random((48, 64)) * 255).astype(np.uint8)
+    prob = np.random.default_rng(1).random((48, 64)).astype(np.float32)
+    out = y.refine_edges(guide, prob, radius=8, eps=1e-3, scale=2)
+    assert out.shape == (48, 64)
 
 
 # --------------------------------------------------------------------------- #
