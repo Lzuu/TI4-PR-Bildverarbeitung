@@ -33,8 +33,9 @@ PERF_CSV = "logs/perf.csv"  # Summaries are also appended here (None = no CSV)
 # ---------------------------------------------------------------------------
 # Marker tracking (fixed colour ranges -- no self-calibration; see colors.py)
 # ---------------------------------------------------------------------------
-MIN_MARKER_AREA = 300            # Ignore contours smaller than this (noise/false blobs)
-MORPH_KERNEL = 5                 # Kernel size for open/close morphology
+MIN_MARKER_AREA = 300            # Ignore contours smaller than this (noise/false blobs), full-res px
+MORPH_KERNEL = 5                 # Kernel size for open/close morphology (full resolution)
+TRACK_SCALE = 0.5                # Tracking runs on a frame scaled by this (1.0 = full size); #42, PERF-04
 
 # ---------------------------------------------------------------------------
 # Space background (cut the player out of the camera, show a space backdrop)
@@ -54,7 +55,7 @@ BG_COUNTDOWN_SECONDS = 3.0       # "Step out of frame" countdown before capturin
 GREEN_LOWER_HSV = (30, 35, 25)   # OpenCV HSV: H 0-179, S/V 0-255
 GREEN_UPPER_HSV = (95, 255, 255)
 GREEN_DOMINANCE = 18             # G must beat max(B, R) by this to count as backdrop
-GREEN_SCALE = 1.0                # Full res: ~5 ms/frame; downscaling barely helps but blocks edges
+GREEN_SCALE = 0.5                # Greenscreen on a scaled frame: 12.5 -> 4.3 ms at 1080x720, 0.1 % edge pixels differ (#42)
 SUIT_ENABLED = True              # Dress the cut-out player in a space suit (suit.py)
 SUIT_FACE_DETECT_WIDTH = 320     # Face detection for placing the suit runs at this width
 

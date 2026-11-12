@@ -396,3 +396,22 @@ def test_cadence_is_unchanged_at_a_fast_frame_rate():
 def test_mask_age_budget_defaults_to_config():
     seg = y.BodySegmenter(FakeNet(*_blank_outputs()), input_size=64)
     assert seg.max_mask_age == config.YOLO_MAX_MASK_AGE
+
+
+def test_no_early_refresh_when_inference_itself_is_expensive():
+    # on a slow machine an extra inference per frame would only make every frame
+    # slower (feedback loop) -- the plain cadence stays
+    clock = Clock()
+
+    class SlowNet(FakeNet):
+        def forward(self, names):
+            clock.t += 0.07                               # 70 ms per inference
+            return super().forward(names)
+    seg = y.BodySegmenter(SlowNet(*_blank_outputs()), input_size=64, every_n=3,
+                          max_mask_age=0.1, clock=clock)
+    frame = np.zeros((48, 64, 3), np.uint8)
+    for _ in range(6):
+        seg.segment(frame)
+        clock.t += 0.1                                    # slow frames: mask always > budget
+    assert seg.net.calls == 2                             # frames 0 and 3 only
+    assert seg.last_inference_seconds is None or seg.last_inference_seconds == pytest.approx(0.07)

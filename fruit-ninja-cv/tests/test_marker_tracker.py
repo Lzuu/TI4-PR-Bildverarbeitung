@@ -87,3 +87,48 @@ def test_tip_mode_uses_the_centre_of_a_round_marker():
     cv2.circle(frame, (480, 270), 25, PINK_BGR, -1)
     pt = MarkerTracker(point_mode="tip").track(frame)
     assert abs(pt[0] - 480) < 4 and abs(pt[1] - 270) < 4
+
+
+# -- PERF-04 (#42): tracking at a reduced processing scale -------------------
+import pytest
+
+
+def _thin_pen_frame(width, x=300, y=300):
+    frame = np.full((H, W, 3), 130, np.uint8)
+    cv2.line(frame, (x, y + 70), (x + 12, y), PINK_BGR, width)     # tip at (x + 12, y)
+    return frame, (x + 12, y)
+
+
+@pytest.mark.parametrize("width", [3, 4, 5, 6, 8, 12])
+def test_reduced_scale_still_finds_thin_pens_at_the_same_place(width):
+    frame, tip = _thin_pen_frame(width)
+    full = MarkerTracker(point_mode="tip", scale=1.0).track(frame)
+    half = MarkerTracker(point_mode="tip", scale=0.5).track(frame)
+    assert full is not None and half is not None
+    assert abs(half[0] - full[0]) <= 8 and abs(half[1] - full[1]) <= 8   # full-frame coordinates
+    assert abs(half[0] - tip[0]) <= 10 and abs(half[1] - tip[1]) <= 10
+
+
+def test_reduced_scale_returns_full_size_mask():
+    frame, _ = _thin_pen_frame(8)
+    tracker = MarkerTracker(point_mode="tip", scale=0.5)
+    tracker.track(frame)
+    assert tracker.last_mask.shape == frame.shape[:2]
+    assert tracker.last_mask[300, 312] > 0 or tracker.last_mask[310, 311] > 0   # pen pixels set
+
+
+@pytest.mark.parametrize("side,found", [(8, False), (12, False), (18, True), (30, True)])
+def test_area_threshold_is_the_same_at_every_scale(side, found):
+    # MIN_MARKER_AREA is defined at full resolution: a square blob is accepted from
+    # about 15 px side length (the blur grows it) -- at scale 1.0 and 0.5 alike
+    frame = np.full((H, W, 3), 130, np.uint8)
+    cv2.rectangle(frame, (400, 300), (400 + side - 1, 300 + side - 1), PINK_BGR, -1)
+    for scale in (1.0, 0.5):
+        assert (MarkerTracker(scale=scale).track(frame) is not None) == found, scale
+
+
+def test_scale_defaults_to_config(monkeypatch):
+    monkeypatch.setattr(config, "TRACK_SCALE", 0.5)
+    assert MarkerTracker().scale == 0.5
+    monkeypatch.setattr(config, "TRACK_SCALE", 1.0)
+    assert MarkerTracker().scale == 1.0

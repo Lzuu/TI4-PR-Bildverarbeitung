@@ -177,6 +177,7 @@ class BodySegmenter:
         self._clock = clock
         self.max_mask_age = config.YOLO_MAX_MASK_AGE if max_mask_age is None else max_mask_age
         self._inferred_at = None
+        self._inference_cost = None
         self.inferred = False
         self.mask_age = 0.0
         self.last_inference_seconds = None
@@ -202,6 +203,16 @@ class BodySegmenter:
         crop = small[py:py + nh, px:px + nw]           # drop the letterbox padding
         return cv2.resize(crop, (w, h), interpolation=cv2.INTER_NEAREST)
 
+    def _too_old(self, age):
+        """Early refresh for an over-age mask -- only while inference is cheap.
+
+        If one inference alone takes more than half the age budget, an extra one
+        per frame would slow every frame down further (feedback loop), so the
+        plain cadence stays.
+        """
+        cost = self._inference_cost
+        return age > self.max_mask_age and (cost is None or cost <= self.max_mask_age / 2)
+
     def segment(self, frame, source=None):
         """Return the 0/255 player mask for ``frame`` (throttled; reuses last).
 
@@ -217,7 +228,7 @@ class BodySegmenter:
                or self._last is None
                or self._last.shape != frame.shape[:2]
                or source != self._source
-               or age > self.max_mask_age)
+               or self._too_old(age))
         self._counter += 1
         self._source = source
         self.inferred = run
@@ -233,7 +244,7 @@ class BodySegmenter:
             self._counter = 1                    # cadence restarts after any inference
             self._inferred_at = now
             self.mask_age = 0.0
-            self.last_inference_seconds = self._clock() - now
+            self.last_inference_seconds = self._inference_cost = self._clock() - now
         else:
             self.mask_age = age
         return self._last

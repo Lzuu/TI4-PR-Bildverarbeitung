@@ -7,6 +7,11 @@ during play, or the union of all pen colours on the colour-selection screen
   BGR -> HSV -> inRange(s) (OR-combined) -> morphology -> largest contour
       -> centroid (cv2.moments)
 
+With ``scale`` < 1 the whole pipeline runs on a downscaled copy (#42, PERF-04):
+the morphology and blur kernels shrink with it (a fixed 5x5 kernel would erase pens
+thinner than ~8 px), the area threshold follows the scale squared, and the
+returned point and ``last_mask`` are mapped back to full-frame coordinates.
+
 With ``point_mode="tip"`` the returned point is the pen's upper end instead of
 the centroid (the end farthest along the pen's axis). The axis keeps its last
 orientation, so the point does not jump to the other end when the pen turns
@@ -26,10 +31,15 @@ from colors import DEFAULT
 class MarkerTracker:
     TIP_MIN_ELONGATION = 1.8         # below this length/width ratio: use the centroid
 
-    def __init__(self, ranges=None, point_mode="centroid"):
+    def __init__(self, ranges=None, point_mode="centroid", scale=None):
         self.point_mode = point_mode     # "centroid" or "tip"
+        self.scale = config.TRACK_SCALE if scale is None else scale
         self._dir = None                 # last pen axis direction (tip mode)
         k = config.MORPH_KERNEL
+        self._blur = (5, 5)
+        if self.scale < 1.0:
+            k = max(3, int(round(k * self.scale)) | 1)       # odd, shrinks with the frame
+            self._blur = (3, 3)
         self._kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
         self.last_mask = None
         self.set_ranges(ranges or [(DEFAULT.lower, DEFAULT.upper)])
@@ -50,7 +60,11 @@ class MarkerTracker:
 
     # -- per-frame tracking -------------------------------------------------
     def track(self, frame):
-        """Return the marker centroid (x, y) or ``None`` if it is not found."""
+        """Return the marker point (x, y) in ``frame`` coordinates, or ``None``."""
+        full_h, full_w = frame.shape[:2]
+        s = self.scale
+        if s != 1.0:
+            frame = cv2.resize(frame, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         mask = None
         for lo, hi in self.ranges:
@@ -59,8 +73,12 @@ class MarkerTracker:
 
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self._kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self._kernel)
-        mask = cv2.GaussianBlur(mask, (5, 5), 0)
-        self.last_mask = mask
+        mask = cv2.GaussianBlur(mask, self._blur, 0)
+        small_mask = mask
+        if s != 1.0:
+            mask = cv2.resize(mask, (full_w, full_h), interpolation=cv2.INTER_LINEAR)
+        self.last_mask = mask                # always frame-sized (the suit protects the pen)
+        mask = small_mask
 
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL,
                                        cv2.CHAIN_APPROX_SIMPLE)
@@ -68,7 +86,7 @@ class MarkerTracker:
             self._dir = None
             return None
         largest = max(contours, key=cv2.contourArea)
-        if cv2.contourArea(largest) < config.MIN_MARKER_AREA:
+        if cv2.contourArea(largest) < config.MIN_MARKER_AREA * s * s:
             self._dir = None
             return None
         m = cv2.moments(largest)
@@ -78,7 +96,7 @@ class MarkerTracker:
         centroid = (m["m10"] / m["m00"], m["m01"] / m["m00"])
         if self.point_mode == "tip":
             centroid = self._tip(largest, centroid)
-        return (int(centroid[0]), int(centroid[1]))
+        return (int(round(centroid[0] / s)), int(round(centroid[1] / s)))
 
     def _tip(self, contour, centroid):
         """Upper end of an elongated pen (continuous orientation), else the centroid."""
