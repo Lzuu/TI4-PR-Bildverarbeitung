@@ -578,5 +578,6 @@ Breiten relativ zur Körpergrößenbasis: Oberarm 0,504, Unterarm 0,486, Handsch
 0,495. Anatomische Segmentlängen und Gelenkpositionen folgen weiterhin direkt
 der Pose. Angeglichene Bundprofile, Schulteranschlüsse, breitenabhängige
 Gelenküberlappung und Bewegungsverhalten bleiben erhalten. Rumpf und Helm sind
-unverändert. Alle 353 Tests bestehen; Vorschauen und Headless-Messungen wurden
+unverändert. Nach Übernahme des aktuellen main bestehen 371 Tests; 17 plattformabhängige
+Shell-Tests sind unter Windows übersprungen. Vorschauen und Headless-Messungen wurden
 erneuert. Die Größenänderung benötigt weiterhin eine Live-Webcam-Abnahme.

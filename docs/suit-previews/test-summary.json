@@ -1,7 +1,7 @@
 {
-  "tests": "353",
+  "tests": "388",
   "failures": "0",
   "errors": "0",
-  "skipped": "0",
-  "time": "6.885"
+  "skipped": "17",
+  "time": "6.743"
 }
