@@ -6,7 +6,8 @@ Architekturentscheidungen und Aufbau des Fruit-Ninja-CV-Spiels
 ## Überblick
 Das Spiel ist in **kleine, fokussierte Module** aufgeteilt (eine Verantwortung je
 Datei). `main.py` ist der Einstieg und hält die **Game-Loop** sowie die
-**State-Machine** (Kalibrierung → Spiel → Game Over). Die Bildverarbeitung, die
+**State-Machine** (Gesichtsscan → Namenseingabe → Menü → Schwierigkeit → Spiel →
+Game Over). Die Bildverarbeitung, die
 Spiel-Physik und das Rendering sind davon getrennt.
 
 ```
@@ -49,9 +50,10 @@ Kamera ─► main (Loop, States, Input)
 ## Datenfluss (pro Frame)
 1. `main` liest Frame, skaliert auf feste Größe, spiegelt (Mirror).
 2. `MarkerTracker.track(frame)` → HSV → `inRange` → Morphologie → größte Kontur →
-   Schwerpunkt = Stiftposition (oder `None`).
+   oberes Ende des Stifts = Stiftposition (`PEN_POINT = "tip"`; bei rundem Marker
+   der Schwerpunkt; ohne Stift `None`).
 3. `Blade.add(point)` hält die letzten N Punkte (die Klinge).
-4. `Game.update(blade)` wirft Früchte ein, bewegt sie (Schwerkraft), prüft
+4. `Game.update(blade, dt)` wirft Früchte ein, bewegt sie (Schwerkraft), prüft
    **Kollision** (Abstand Frucht-Mittelpunkt ↔ Klingen-Segment ≤ Radius).
 5. `Game.draw` + `Blade.draw` + HUD zeichnen ins Frame; `main` zeigt es an.
 
@@ -95,8 +97,8 @@ Kamera ─► main (Loop, States, Input)
   es zählt der Abstand zur Klinge (Punkt bei Ruhe, Segment bei Bewegung).
 - **Prozedurale Grafik.** Früchte werden gezeichnet (Kreis + Highlight + Stiel) →
   keine Asset-Abhängigkeiten, läuft überall sofort.
-- **State-Machine.** Klar getrennte Zustände (Kalibrierung/Play/GameOver) halten die
-  Loop übersichtlich.
+- **State-Machine.** Klar getrennte Zustände (FaceScan/NameEntry/Menu/Difficulty/
+  Play/GameOver) halten die Loop übersichtlich.
 - **Zentrale Konfiguration.** Alle Stellschrauben in `config.py` → einfaches Tuning,
   keine Magic Numbers im Code.
 - **Schwierigkeitsgrade als Presets.** `difficulty.py` bündelt die variierenden
@@ -475,8 +477,9 @@ Kamera ─► main (Loop, States, Input)
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.
 - **Logging:** `logs/fruit-ninja.log` (rotierend), Konsole zeigt nur Warnungen/Fehler.
-- **CI:** GitHub Actions (`.github/workflows/tests.yml`) führt bei jedem Push und
-  Pull Request alle Tests aus. In `main` kommt nur Code mit grünen Tests.
+- **CI:** GitHub Actions (`.github/workflows/tests.yml`) führt bei jedem Pull Request
+  und bei jedem Push auf `main` alle Tests aus (nicht mehr doppelt für Push und Pull
+  Request desselben Branches). In `main` kommt nur Code mit grünen Tests.
 
 ## Prozessentscheidungen
 - **Noahs Programm ist die gemeinsame Basis.** Es gab zwei parallele Umsetzungen
@@ -494,20 +497,48 @@ Kamera ─► main (Loop, States, Input)
 - **Maßgeblich ist `aufgabenstellung.md`.** Noahs frühere `Aufgabenstellung.md`
   wurde nicht übernommen (veraltet; kollidiert unter Windows wegen gleicher
   Schreibweise bis auf Groß-/Kleinschreibung).
-- **Iterationen über GitHub.** Jede Iteration ist ein Milestone, Aufgaben sind
-  Issues, ein Branch pro Issue, Änderungen nur per Pull Request mit Tests.
+- **Iterationen über GitHub.** Aufgaben sind Issues, ein Branch pro Issue, Änderungen
+  nur per Pull Request mit Tests. Milestones werden nicht verwendet (Entscheidung
+  12.11.2026; es gab nie einen). `main` ist auf GitHub geschützt: Änderungen nur per
+  Pull Request mit grüner CI, eine Freigabe durch Dritte ist nicht nötig.
+- **Sammel-Issues aufgeteilt (12.11.2026).** Die Reviews #54 (Performance) und #55
+  (Fehler, Aufräumen) bleiben als Übersicht; jedes Arbeitspaket hat ein eigenes Issue
+  (#56 bis #74), damit eine Aufgabe klein und abgegrenzt bleibt.
+- **Übersicht für KI-Agenten.** `CLAUDE.md` enthält neben den Regeln Befehle,
+  Modul-/Testtabelle und Fallstricke; `AGENTS.md` verweist darauf.
 
-## Offen gegenüber der Aufgabenstellung
-- **Netzwerk-Mehrspieler (Teilaufgabe 6)** – fehlt noch, Architektur offen.
-- **Schnittgeste (Teilaufgabe 4):** Aktuell schneidet schon Berührung ohne
-  Mindestgeschwindigkeit; gefordert ist, dass langsame/ruhende Bewegungen kein
-  Schnitt sind.
-- **Tracking (Teilaufgabe 3):** Glättung von Messrauschen und Überbrücken kurzer
-  Erkennungsaussetzer.
-- **Stiftspitze (Teilaufgabe 2):** Aktuell wird der Schwerpunkt verwendet.
-- **Debug-Fenster** mit Kamerabild und erkannter Stiftposition (bisher Maske per `d`).
-- **Windows:** Sound (`afplay`) ist auf macOS ausgelegt. Kamera-Auswahl und
-  Bildschirmgröße sind für Windows gelöst (#31, #41 CR-08).
+## Abgleich mit der Aufgabenstellung (Stand 12.11.2026)
+Geprüft am Code des Stands 93621a2, nicht an einer Live-Vorführung.
+
+| Teilaufgabe / Anforderung | Stand | Beleg bzw. was fehlt |
+|---|---|---|
+| 1 Bilderfassung: USB-Kamera fortlaufend einlesen | erfüllt | `cameras.py`, Schleife in `main.py` |
+| 1 Bildrate und Auflösung für flüssiges Spiel | teilweise | 1080p MJPG mit 30 fps, Canvas auf 720 Zeilen begrenzt; mit Anzug nur rund 15 Bilder/s am Demo-Laptop (#54) |
+| 2 Stift in jedem Bild finden | erfüllt | `marker_tracker.py` (HSV-Farbe, größte Kontur) |
+| 2 Position der Stiftspitze | erfüllt | `MarkerTracker._tip`, `PEN_POINT = "tip"` |
+| 2 Zuverlässig bei wechselndem Licht und unruhigem Hintergrund | teilweise | feste Farbbereiche, nur mit synthetischen Bildern getestet; stiftfarbene Gegenstände stören (#71) |
+| 3 Position über mehrere Bilder verfolgen | erfüllt | `blade.py` (Spur der letzten Punkte) |
+| 3 Bewegungsbahn, Richtung, Geschwindigkeit | teilweise | Bahn und Richtung werden genutzt; `Blade.speed` existiert, wird vom Spiel aber nicht verwendet |
+| 3 Messrauschen glätten, Aussetzer überbrücken | fehlt | Die Stiftposition wird ungeglättet übernommen; bei einem Aussetzer endet die Spur sofort (bewusst seit CR-01, damit kein Schnitt aus alter Position entsteht) |
+| 4 Schnelle Wischbewegung als Schnitt erkennen | fehlt | Jede Berührung schneidet, es gibt keine Mindestgeschwindigkeit |
+| 4 Langsame oder ruhende Bewegung nicht werten | fehlt | Ein ruhender Stift auf einer Frucht schneidet (`Game._handle_slicing`) |
+| 5 Fruit-Ninja-Variante | erfüllt | `game.py`, `fruit.py` |
+| 5 Kamerakoordinaten auf das Spielfeld übertragen | erfüllt | Kamerabild wird auf den Canvas zugeschnitten, skaliert und gespiegelt; Stiftpunkt in Canvas-Koordinaten |
+| 5 Schnittbahn trifft Frucht | erfüllt | Abstand Fruchtmitte zu Klingensegment (`utils.point_segment_distance`) |
+| 5 Punkte, optional Bomben und Leben | erfüllt | Punkte, Kombos, Bomben, 3 Leben, Bestenliste |
+| 6 Netzwerk: gegen einen zweiten Spieler | fehlt | Kein Netzwerkcode, Architektur offen |
+| Echtzeit: geringe Verzögerung | teilweise | Rechenzeit gemessen (#54); die Verzögerung Kamera → Bildschirm ist nicht gemessen |
+| Robustheit ohne aufwendige Kalibrierung | erfüllt | feste Farbbereiche, keine Kalibrierung; der Modus „Normal“ braucht ein Referenzbild (Taste `b`) |
+| Schnittspur anzeigen | erfüllt | `Blade.draw`, Lichtschwert |
+| Debug-Fenster mit Kamerabild und Stiftposition | teilweise | Taste `d` zeigt nur die Farbmaske, nicht das Kamerabild mit markierter Position |
+| Testcase-basiert, alle Tests auf GitHub | erfüllt | 345 Tests in `fruit-ninja-cv/tests/`, CI bei jedem Pull Request |
+| Inkrementell-iterativ, über GitHub abgebildet | erfüllt | Issues #1 bis #74, Pull Requests |
+| Architekturentscheidungen in `Architektur.md` | erfüllt | diese Datei |
+| Logfiles zum Debuggen | erfüllt | `logging_config.py`, `logs/fruit-ninja.log` |
+
+Offen sind damit vor allem **Netzwerk (6)**, **Schnittgeste (4)** und **Glättung/
+Überbrückung im Tracking (3)**; dafür gibt es noch keine Issues. Außerhalb der
+Aufgabenstellung: Ton läuft nur unter macOS (`afplay`, #74).
 
 ## Bewusste Nicht-Ziele
 - Kein ML für die Stifterkennung (klassische Bildverarbeitung). Ausnahme:
