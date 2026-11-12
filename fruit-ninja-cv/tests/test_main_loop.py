@@ -275,3 +275,65 @@ def test_yolo_inference_and_mask_age_are_reported(monkeypatch, tmp_path, caplog)
     lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Perf ")]
     assert lines
     assert any("yolo_infer" in line and "max mask_age_ms=" in line for line in lines)
+
+
+# -- #46: the saber hilt sits on the glove the suit drew in this frame -------
+import types
+
+import lightsaber
+
+GLOVE = dict(name="glove_r", asset="glove",                     # wrist -> fingers, near the pen
+             endpoints=np.array(((90, 330), (90, 430)), np.float32))
+
+
+def _record_saber(monkeypatch):
+    """Record every saber drawn and every skin-mask computation."""
+    sabers, skins = [], []
+    draw, skin_mask = lightsaber.draw_saber, lightsaber.skin_mask
+
+    def recording_draw(frame, saber, color):
+        sabers.append(saber)
+        return draw(frame, saber, color)
+
+    def recording_skin(frame):
+        skins.append(1)
+        return skin_mask(frame)
+    monkeypatch.setattr(lightsaber, "draw_saber", recording_draw)
+    monkeypatch.setattr(lightsaber, "skin_mask", recording_skin)
+    return sabers, skins
+
+
+def _hilt_offset(saber, glove):
+    """Distance between the drawn hilt centre and the glove's grip point."""
+    a, b = glove["endpoints"]
+    grip = a + m.config.SABER_GLOVE_GRIP * (b - a)
+    centre = (np.array(saber.hilt_top) + np.array(saber.hilt_bottom)) / 2
+    return float(np.hypot(*(centre - grip)))
+
+
+def test_saber_hilt_sits_on_the_glove_drawn_in_the_same_frame(monkeypatch, tmp_path):
+    sabers, skins = _record_saber(monkeypatch)
+    original = m.suit.dress
+
+    def dress_with_glove(frame, mask, *args, **kwargs):
+        out = original(frame, mask, *args, **kwargs)
+        kwargs["renderer"].last_parts.append(dict(GLOVE))     # the suit drew a right glove
+        return out
+    monkeypatch.setattr(m.suit, "dress", dress_with_glove)
+    run_loop(monkeypatch, tmp_path, FakeCamera([with_pen(green_frame(), 75)]), 3,
+             BG_MODE="greenscreen", SUIT_ENABLED=True)
+    drawn = [s for s in sabers if s is not None]
+    assert len(drawn) == 3
+    assert all(_hilt_offset(s, GLOVE) <= 1.5 for s in drawn)  # from the first frame on
+    assert skins == []                                       # no skin search with a glove
+
+
+def test_a_glove_from_an_earlier_frame_is_never_used(monkeypatch, tmp_path):
+    sabers, skins = _record_saber(monkeypatch)
+    stale = types.SimpleNamespace(last_parts=[dict(GLOVE)])   # drawn long ago, not this frame
+    monkeypatch.setattr(m, "SuitRenderer", lambda: stale)
+    run_loop(monkeypatch, tmp_path, FakeCamera([with_pen(green_frame(), 75)]), 3,
+             BG_MODE="off", SUIT_ENABLED=True)
+    drawn = [s for s in sabers if s is not None]
+    assert drawn and skins                                   # "off": no suit, skin fallback
+    assert all(_hilt_offset(s, GLOVE) > 10 for s in drawn)

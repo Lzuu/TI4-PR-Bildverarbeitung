@@ -93,6 +93,8 @@ SABER_ENABLED = True             # Draw the pen as a lightsaber (lightsaber.py)
 SABER_LENGTH = 110               # Blade length in px at REF_HEIGHT (scaled), down from the pen point
 SABER_HILT_LENGTH = 45           # Hilt length in px at REF_HEIGHT (scaled), below the blade
 SABER_HAND_RADIUS = 220          # Hand (skin blob) is searched within this distance of the pen tip
+SABER_GLOVE_GRIP = 0.45          # With the suit the hilt sits on the drawn glove: palm centre, wrist (0) -> fingertips (1)
+SABER_HAND_SWITCH = 0.7          # The other glove takes the saber only when closer than this x the current one
 
 # ---------------------------------------------------------------------------
 # Gameplay / physics (pixels and seconds -- independent of the frame rate)

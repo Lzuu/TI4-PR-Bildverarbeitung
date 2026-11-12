@@ -103,13 +103,15 @@ frei und zieht ihm den Anzug an. Das Modell (`yolov8n-seg.onnx`, ~13 MB) lädt d
 beim ersten Start nach `models/`; fehlt es, fällt der Modus auf „Aus" zurück.
 
 ## Lichtschwert
-Am Stift erscheint ein **Lichtschwert**. Seine Länge pendelt sich in den ersten Sekunden so
-ein, dass der Griff auf der Hand sitzt, und bleibt dann ruhig. Die Spitze der Klinge ist
-die Stiftspitze – der Punkt, der die Früchte schneidet (`PEN_POINT = "tip"`). Das Schwert
-zeigt in Richtung der Hand, die den Stift hält (über die Hautfarbe erkannt), ruhig
-geglättet und höchstens 75° geneigt. Ohne erkannte Hand schwenkt es langsam in die
-Senkrechte. Abschalten: `SABER_ENABLED = False`; Einstellungen: `SABER_LENGTH`,
-`SABER_HILT_LENGTH`, `SABER_HAND_RADIUS` in `config.py`.
+Am Stift erscheint ein **Lichtschwert**. Die Spitze der Klinge ist die Stiftspitze – der
+Punkt, der die Früchte schneidet (`PEN_POINT = "tip"`). Mit Raumanzug sitzt der Griff in
+jedem Frame in der Handfläche des Handschuhs, den der Anzug aus der Körperpose zeichnet;
+es zählt die Hand am Stift (#46). Ohne Anzug wird die Hand über die Hautfarbe erkannt:
+Dann pendelt sich die Länge in den ersten Sekunden so ein, dass der Griff auf der Hand
+sitzt, das Schwert ist ruhig geglättet und höchstens 75° geneigt, und ohne erkannte Hand
+schwenkt es langsam in die Senkrechte. Abschalten: `SABER_ENABLED = False`;
+Einstellungen: `SABER_LENGTH`, `SABER_HILT_LENGTH`, `SABER_HAND_RADIUS`,
+`SABER_GLOVE_GRIP`, `SABER_HAND_SWITCH` in `config.py`.
 
 ## Installation & Start
 ```bash
@@ -159,7 +161,7 @@ pytest
 | `tests/test_cameras.py` | Kamerasuche, Auswahl/Fallback, Wechsel, Speichern, Menü-Layout (ohne echte Kamera) |
 | `tests/test_highscore.py` | Top-3 je Schwierigkeit, Ranking, Spielername, alte Dateien, defekte Datei |
 | `tests/test_face_id.py` | Gesichtsdetektion, Wiedererkennung auf anderem Foto, Gast, Scan im Kreis, Einlernen, Startablauf |
-| `tests/test_lightsaber.py` | Feste Länge, Spitze am Stift, Richtung zur Hand, Handsuche (Gesicht ignoriert), kein Springen bei Ausreißern, sanfte Rückkehr, dicker Strahl |
+| `tests/test_lightsaber.py` | Feste Länge, Spitze am Stift, Richtung zur Hand, Handsuche (Gesicht ignoriert), kein Springen bei Ausreißern, sanfte Rückkehr, dicker Strahl, Griff auf dem Handschuh ab dem ersten Frame, Handwahl mit Hysterese, Hautmaske nur bei Bedarf |
 | `tests/test_suit.py` | Spieler-Box/Schwerpunkt, Ganzkörper-Region (Kopf/Hände dabei, Stift frei), Stoff hell/rund, Helm (Schale/Visier) + animierter Glanz, Brustpanel mit blinkenden LEDs, Glättung |
 | `tests/test_keyboard.py` | Bildschirmtastatur: Layout, Großschreibung, Löschen, Leerzeichen, Länge, echte Tastatur |
 

@@ -223,3 +223,130 @@ def test_skin_mask_finds_skin_but_not_clothes():
     assert skin.shape == (100, 200)
     assert skin[50, 50] == 255
     assert skin[50, 150] == 0
+
+
+# --------------------------------------------------------------------------- #
+# Hilt on the glove the suit drew (#46): the pose socket instead of skin colour
+# --------------------------------------------------------------------------- #
+GRIP = (330, 300)                                   # palm centre of the glove holding the pen
+
+
+def _glove(name, wrist_end, finger_end):
+    """A glove part as SuitRenderer.last_parts records it (endpoints wrist -> fingers)."""
+    return dict(name=name, asset="glove", endpoints=np.array((wrist_end, finger_end), np.float32))
+
+
+def _hilt_centre(s):
+    return _mid(s.hilt_top, s.hilt_bottom)
+
+
+def test_glove_grips_are_the_palm_centres_of_the_drawn_gloves(monkeypatch):
+    import config
+    monkeypatch.setattr(config, "SABER_GLOVE_GRIP", 0.45)
+    parts = [_glove("glove_l", (100, 200), (100, 300)),
+             _glove("glove_r", (400, 250), (500, 250)),
+             dict(name="forearm_l", asset="forearm",
+                  endpoints=np.array(((0, 0), (9, 9)), np.float32))]
+    grips = lightsaber.glove_grips(parts)
+    assert set(grips) == {"l", "r"}                                # other parts are ignored
+    assert math.dist(grips["l"], (100, 245)) < 1e-3                # 45 % from wrist to fingers
+    assert math.dist(grips["r"], (445, 250)) < 1e-3
+
+
+def test_no_glove_no_grip():
+    assert lightsaber.glove_grips([]) == {}
+    assert lightsaber.glove_grips(None) == {}
+
+
+def test_hilt_sits_on_the_glove_from_the_first_frame():
+    s = _tracker().update(POINT, None, hands={"r": GRIP})
+    assert s.tip == POINT                                          # still cuts at the pen
+    assert math.dist(_hilt_centre(s), GRIP) <= 1                   # no slow settling
+    assert abs(math.dist(s.hilt_top, s.hilt_bottom) - 50) < 2      # hilt length unchanged
+
+
+def test_hilt_follows_a_turning_hand_in_the_same_frame():
+    t = _tracker(confirm_frames=4)
+    t.update(POINT, None, hands={"r": (300, 300)})                 # straight down
+    turned = (300 + 130, 150 + 75)                                 # ~60 deg, one frame later
+    s = t.update(POINT, None, hands={"r": turned})
+    assert math.dist(_hilt_centre(s), turned) <= 1                 # no 4-frame confirmation
+
+
+def test_skin_is_not_computed_while_a_glove_holds_the_saber():
+    calls = []
+
+    def skin():
+        calls.append(1)
+        return skin_with(((300, 300), 30))
+
+    t = _tracker()
+    t.update(POINT, skin, hands={"r": GRIP})
+    assert calls == []                                             # the expensive mask is skipped
+    t.update(POINT, skin, hands={})                                # no glove: fall back to skin
+    assert calls == [1]
+
+
+def test_takes_the_glove_next_to_the_pen():
+    other = (420, 280)                                             # the free hand, a bit further
+    s = _tracker().update(POINT, None, hands={"l": other, "r": GRIP})
+    assert math.dist(_hilt_centre(s), GRIP) <= 1
+
+
+def test_a_slightly_closer_second_hand_does_not_take_the_saber(monkeypatch):
+    import config
+    monkeypatch.setattr(config, "SABER_HAND_SWITCH", 0.7)
+    t = _tracker()
+    t.update(POINT, None, hands={"r": GRIP})                       # pen hand ~153 px away
+    near = (300 - 100, 150 + 100)                                  # other hand ~141 px: closer, not clearly
+    s = t.update(POINT, None, hands={"r": GRIP, "l": near})
+    assert math.dist(_hilt_centre(s), GRIP) <= 1
+
+
+def test_a_clearly_closer_second_hand_takes_over(monkeypatch):
+    import config
+    monkeypatch.setattr(config, "SABER_HAND_SWITCH", 0.7)
+    t = _tracker()
+    t.update(POINT, None, hands={"r": GRIP})                       # ~153 px
+    close = (300 - 60, 150 + 60)                                   # ~85 px < 0.7 * 153
+    s = t.update(POINT, None, hands={"r": GRIP, "l": close})
+    assert math.dist(_hilt_centre(s), close) <= 1
+
+
+def test_a_glove_out_of_reach_is_ignored_and_skin_is_used():
+    far = (590, 480)                                               # beyond the search radius
+    t = _tracker(smoothing=0.0, radius=200)
+    s = t.update(POINT, skin_with(((380, 290), 30)), hands={"r": far})
+    expected = math.degrees(math.atan2(380 - 300, 290 - 150))      # towards the skin blob
+    assert abs(_angle_deg(s) - expected) < 3
+
+
+def test_losing_the_glove_does_not_make_the_saber_jump():
+    t = _tracker(keep_frames=2)
+    held = t.update(POINT, None, hands={"r": (300 + 81, 150 + 140)})    # ~30 deg, ~162 px
+    s = t.update(POINT, np.zeros((500, 600), np.uint8), hands={})       # glove and skin gone
+    assert abs(_angle_deg(s) - _angle_deg(held)) < 1                    # held for a moment
+    assert abs(math.dist(s.tip, s.hilt_top) - math.dist(held.tip, held.hilt_top)) < 1
+
+
+def test_glove_right_at_the_tip_gives_a_short_valid_saber():
+    grip = (305, 160)                                              # pen almost inside the fist
+    s = _tracker().update(POINT, None, hands={"r": grip})
+    assert s.tip == POINT
+    assert s.hilt_top != s.hilt_bottom
+    # the grip still lies on the hilt (top -> grip -> bottom is a straight line)
+    along = math.dist(s.hilt_top, grip) + math.dist(grip, s.hilt_bottom)
+    assert along - math.dist(s.hilt_top, s.hilt_bottom) < 1.5
+
+
+def test_hand_source_is_logged_once_per_lasting_change_not_per_frame(caplog):
+    import logging
+    t = _tracker(confirm_frames=3)
+    no_skin = np.zeros((500, 600), np.uint8)
+    with caplog.at_level(logging.INFO, logger="lightsaber"):
+        for _ in range(6):
+            t.update(POINT, None, hands={"r": GRIP})               # glove for 6 frames: one line
+        for i in range(6):                                         # flicker never lasts 3 frames
+            t.update(POINT, no_skin, hands={} if i % 2 else {"r": GRIP})
+    lines = [r.getMessage() for r in caplog.records if r.name == "lightsaber"]
+    assert len(lines) == 1 and "glove" in lines[0]
