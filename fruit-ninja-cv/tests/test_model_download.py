@@ -81,3 +81,14 @@ def test_the_face_models_are_downloaded_with_a_timeout(monkeypatch, tmp_path):
         face_id.ensure_models(str(tmp_path))
     assert seen["timeout"] == config.MODEL_DOWNLOAD_TIMEOUT
     assert os.listdir(tmp_path) == []
+
+
+def test_a_connection_dropped_mid_download_is_a_clean_failure(monkeypatch, tmp_path):
+    import http.client
+
+    def dropped(url, timeout=None):
+        raise http.client.IncompleteRead(b"half")
+    monkeypatch.setattr(urllib.request, "urlopen", dropped)
+    with pytest.raises(RuntimeError, match="fehlgeschlagen"):
+        md.ensure_file(str(tmp_path / "m.onnx"), "http://example.invalid/m", SHA)
+    assert os.listdir(tmp_path) == []

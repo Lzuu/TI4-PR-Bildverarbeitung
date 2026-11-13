@@ -98,9 +98,14 @@ class MarkerTracker:
         if m["m00"] == 0:
             self._dir = None
             return None
-        # the pen is this one contour: a pink cushion elsewhere must not be spared by the suit
+        # The pen is this contour plus pen-coloured pieces right next to it (a fist splits the
+        # pen in two); a pink cushion elsewhere must not be spared by the suit.
+        x, y, w, h = cv2.boundingRect(largest)
+        reach = max(w, h) // 2
+        near = [c for c in contours if self._rects_touch(cv2.boundingRect(c),
+                                                         (x - reach, y - reach, w + 2 * reach, h + 2 * reach))]
         selected = np.zeros_like(mask)
-        cv2.drawContours(selected, [largest], -1, 255, cv2.FILLED)
+        cv2.drawContours(selected, near, -1, 255, cv2.FILLED)
         selected = cv2.bitwise_and(mask, cv2.dilate(selected, self._kernel))   # keeps the soft edge
         self.pen_mask = selected if s == 1.0 else cv2.resize(
             selected, (full_w, full_h), interpolation=cv2.INTER_LINEAR)
@@ -108,6 +113,12 @@ class MarkerTracker:
         if self.point_mode == "tip":
             centroid = self._tip(largest, centroid)
         return (int(round(centroid[0] / s)), int(round(centroid[1] / s)))
+
+    @staticmethod
+    def _rects_touch(a, b):
+        ax, ay, aw, ah = a
+        bx, by, bw, bh = b
+        return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
 
     def _tip(self, contour, centroid):
         """Upper end of an elongated pen (continuous orientation), else the centroid."""

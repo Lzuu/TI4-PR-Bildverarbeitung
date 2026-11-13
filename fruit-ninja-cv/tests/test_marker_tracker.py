@@ -146,3 +146,14 @@ def test_pen_mask_is_empty_without_a_pen():
     t = MarkerTracker()
     assert t.track(frame) is None
     assert t.pen_mask.shape == frame.shape[:2] and t.pen_mask.max() == 0
+
+
+def test_pen_mask_keeps_both_parts_of_a_pen_held_in_the_fist():
+    frame = _frame_with(PINK_BGR)                                   # pen from y=180 to y=360
+    cv2.rectangle(frame, (460, 250), (505, 280), (WALL, WALL, WALL), -1)   # the fist hides the middle
+    cv2.rectangle(frame, (100, 100), (130, 130), PINK_BGR, -1)      # pink cushion far away
+    t = MarkerTracker(point_mode="tip")
+    assert t.track(frame) is not None
+    assert t.pen_mask[320, 482] > 0                                 # larger part below the fist
+    assert t.pen_mask[215, 482] > 0                                 # smaller part above it
+    assert t.pen_mask[115, 115] == 0                                # the cushion stays out

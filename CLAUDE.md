@@ -20,7 +20,7 @@ Alle Befehle laufen in `fruit-ninja-cv/`.
 
 - Tests einer Datei, während der Arbeit: `python -m pytest tests/test_game.py`
 - Ein einzelner Test: `python -m pytest tests/test_game.py -k combo`
-- Alle Tests, vor dem Abschluss: `python -m pytest` (377 Tests, rund 5 s)
+- Alle Tests, vor dem Abschluss: `python -m pytest` (381 Tests, rund 5 s)
 - Hat `python` kein OpenCV (`ModuleNotFoundError: cv2`), die lokale Umgebung nehmen: `.venv\Scripts\python -m pytest` (macOS/Linux: `.venv/bin/python`). Fehlt sie: `python -m venv .venv`, dann `pip install -r requirements-dev.txt`.
 - GitHub: `gh issue view <nr>`, `gh pr create`. Das Spiel selbst (`python main.py`) braucht Kamera und Fenster und wird von Agenten nicht gestartet.
 

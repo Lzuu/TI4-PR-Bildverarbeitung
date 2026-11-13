@@ -18,11 +18,20 @@ import config
 import face_id
 from logging_config import setup_logging
 from main import open_camera
-from utils import draw_text
+from utils import draw_text, imwrite
 
 logger = logging.getLogger(__name__)
 
 CAPTURE_INTERVAL = 0.5           # seconds between two saved crops
+
+
+def save_crop(folder, crop, now):
+    """Write one face crop into ``folder`` (also with umlauts in the name). True if it was saved."""
+    path = os.path.join(folder, f"{int(now * 1000)}.png")
+    if imwrite(path, crop):
+        return True
+    logger.warning("Could not save %s", path)
+    return False
 
 
 def main():
@@ -50,8 +59,7 @@ def main():
             now = time.time()
             if len(faces) == 1 and now - last_save >= CAPTURE_INTERVAL:
                 crop = identifier.aligned_crop(frame, faces[0])
-                cv2.imwrite(os.path.join(folder, f"{int(now * 1000)}.png"), crop)
-                saved, last_save = saved + 1, now
+                saved, last_save = saved + save_crop(folder, crop, now), now
             for f in faces:
                 x, y, w, h = (int(v) for v in f[:4])
                 cv2.rectangle(frame, (x, y), (x + w, y + h), (80, 220, 80), 2)

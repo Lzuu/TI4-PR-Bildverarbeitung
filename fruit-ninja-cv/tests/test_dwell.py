@@ -71,11 +71,27 @@ def test_after_reset_with_require_exit_the_marker_must_leave_every_target_first(
     assert active == 0 and progress == 0.0 and confirmed is None
 
 
-def test_losing_the_marker_also_counts_as_leaving():
-    d = DwellTracker(3.0, time_fn=FakeClock())
+def test_a_marker_lost_for_a_while_counts_as_leaving():
+    clk = FakeClock()
+    d = DwellTracker(3.0, time_fn=clk, lost_unlock_seconds=0.5)
     d.reset(require_exit=True)
     d.update(None, TARGETS)
+    clk.t = 0.6
+    d.update(None, TARGETS)                                       # gone for more than 0.5 s
     assert d.update((100, 100), TARGETS)[0] == 0
+
+
+def test_a_short_dropout_of_the_detection_does_not_lift_the_lock():
+    clk = FakeClock()
+    d = DwellTracker(3.0, time_fn=clk, lost_unlock_seconds=0.5)
+    d.reset(require_exit=True)
+    d.update((100, 100), TARGETS)
+    clk.t = 0.1
+    d.update(None, TARGETS)                                       # one flickering frame
+    clk.t = 0.2
+    assert d.update((100, 100), TARGETS) == (None, 0.0, None)     # still resting there: ignored
+    clk.t = 5.0
+    assert d.update((100, 100), TARGETS) == (None, 0.0, None)
 
 
 def test_plain_reset_still_restarts_the_timer_on_the_same_target():

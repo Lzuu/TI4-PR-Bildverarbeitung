@@ -13,6 +13,7 @@ Every failure is a ``RuntimeError``; the callers switch the feature off with one
 """
 
 import hashlib
+import http.client
 import logging
 import os
 import urllib.request
@@ -48,7 +49,7 @@ def download_verified(url, path, sha256, timeout, max_bytes=None):
         if digest.hexdigest() != sha256:
             raise RuntimeError(f"Download von {name} ist beschaedigt (Hash stimmt nicht)")
         os.replace(part, path)
-    except OSError as exc:                     # incl. TimeoutError and URLError
+    except (OSError, http.client.HTTPException) as exc:   # timeout, URLError, dropped connection
         raise RuntimeError(f"Download von {name} fehlgeschlagen: {exc}") from exc
     finally:
         if os.path.exists(part):

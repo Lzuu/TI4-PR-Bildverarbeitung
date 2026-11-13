@@ -461,13 +461,17 @@ Kamera ─► main (Loop, States, Input)
   Offen: Der prozedurale Anzug ist auf diesem Gerät der größte Einzelposten.
 
 - **Fehlerbehebung aus dem Code-Review #55 (CR-11 bis CR-19, 12.11.2026).** Jeder Fehler
-  wurde zuerst als Test nachgestellt (rot) und dann behoben; 32 neue Tests.
+  wurde zuerst als Test nachgestellt (rot) und dann behoben; 36 neue Tests. Ein Review des
+  Pull Requests #76 ergab drei Nachbesserungen, die unten mit „Nachtrag“ markiert sind.
   - **CR-11 (#63) Bildschirmwechsel.** `DwellTracker.reset(require_exit=True)`: Nach einem
     Wechsel zählt ein Ziel erst, wenn der Stift alle Ziele einmal verlassen hat (oder
     verloren ging). „Startmenue“ und „Quit“ liegen an derselben Stelle, „Start“ im Kreis
     „Mittel“; das Layout zu verschieben hätte das Problem bei der nächsten Änderung wieder
     erzeugt. Die Tastenwiederholung der Namenseingabe (`key_dwell.reset()` nach einer Taste)
-    bleibt bewusst ohne Sperre, sonst ginge kein Doppelbuchstabe mehr.
+    bleibt bewusst ohne Sperre, sonst ginge kein Doppelbuchstabe mehr. Nachtrag: Ein
+    verlorener Stift hebt die Sperre erst nach 0,5 s auf (`lost_unlock_seconds`); ein
+    einzelner Aussetzer der Erkennung würde sie sonst lösen, während der Stift auf dem Ziel
+    ruht.
   - **CR-12 (#64) Bombe im selben Schwung.** `_handle_slicing` zählt die vor der Bombe
     geschnittenen Früchte zur Kombo, bevor das Spiel endet; danach läuft in diesem Frame
     keine Physik mehr (kein Leben, kein „miss“-Ton nach Game Over).
@@ -475,7 +479,8 @@ Kamera ─► main (Loop, States, Input)
     Pfaden wie `faces/Jürgen`. `utils.imread/imwrite` gehen über `imencode/imdecode` und
     normale Dateizugriffe. `FaceIdentifier.enroll` liefert `Enrolled(added, saved)`; der
     Spieler bleibt in der Sitzung nutzbar, schlägt das Speichern fehl, wird das geloggt und
-    im Menü angezeigt. Offen: `cv2.dnn.readNetFromONNX` und die Sprite-/Hintergrundbilder
+    im Menü angezeigt. Nachtrag: Auch `enroll.py` speichert über `utils.imwrite` und zählt
+    nur tatsächlich geschriebene Bilder. Offen: `cv2.dnn.readNetFromONNX` und die Sprite-/Hintergrundbilder
     lesen Pfade mit Umlaut weiterhin über OpenCV direkt (Repo unter einem Benutzerpfad mit
     Umlaut).
   - **CR-14 (#66) Lichtschwert.** Beim Wechsel vom Handschuh zur Hautsuche wird die Klingenlänge
@@ -483,7 +488,8 @@ Kamera ─► main (Loop, States, Input)
   - **CR-15 (#67) Modell-Download.** Ein Pfad für alle drei Modelle: `model_download.py`
     (Timeout, Hash beim Schreiben der `.part`-Datei, erst bei passendem Hash an den Endnamen
     verschoben, Größenlimit). Eine beschädigte Datei aus einem früheren Lauf wird bei erlaubtem
-    Download ersetzt; ohne Download bleibt sie unangetastet und wird gemeldet.
+    Download ersetzt; ohne Download bleibt sie unangetastet und wird gemeldet. Auch ein
+    Verbindungsabbruch (`http.client.HTTPException`) endet als `RuntimeError`.
     `MODEL_DOWNLOAD_TIMEOUT = 20` gilt auch für Gesichts- und Posemodelle. Damit ist auch
     CR-21 erledigt.
   - **CR-16 (#68) Dateipfade.** `config.BASE_DIR` (Programmordner); `settings.json`,
@@ -502,7 +508,9 @@ Kamera ─► main (Loop, States, Input)
   - **CR-19 (#71) Stiftmaske.** `MarkerTracker.pen_mask` enthält nur die Kontur, die als Stift
     gewählt wurde; der Anzug schont nur sie. `last_mask` bleibt die Maske aller
     stiftfarbenen Pixel für die Debug-Ansicht (Taste `d`). Ein pinkes Kissen im Raum scheint
-    damit nicht mehr durch den Weltraum.
+    damit nicht mehr durch den Weltraum. Nachtrag: Stiftfarbene Flächen direkt neben der
+    gewählten Kontur (halbe Stiftlänge Abstand) gehören mit zur Maske, sonst würde der Anzug
+    den Teil des Stifts überdecken, den die Faust vom Rest trennt.
 - **Agent-Wartezeit: Short-Video-Fenster per Hook (#48, `fruit-ninja-cv/tools/doomscroll/`).**
   Kein Teil des Spiels. Claude-Code-Hooks (`UserPromptSubmit` öffnet, `Stop`,
   `StopFailure`, `SessionEnd` schließen) rufen ein Skript je System auf: `doomscroll.ps1`
@@ -575,7 +583,7 @@ Geprüft am Code des Stands 93621a2, nicht an einer Live-Vorführung.
 | Robustheit ohne aufwendige Kalibrierung | erfüllt | feste Farbbereiche, keine Kalibrierung; der Modus „Normal“ braucht ein Referenzbild (Taste `b`) |
 | Schnittspur anzeigen | erfüllt | `Blade.draw`, Lichtschwert |
 | Debug-Fenster mit Kamerabild und Stiftposition | teilweise | Taste `d` zeigt nur die Farbmaske, nicht das Kamerabild mit markierter Position |
-| Testcase-basiert, alle Tests auf GitHub | erfüllt | 377 Tests in `fruit-ninja-cv/tests/`, CI bei jedem Pull Request |
+| Testcase-basiert, alle Tests auf GitHub | erfüllt | 381 Tests in `fruit-ninja-cv/tests/`, CI bei jedem Pull Request |
 | Inkrementell-iterativ, über GitHub abgebildet | erfüllt | Issues #1 bis #74, Pull Requests |
 | Architekturentscheidungen in `Architektur.md` | erfüllt | diese Datei |
 | Logfiles zum Debuggen | erfüllt | `logging_config.py`, `logs/fruit-ninja.log` |

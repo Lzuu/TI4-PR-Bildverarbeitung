@@ -375,3 +375,12 @@ def test_name_problem_refuses_the_guest_name_and_taken_names():
     assert face_id.name_problem("anna", ["Anna"])           # Windows folders ignore the case
     assert face_id.name_problem("Ben", ["Anna"]) is None
     assert face_id.name_problem("", ["Anna"]) is None       # empty: a free number is chosen
+
+
+def test_the_enrol_script_saves_crops_for_a_name_with_umlaut(tmp_path):
+    import enroll
+    folder = tmp_path / "Jürgen"
+    folder.mkdir()
+    assert enroll.save_crop(str(folder), CROP, now=12.345)
+    assert [p.name for p in folder.iterdir()] == ["12345.png"]
+    assert not enroll.save_crop(str(tmp_path / "fehlt"), CROP, now=1.0)   # reported, not counted
