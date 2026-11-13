@@ -27,6 +27,7 @@ import sys
 import time
 
 import cv2
+import numpy as np
 
 import config
 import background
@@ -197,6 +198,7 @@ def pen_for_mode(pen, bg_mode):
 
 
 PEN_HINT = "Gruener Stift geht nicht mit Greenscreen"
+NOT_SAVED_HINT = "Gesicht konnte nicht gespeichert werden"
 
 
 def handle_background_click(click, mode, w, h):
@@ -432,8 +434,9 @@ def draw_face_scan(frame, circle, box, inside, progress, greeting, guest_t,
     _draw_pen_marker(frame, point)
 
 
-def draw_name_entry(frame, targets, entry, active, progress, point, color):
-    """On-screen keyboard: dwell on a key to type, OK to confirm."""
+def draw_name_entry(frame, targets, entry, active, progress, point, color, message=None):
+    """On-screen keyboard: dwell on a key to type, OK to confirm. ``message``: why the
+    typed name was refused (shown in red)."""
     _dim(frame, 0.6)
     h, w = frame.shape[:2]
     draw_text(frame, "Neuer Spieler - Name eingeben", (w // 2, int(h * 0.08)), scale=1.0,
@@ -442,6 +445,9 @@ def draw_name_entry(frame, targets, entry, active, progress, point, color):
               color=(0, 215, 255), thickness=3, center=True)
     draw_text(frame, f"Stift {config.KEYBOARD_DWELL_SECONDS:g}s auf eine Taste halten  -  "
               f"leer lassen = Spieler-Nummer", (w // 2, int(h * 0.27)), scale=0.55, center=True)
+    if message:
+        draw_text(frame, message, (w // 2, int(h * 0.32)), scale=0.7, color=(80, 80, 255),
+                  center=True)
     for i, (cx, cy, r) in enumerate(targets):
         key = keyboard.KEYS[i]
         on = i == active
@@ -463,6 +469,16 @@ def draw_mask_inset(frame, mask):
     frame[y0:y0 + ih, x0:x0 + iw] = small
     cv2.rectangle(frame, (x0, y0), (x0 + iw, y0 + ih), (255, 255, 255), 1)
     draw_text(frame, "Maske", (x0 + _s(4), y0 + ih - _s(8)), scale=0.5)
+
+
+def draw_no_camera():
+    """Black screen with a notice while no camera is left (#69)."""
+    canvas = np.zeros((config.HEIGHT, config.WIDTH, 3), np.uint8)
+    draw_text(canvas, "Kamera nicht verfuegbar - neuer Versuch ...",
+              (config.WIDTH // 2, config.HEIGHT // 2), scale=0.9, center=True)
+    draw_text(canvas, "Taste q: Beenden", (config.WIDTH // 2, int(config.HEIGHT * 0.58)),
+              scale=0.6, color=(200, 200, 200), center=True)
+    return canvas
 
 
 GAME_OVER_LABELS = ["Neustart", "Startmenue", "Quit"]
@@ -561,6 +577,8 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
     camera_open = False
     previews = dict(previews or {})  # thumbnails of the cameras found at startup
     frame_failures = 0
+    next_reopen, no_camera_since = 0.0, None   # while no camera is left (#69)
+    name_message, name_message_until = None, 0.0   # why the typed name was refused (#70)
     click = [None]
     stats = perf.FrameStats(interval=config.PERF_LOG_INTERVAL, csv_path=config.PERF_CSV)
     show_perf = False
@@ -610,6 +628,28 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
         if not ok:
             stats.count("read_fail")
             frame_failures += 1
+            if not cap.is_open:
+                # No camera at all (a switch and its rollback failed): try to open one again
+                # at intervals instead of counting failed reads up to the abort (#69).
+                now = time.monotonic()
+                if no_camera_since is None:
+                    no_camera_since = now
+                    logger.warning("No camera -- trying to open one every %.1f s",
+                                   config.CAMERA_REOPEN_INTERVAL)
+                if now >= next_reopen:
+                    next_reopen = now + config.CAMERA_REOPEN_INTERVAL
+                    if cap.reopen():
+                        logger.info("Camera is back (index %s)", cap.index)
+                        no_camera_since, frame_failures = None, 0
+                        continue
+                if now - no_camera_since >= config.CAMERA_LOST_TIMEOUT:
+                    logger.error("No camera for %.0f s -- aborting", now - no_camera_since)
+                    print("ERROR: Lost camera feed.", file=sys.stderr)
+                    break
+                cv2.imshow(config.WINDOW_NAME, draw_no_camera())
+                if cv2.waitKey(100) & 0xFF == ord("q"):
+                    break
+                continue
             if frame_failures >= config.MAX_FRAME_FAILURES:
                 logger.error("Lost camera after %d consecutive failed reads -- aborting",
                              frame_failures)
@@ -631,7 +671,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
         # drawing alike -- no stale mask from the previous frame (#41, CR-06)
         with stats.stage("track"):
             point = tracker.track(clean)
-        pen_mask = tracker.last_mask
+        pen_mask = tracker.pen_mask          # only the pen, not other objects of its colour
 
         # One face detection per frame, shared by suit, saber and the player scan
         # (#42, PERF-05). In FACE_SCAN the scan's own detection (with recognition)
@@ -783,13 +823,13 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                 draw_camera_panel(frame, cam_tiles, available, cap.index, previews)
             if confirmed == 0:              # Start
                 logger.info("Start (colour %s, player %s)", pen_color.name, player)
-                dwell.reset()
+                dwell.reset(require_exit=True)
                 state = STATE_DIFFICULTY
             elif confirmed == 1:            # Quit
                 quit_requested = True
             elif confirmed == 2:            # Spieler wechseln
                 logger.info("Switch player")
-                dwell.reset()
+                dwell.reset(require_exit=True)
                 scanner.reset()
                 greet_until = None
                 state = STATE_FACE_SCAN
@@ -821,7 +861,8 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                 elif result is not None:
                     new_crops = result[1]
                     entry = keyboard.NameEntry()
-                    key_dwell.reset()
+                    name_message, name_message_until = None, 0.0
+                    key_dwell.reset(require_exit=True)
                     typed_key = None
                     logger.info("New face recorded (%d crops) -- asking for the name",
                                 len(new_crops))
@@ -838,7 +879,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                                                           len(available)),
                                       available, cap.index, previews)
                 if greet_until is not None and time.time() >= greet_until:
-                    dwell.reset()
+                    dwell.reset(require_exit=True)
                     state = STATE_MENU
 
         elif state == STATE_NAME_ENTRY:
@@ -849,16 +890,26 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
             if confirmed is not None:
                 pressed = keyboard.KEYS[confirmed]
                 key_dwell.reset()        # hold again to repeat the same key
-            if pressed is not None and entry.press(pressed):
+            name_confirmed = pressed is not None and entry.press(pressed)
+            if name_confirmed:
+                problem = face_id.name_problem(entry.result(), identifier.persons)
+                if problem:                  # "Gast" or taken: stay here and say why (#70)
+                    logger.info("Name %r refused: %s", entry.result(), problem)
+                    name_message, name_message_until = problem, time.time() + 3.0
+                    name_confirmed = False
+            if name_confirmed:
                 player = entry.result() or face_id.default_player_name(identifier.persons)
-                identifier.enroll(faces_dir, player, new_crops)
+                enrolled = identifier.enroll(faces_dir, player, new_crops)
+                if enrolled.saved < enrolled.added:      # e.g. folder not writable (#65)
+                    hint_text, hint_until = NOT_SAVED_HINT, time.time() + 4.0
                 new_crops = []
                 scanner.reset()
                 greet_until = time.time() + config.FACE_GREETING_SECONDS
                 state = STATE_FACE_SCAN  # shows the greeting, then the menu
             else:
                 draw_name_entry(frame, k_targets, entry, active, progress, point,
-                                pen_color.display)
+                                pen_color.display,
+                                name_message if time.time() < name_message_until else None)
 
         elif state == STATE_DIFFICULTY:
             d_targets = row_targets(config.WIDTH, config.HEIGHT, len(LEVELS))
@@ -875,7 +926,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                     sounds.play("combo")
                     logger.info("Difficulty selected: %s", difficulty.name)
                     blade.reset()
-                    dwell.reset()
+                    dwell.reset(require_exit=True)
                     state = STATE_PLAY
 
         elif state == STATE_PLAY:
@@ -892,7 +943,7 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                 sounds.play("over")
                 logger.info("Game over -- %s, %s scored %d (rank: %s)",
                             game.difficulty.name, player, game.score, rank)
-                dwell.reset()
+                dwell.reset(require_exit=True)
                 state = STATE_GAME_OVER
 
         elif state == STATE_GAME_OVER:
@@ -907,12 +958,12 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                 game.reset()
                 blade.reset()
                 rank = None
-                dwell.reset()
+                dwell.reset(require_exit=True)
                 state = STATE_PLAY
             elif confirmed == 1:            # Startmenue
                 logger.info("Back to start menu")
                 rank = None
-                dwell.reset()
+                dwell.reset(require_exit=True)
                 state = STATE_MENU
             elif confirmed == 2:            # Quit
                 quit_requested = True

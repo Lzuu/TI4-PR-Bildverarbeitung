@@ -269,3 +269,23 @@ def test_switch_failure_with_working_rollback_keeps_running():
     cam.open_first([0])
     assert not cam.switch(5)
     assert cam.is_open and cam.index == 0 and cam.read()[0]
+
+
+# -- CR-17 (#69): a lost camera can be opened again --------------------------
+def test_reopen_brings_a_lost_camera_back():
+    opener = VanishingOpener({0: frame()})
+    cam = cameras.Camera(opener)
+    assert cam.open_first([0])
+    assert not cam.switch(1)                          # 1 missing, 0 gone too
+    assert not cam.is_open
+    assert not cam.reopen()                           # still unplugged
+    opener.cams[0] = frame()                          # plugged in again
+    assert cam.reopen()
+    assert cam.is_open and cam.index == 0 and cam.read()[0]
+
+
+def test_reopen_of_a_working_camera_changes_nothing():
+    cam = cameras.Camera(FakeOpener({0: frame()}))
+    cam.open_first([0])
+    old = cam.cap
+    assert cam.reopen() and cam.cap is old

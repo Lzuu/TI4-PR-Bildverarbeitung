@@ -6,16 +6,15 @@ or network request in the frame loop.
 Model layout: OpenCV Zoo pose_estimation_mediapipe (Apache-2.0).
 """
 from dataclasses import dataclass
-import hashlib
 import logging
 from pathlib import Path
 import time
-import urllib.request
 
 import cv2
 import numpy as np
 
 import config
+import model_download
 
 logger = logging.getLogger(__name__)
 MODEL_NAME = 'pose_estimation_mediapipe_2023mar.onnx'
@@ -31,29 +30,11 @@ DETECTOR_URL = ('https://media.githubusercontent.com/media/opencv/opencv_zoo/mai
 
 def ensure_model(model_dir=MODEL_DIR, download=True, kind='landmarks'):
     """Bounded, verified, atomic first-use installation, never from update()."""
-    folder = Path(model_dir)
-    folder.mkdir(parents=True, exist_ok=True)
     name,expected,url = ((DETECTOR_NAME,DETECTOR_SHA256,DETECTOR_URL)
                          if kind=='detector' else (MODEL_NAME,MODEL_SHA256,MODEL_URL))
-    path = folder / name
-    if path.exists():
-        if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
-            raise RuntimeError('Pose model hash mismatch: ' + str(path))
-        return str(path)
-    if not download:
-        raise RuntimeError('Pose model missing; run python tools/prepare_suit.py')
-    temp = path.with_suffix('.onnx.part')
-    try:
-        logger.info('Downloading pose model (%s)', name)
-        with urllib.request.urlopen(url, timeout=20) as response:
-            content = response.read(16 * 1024 * 1024 + 1)
-        if hashlib.sha256(content).hexdigest() != expected:
-            raise RuntimeError('Downloaded pose model hash mismatch')
-        temp.write_bytes(content)
-        temp.replace(path)
-    finally:
-        temp.unlink(missing_ok=True)
-    return str(path)
+    return model_download.ensure_file(str(Path(model_dir) / name), url, expected,
+                                      download=download, max_bytes=16 * 1024 * 1024,
+                                      missing_hint='; run python tools/prepare_suit.py')
 
 
 @dataclass

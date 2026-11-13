@@ -334,3 +334,11 @@ def test_hand_source_is_logged_once_per_lasting_change_not_per_frame(caplog):
             t.update(POINT, no_skin, hands={} if i % 2 else {"r": GRIP})
     lines = [r.getMessage() for r in caplog.records if r.name == "lightsaber"]
     assert len(lines) == 1 and "glove" in lines[0]
+
+
+# -- CR-14 (#66): the blade never collapses when the glove is lost -------------
+def test_blade_keeps_the_minimum_length_when_the_glove_is_lost():
+    t = _tracker(min_blade=80, max_blade=200)
+    t.update(POINT, None, hands={"r": (300, 170)})                 # palm 20 px below the tip
+    s = t.update(POINT, np.zeros((500, 600), np.uint8), hands={})  # glove gone, no skin either
+    assert math.dist(s.tip, s.hilt_top) >= 80

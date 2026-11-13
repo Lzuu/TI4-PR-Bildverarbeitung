@@ -343,3 +343,44 @@ def test_short_detection_dropout_is_tolerated():
     clock.t = 0.4
     scan.update(True, face_id.GUEST, _crop(10))
     assert len(scan.crops) == 2                          # still the same session
+
+
+# -- CR-13 (#65): players with umlauts are saved, a failing save does not crash ----
+def test_a_player_with_umlaut_is_saved_and_loaded_again(identifier, tmp_path):
+    portrait = _img("armstrong_portrait.jpg")
+    crop = identifier.aligned_crop(portrait, identifier.detect(portrait)[0])
+    result = identifier.enroll(str(tmp_path), "Jürgen", [crop, crop])
+    assert result.added == 2 and result.saved == 2
+    assert len(list((tmp_path / "Jürgen").glob("*.png"))) == 2
+    fresh = face_id.FaceIdentifier(*identifier.model_paths)
+    assert fresh.load_gallery(str(tmp_path)) == 1
+    assert fresh.persons == ["Jürgen"]
+
+
+def test_a_folder_that_cannot_be_created_is_reported_not_raised(identifier, tmp_path):
+    portrait = _img("armstrong_portrait.jpg")
+    crop = identifier.aligned_crop(portrait, identifier.detect(portrait)[0])
+    blocked = tmp_path / "faces"
+    blocked.write_text("a file, not a folder")
+    result = identifier.enroll(str(blocked), "Neil", [crop])
+    assert result.added == 1 and result.saved == 0
+    assert identifier.persons == ["Neil"]                  # still usable in this session
+
+
+# -- CR-18 (#70): reserved and taken names are refused -----------------------
+def test_name_problem_refuses_the_guest_name_and_taken_names():
+    assert face_id.name_problem("Gast", [])
+    assert face_id.name_problem("gast", [])
+    assert face_id.name_problem("Anna", ["Anna"])
+    assert face_id.name_problem("anna", ["Anna"])           # Windows folders ignore the case
+    assert face_id.name_problem("Ben", ["Anna"]) is None
+    assert face_id.name_problem("", ["Anna"]) is None       # empty: a free number is chosen
+
+
+def test_the_enrol_script_saves_crops_for_a_name_with_umlaut(tmp_path):
+    import enroll
+    folder = tmp_path / "Jürgen"
+    folder.mkdir()
+    assert enroll.save_crop(str(folder), CROP, now=12.345)
+    assert [p.name for p in folder.iterdir()] == ["12345.png"]
+    assert not enroll.save_crop(str(tmp_path / "fehlt"), CROP, now=1.0)   # reported, not counted

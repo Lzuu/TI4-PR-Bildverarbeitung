@@ -186,12 +186,15 @@ class SaberTracker:
         angle = math.atan2(dx, dy)
         return (angle, math.hypot(dx, dy)) if abs(angle) <= MAX_TILT else None
 
+    def _min_blade(self):
+        return self.min_blade if self.min_blade is not None else 60 * config.SCALE
+
+    def _max_blade(self):
+        return self.max_blade if self.max_blade is not None else 320 * config.SCALE
+
     def _adapt_length(self, hand_dist, hilt):
         """Let the blade grow/shrink slowly so the hilt centre ends up on the hand."""
-        s = config.SCALE
-        lo = self.min_blade if self.min_blade is not None else 60 * s
-        hi = self.max_blade if self.max_blade is not None else 320 * s
-        wanted = min(max(hand_dist - hilt / 2, lo), hi)
+        wanted = min(max(hand_dist - hilt / 2, self._min_blade()), self._max_blade())
         self.length += (wanted - self.length) * self.adapt_rate
 
     def _glove(self, tip, hands):
@@ -228,7 +231,8 @@ class SaberTracker:
         dist = math.hypot(dx, dy)
         if dist >= 1:                                # any tilt: the pose knows the hand
             self.angle = math.atan2(dx, dy)
-        self.length = max(dist - hilt / 2, 0.0)      # kept for a smooth skin fallback
+        # kept for a smooth skin fallback, and never shorter than the blade may be (#66)
+        self.length = min(max(dist - hilt / 2, self._min_blade()), self._max_blade())
         self._pending = self._missing = 0
         d = (math.sin(self.angle), math.cos(self.angle))
         half = hilt / 2

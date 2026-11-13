@@ -9,7 +9,9 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 
-LOG_DIR = "logs"
+import config
+
+LOG_DIR = os.path.join(config.BASE_DIR, "logs")   # not the working directory (#68)
 LOG_FILE = "fruit-ninja.log"
 
 

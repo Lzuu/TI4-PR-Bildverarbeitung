@@ -20,7 +20,7 @@ Alle Befehle laufen in `fruit-ninja-cv/`.
 
 - Tests einer Datei, während der Arbeit: `python -m pytest tests/test_game.py`
 - Ein einzelner Test: `python -m pytest tests/test_game.py -k combo`
-- Alle Tests, vor dem Abschluss: `python -m pytest` (345 Tests, rund 5 s)
+- Alle Tests, vor dem Abschluss: `python -m pytest` (381 Tests, rund 5 s)
 - Hat `python` kein OpenCV (`ModuleNotFoundError: cv2`), die lokale Umgebung nehmen: `.venv\Scripts\python -m pytest` (macOS/Linux: `.venv/bin/python`). Fehlt sie: `python -m venv .venv`, dann `pip install -r requirements-dev.txt`.
 - GitHub: `gh issue view <nr>`, `gh pr create`. Das Spiel selbst (`python main.py`) braucht Kamera und Fenster und wird von Agenten nicht gestartet.
 
@@ -38,14 +38,15 @@ Alle Befehle laufen in `fruit-ninja-cv/`.
 | `config.py` | alle Konstanten | keine eigenen |
 | `game.py`, `fruit.py`, `blade.py` | Spiellogik, Wurfphysik, Klinge | `test_game.py`, `test_fruit.py`, `test_blade.py` |
 | `difficulty.py`, `colors.py`, `dwell.py`, `keyboard.py`, `highscore.py`, `heart.py` | Presets, Stiftfarben, Dwell-Auswahl, Bildschirmtastatur, Bestenliste, Herz-Sprite | gleichnamige `test_*.py` |
-| `utils.py` | `point_segment_distance`, `draw_text` | `test_geometry.py` |
+| `utils.py` | `point_segment_distance`, `draw_text`, `imread`/`imwrite` (Pfade mit Umlaut) | `test_geometry.py`, `test_image_io.py` |
 | `marker_tracker.py` | Stift per HSV finden, Spitze bestimmen | `test_marker_tracker.py` |
 | `background.py` | Spielermaske (Greenscreen, Referenzbild), Weltraum-Compositing | `test_background.py` |
 | `yolo_seg.py` | Personenmaske per YOLO, lädt erst bei Bedarf | `test_yolo_seg.py` |
 | `pose_tracking.py` | BlazePose-Gelenke, optischer Fluss | `test_pose_tracking.py`, `test_pose_models.py` |
 | `suit.py`, `suit_rig.py` | Raumanzug: Stoff, Sprites, Helm | `test_suit.py`, `test_suit_rig.py` |
 | `lightsaber.py` | Lichtschwert am Stift, Griff am Handschuh | `test_lightsaber.py` |
-| `face_id.py`, `enroll.py` | Spieler per Gesicht erkennen und einlernen | `test_face_id.py` |
+| `face_id.py`, `enroll.py` | Spieler per Gesicht erkennen und einlernen, Namen prüfen | `test_face_id.py` |
+| `model_download.py` | Download der ONNX-Modelle mit Timeout und Hashprüfung (face, yolo, pose) | `test_model_download.py` |
 | `cameras.py` | Kameras suchen, öffnen, wechseln; `settings.json` | `test_cameras.py` |
 | `perf.py` | Stufenzeiten pro Frame (Taste `p`) | `test_perf.py` |
 | `sound.py`, `logging_config.py` | Töne (nur macOS), Logging | keine |
@@ -70,4 +71,4 @@ Ein Zustand steht jeweils in einem Block `elif state == STATE_...`; nach dem Zus
 - Größen in Pixeln mit `config.SCALE` multiplizieren (`_s()` in `main.py`).
 - YOLO- und Anzug-Zwischenstände gehören zu einer Quelle `(Kameraindex, mode_session)`; eine neue Quelle verwirft sie.
 - Ein Fehler in einem optionalen Feature (YOLO, Pose, Gesicht, Ton) schaltet das Feature ab und wird einmal geloggt; das Spiel läuft weiter.
-- Offene Review-Punkte: je Arbeitspaket ein Issue, #56 bis #62 (Performance) und #63 bis #74 (Fehler, Aufräumen); Übersicht in #54 und #55. Was gegenüber der Aufgabenstellung fehlt, steht in `Architektur.md` unter „Abgleich mit der Aufgabenstellung“.
+- Offene Review-Punkte: je Arbeitspaket ein Issue, #56 bis #62 (Performance) und #72 bis #74 (Aufräumen); die Fehler #63 bis #71 sind behoben; Übersicht in #54 und #55. Was gegenüber der Aufgabenstellung fehlt, steht in `Architektur.md` unter „Abgleich mit der Aufgabenstellung“.

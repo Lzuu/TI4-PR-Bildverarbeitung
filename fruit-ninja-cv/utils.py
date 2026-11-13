@@ -1,10 +1,34 @@
-"""Small reusable helpers: geometry for collision and text drawing."""
+"""Small reusable helpers: geometry for collision, text drawing, image files."""
 
 import math
+import os
 
 import cv2
+import numpy as np
 
 import config
+
+
+def imread(path, flags=cv2.IMREAD_COLOR):
+    """``cv2.imread`` that also reads paths with non-ASCII characters (it fails on them
+    under Windows, e.g. ``faces/Jürgen``). Returns None if the file is missing or no image."""
+    try:
+        data = np.fromfile(path, np.uint8)
+    except OSError:
+        return None
+    return cv2.imdecode(data, flags) if data.size else None
+
+
+def imwrite(path, img):
+    """``cv2.imwrite`` for non-ASCII paths. Returns True only if the file was written."""
+    ok, buffer = cv2.imencode(os.path.splitext(path)[1] or ".png", img)
+    if not ok:
+        return False
+    try:
+        buffer.tofile(path)
+    except OSError:
+        return False
+    return True
 
 
 def point_segment_distance(p, a, b):

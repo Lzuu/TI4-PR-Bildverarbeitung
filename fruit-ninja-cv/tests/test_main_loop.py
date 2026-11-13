@@ -360,3 +360,200 @@ def test_a_glove_from_an_earlier_frame_is_never_used(monkeypatch, tmp_path):
     drawn = [s for s in sabers if s is not None]
     assert drawn and skins                                   # "off": no suit, skin fallback
     assert all(_hilt_offset(s, GLOVE) > 10 for s in drawn)
+
+
+# -- CR-11 (#63): after a screen change the pen must leave the targets before a dwell counts
+from dwell import DwellTracker
+import face_id
+
+
+def _fake_dwell_clock(monkeypatch, step=0.1):
+    """Dwell timing on a fake clock that advances ``step`` seconds per frame."""
+    clock = [0.0]
+    monkeypatch.setattr(m, "DwellTracker",
+                        lambda hold: DwellTracker(hold, time_fn=lambda: clock[0]))
+
+    def tick(n, mouse):
+        clock[0] += step
+    return tick
+
+
+def _pen_at_tip(x, y):
+    """Frame with the pen tip (the upper end of the pen) at (x, y)."""
+    return with_pen(green_frame(), x, y + 30)
+
+
+def test_holding_still_after_start_does_not_pick_a_difficulty(monkeypatch, tmp_path):
+    W, H = m.config.WIDTH, m.config.HEIGHT
+    sx, sy, _ = m.menu_start_target(W, H)            # lies inside the "Mittel" circle
+    tick = _fake_dwell_clock(monkeypatch)
+    created, screens = [], []
+    real_game, real_screen = m.Game, m.draw_difficulty_screen
+    monkeypatch.setattr(m, "Game", lambda *a, **k: created.append(1) or real_game(*a, **k))
+    monkeypatch.setattr(m, "draw_difficulty_screen",
+                        lambda *a, **k: screens.append(1) or real_screen(*a, **k))
+    run_loop(monkeypatch, tmp_path, FakeCamera([_pen_at_tip(sx, sy)]), 40, on_frame=tick,
+             BG_MODE="off", SUIT_ENABLED=False, SABER_ENABLED=False, DWELL_SECONDS=1.0)
+    assert screens                                   # Start was confirmed, the next screen came up
+    assert created == []                             # holding still did not start a game
+
+
+class _EndedGame:
+    """A run that is over at once, so the game-over screen comes up without playing."""
+    game_over = True
+    score = 0
+
+    def __init__(self, width, height, difficulty, sounds):
+        self.difficulty = difficulty
+
+    def update(self, blade, dt):
+        pass
+
+    def draw(self, frame):
+        pass
+
+    def draw_hud(self, frame):
+        pass
+
+    def draw_combo(self, frame):
+        pass
+
+    def reset(self):
+        pass
+
+
+def test_holding_still_after_startmenue_does_not_quit(monkeypatch, tmp_path):
+    W, H = m.config.WIDTH, m.config.HEIGHT
+    mx, my, _ = m.row_targets(W, H, 3)[1]                          # "Mittel"
+    gx, gy, _ = m.row_targets(W, H, 3, y_frac=0.80, r=50)[1]       # "Startmenue"
+    assert (gx, gy) == m.quit_target(W, H)[:2]                     # the same spot as the menu's Quit
+    tick = _fake_dwell_clock(monkeypatch)
+    monkeypatch.setattr(m, "initial_state", lambda identifier: m.STATE_DIFFICULTY)
+    monkeypatch.setattr(m, "Game", _EndedGame)
+    menus = []
+    real_menu = m.draw_menu
+    monkeypatch.setattr(m, "draw_menu", lambda *a, **k: menus.append(1) or real_menu(*a, **k))
+    frames = [_pen_at_tip(mx, my)] * 14 + [_pen_at_tip(gx, gy)]
+    ran = run_loop(monkeypatch, tmp_path, FakeCamera(frames), 60, on_frame=tick,
+                   BG_MODE="off", SUIT_ENABLED=False, SABER_ENABLED=False, DWELL_SECONDS=1.0)
+    assert menus                                     # the dwell on "Startmenue" opened the menu
+    assert ran == 60                                 # the resting pen did not confirm "Quit"
+
+
+# -- CR-17 (#69): a lost camera is opened again instead of ending the game ---
+class _LostCamera(FakeCamera):
+    """No camera is left (a switch and its rollback failed); reopen() works after a few tries."""
+
+    def __init__(self, frames, back_after_tries=None):
+        super().__init__(frames)
+        self.is_open = False
+        self.back_after = back_after_tries
+        self.reopen_calls = 0
+
+    def read(self):
+        return super().read() if self.is_open else (False, None)
+
+    def reopen(self):
+        self.reopen_calls += 1
+        if self.back_after is not None and self.reopen_calls >= self.back_after:
+            self.is_open = True
+        return self.is_open
+
+
+def test_a_lost_camera_is_reopened_instead_of_ending_the_game(monkeypatch, tmp_path):
+    camera = _LostCamera([green_frame()], back_after_tries=3)
+    ran = run_loop(monkeypatch, tmp_path, camera, 12, BG_MODE="off", MAX_FRAME_FAILURES=3,
+                   CAMERA_REOPEN_INTERVAL=0.0, CAMERA_LOST_TIMEOUT=60.0)
+    assert ran == 12                                 # kept running until 'q'
+    assert camera.reopen_calls == 3 and camera.good_reads > 0
+
+
+def test_a_camera_that_never_comes_back_ends_the_game_after_the_timeout(monkeypatch, tmp_path):
+    camera = _LostCamera([green_frame()])
+    ran = run_loop(monkeypatch, tmp_path, camera, 50, BG_MODE="off",
+                   CAMERA_REOPEN_INTERVAL=0.0, CAMERA_LOST_TIMEOUT=0.0)
+    assert ran < 50 and camera.reopen_calls >= 1
+
+
+# -- CR-18 (#70) / CR-13 (#65): name entry ------------------------------------
+class _Stop(Exception):
+    pass
+
+
+class _NamingIdentifier:
+    """Stands in for FaceIdentifier during the name entry: persons, scan and enroll."""
+
+    def __init__(self, persons=(), enrolled=None):
+        self.persons = list(persons)
+        self.enroll_calls = []
+        self._enrolled = enrolled
+
+    def scan(self, frame):
+        return None, 0.0, None, None
+
+    def largest_face_box(self, frame, width=320):
+        return None
+
+    def enroll(self, faces_dir, name, crops):
+        self.enroll_calls.append(name)
+        return self._enrolled or face_id.Enrolled(len(crops), len(crops))
+
+
+def _name_entry_loop(monkeypatch, tmp_path, identifier, text, frames=12):
+    """Type ``text`` + Enter on the physical keyboard in the name entry; returns all drawn texts."""
+    monkeypatch.setattr(m, "initial_state", lambda ident: m.STATE_NAME_ENTRY)
+    texts = []
+    real = m.draw_text
+    monkeypatch.setattr(m, "draw_text",
+                        lambda frame, t, *a, **k: texts.append(t) or real(frame, t, *a, **k))
+    keys = {i + 1: ord(c) for i, c in enumerate(text)}
+    keys[len(text) + 1] = 13                         # Enter
+
+    def stop_after(n, mouse):                        # the letter q types here, so end by exception
+        if n >= frames:
+            raise _Stop
+    try:
+        run_loop(monkeypatch, tmp_path, FakeCamera([green_frame()]), frames, keys=keys,
+                 on_frame=stop_after, identifier=identifier, BG_MODE="off",
+                 SUIT_ENABLED=False, SABER_ENABLED=False, FACE_GREETING_SECONDS=0.0)
+    except _Stop:
+        pass
+    return texts
+
+
+def test_a_taken_name_is_refused_with_a_hint(monkeypatch, tmp_path):
+    ident = _NamingIdentifier(persons=["Anna"])
+    texts = _name_entry_loop(monkeypatch, tmp_path, ident, "anna")
+    assert ident.enroll_calls == []
+    assert any("vergeben" in t for t in texts)
+
+
+def test_the_guest_name_is_refused_with_a_hint(monkeypatch, tmp_path):
+    ident = _NamingIdentifier()
+    texts = _name_entry_loop(monkeypatch, tmp_path, ident, "gast")
+    assert ident.enroll_calls == []
+    assert any("reserviert" in t for t in texts)
+
+
+def test_a_free_name_is_enrolled(monkeypatch, tmp_path):
+    ident = _NamingIdentifier(persons=["Anna"])
+    _name_entry_loop(monkeypatch, tmp_path, ident, "ben")
+    assert ident.enroll_calls == ["Ben"]
+
+
+def test_a_failed_save_of_the_face_images_is_shown(monkeypatch, tmp_path):
+    ident = _NamingIdentifier(enrolled=face_id.Enrolled(added=1, saved=0))
+    texts = _name_entry_loop(monkeypatch, tmp_path, ident, "ben")
+    assert any("gespeichert" in t for t in texts)
+
+
+# -- CR-19 (#71): only the pen is protected from the suit, not other pen-coloured objects
+def test_a_pen_coloured_object_elsewhere_is_not_protected_from_the_suit(monkeypatch, tmp_path):
+    calls = _record_dress(monkeypatch)
+    frame = with_pen(green_frame(), 75)
+    cv2.rectangle(frame, (290, 140), (310, 160), (180, 0, 255), -1)    # a pink cushion on the player
+    run_loop(monkeypatch, tmp_path, FakeCamera([frame]), 2,
+             BG_MODE="greenscreen", SUIT_ENABLED=True)
+    keep = calls[-1]
+    assert keep[300, 75] > 0                                           # the pen is protected
+    assert keep[150, 300] == 0                                         # the cushion is not

@@ -19,6 +19,8 @@ class FakeCamera:
     ``fail_reads``: numbers of the read calls (1-based) that fail.
     """
 
+    is_open = True                       # like cameras.Camera: False once no camera is left
+
     def __init__(self, frames, index=0, switch_ok=True, fail_reads=()):
         self.frames = list(frames)
         self.index = index
@@ -39,6 +41,9 @@ class FakeCamera:
         if self.switch_ok:
             self.index = index
         return self.switch_ok
+
+    def reopen(self):
+        return self.is_open
 
     def release(self):
         pass

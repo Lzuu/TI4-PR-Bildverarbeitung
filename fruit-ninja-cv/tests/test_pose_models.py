@@ -1,5 +1,6 @@
 """Installer and runtime-failure contracts, without network or model dependencies."""
 from io import BytesIO
+import urllib.request
 import cv2
 import numpy as np
 import pytest
@@ -7,15 +8,15 @@ import pose_tracking as p
 
 
 def test_corrupt_download_is_not_installed_or_left_as_an_active_cache(monkeypatch,tmp_path):
-    monkeypatch.setattr(p.urllib.request,'urlopen',lambda *a,**k:BytesIO(b'invalid onnx'))
-    with pytest.raises(RuntimeError,match='hash mismatch'):
+    monkeypatch.setattr(urllib.request,'urlopen',lambda *a,**k:BytesIO(b'invalid onnx'))
+    with pytest.raises(RuntimeError,match='Hash stimmt nicht'):
         p.ensure_model(tmp_path)
     assert not list(tmp_path.iterdir())
 
 
 def test_existing_corrupt_model_is_reported_without_overwriting_it(tmp_path):
     path=tmp_path/p.MODEL_NAME;path.write_bytes(b'broken')
-    with pytest.raises(RuntimeError,match='hash mismatch'):
+    with pytest.raises(RuntimeError,match='Hash stimmt nicht'):
         p.ensure_model(tmp_path,download=False)
     assert path.read_bytes()==b'broken'
 
