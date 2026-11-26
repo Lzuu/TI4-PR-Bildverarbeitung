@@ -50,18 +50,6 @@ def glove_grips(parts, along=None):
     return grips
 
 
-def saber_at(point, blade_length=None, hilt_length=None):
-    """Saber geometry hanging down from ``point`` (the blade tip), or None."""
-    if point is None:
-        return None
-    if blade_length is None:
-        blade_length = round(config.SABER_LENGTH * config.SCALE)
-    if hilt_length is None:
-        hilt_length = round(config.SABER_HILT_LENGTH * config.SCALE)
-    x, y = int(point[0]), int(point[1])
-    return Saber((x, y), (x, y + blade_length), (x, y + blade_length + hilt_length))
-
-
 _SKIN_KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
 
 

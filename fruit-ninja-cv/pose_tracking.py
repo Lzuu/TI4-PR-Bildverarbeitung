@@ -146,7 +146,6 @@ class PoseEstimator:
         self.net = net
         self.detector=detector
         self.failed = False
-        self.last_ms = 0.
         self.reset()
 
     def reset(self):
@@ -158,7 +157,6 @@ class PoseEstimator:
         bbox = player_box(mask)
         if bbox is None or self.failed:
             return None
-        started = time.perf_counter()
         try:
             if self.detector is not None:
                 if self._roi is None or self._calls%5==0:
@@ -193,8 +191,6 @@ class PoseEstimator:
             self.failed = True
             logger.warning('Pose inference disabled; using limited suit fallback', exc_info=True)
             return None
-        finally:
-            self.last_ms = (time.perf_counter() - started) * 1000
 
 
 class PoseTracker:
