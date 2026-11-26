@@ -1,7 +1,9 @@
 # Fruchtgrafiken
 
-Einmalig am 26.11.2026 mit dem eingebauten `image_gen` erzeugte Grafiken:
-Apfel, Orange, Limette, Blaubeere, Zitrone und eine stilisierte 3D-Spielbombe.
+Am 26.11.2026 mit dem eingebauten `image_gen` erzeugte Grafiken:
+Apfel, Orange, Limette, Blaubeere und Zitrone jetzt im Comic-Spielstil mit
+kräftigen Konturen und Cel-Shading. Sie ersetzen die zuvor fotorealistischen
+Früchte. Die bereits freigegebene stilisierte 3D-Spielbombe ist unverändert.
 Kein Bildgenerator, Netzwerkzugriff oder neues Paket ist zur Laufzeit erforderlich.
 Der erste realistische Bombenentwurf wurde vom Generator abgelehnt; verwendet
 wird die anschließend erfolgreich erzeugte, klar fiktive Spielgrafik.
