@@ -113,7 +113,7 @@ def test_tracker_reuses_the_player_found_once_per_frame(monkeypatch):
         raise AssertionError('contour searched again')
     monkeypatch.setattr(pose_tracking,'find_player',no_second_search)
     assert tracker.update(np.zeros((200,160,3),np.uint8),mask,now=0,player=player) is not None
-    assert seen==[player]
+    assert len(seen)==1 and seen[0] is player
 
 
 def test_tiny_blob_is_not_a_player():

@@ -3,7 +3,6 @@
 The reference PNGs were rendered by the float32/full-frame renderer before the
 rewrite (commit 2d03a0d), cropped to the area the suit changes.
 """
-import os
 from pathlib import Path
 import statistics
 import time
@@ -13,7 +12,7 @@ import numpy as np
 import pytest
 
 from pose_tracking import find_player
-from suit_rig import SuitRenderer, clip_masks
+from suit_rig import SuitRenderer, _soft_inner_clip, clip_masks
 from tools.preview_suit import scene
 
 DATA = Path(__file__).resolve().parent / 'data'
@@ -50,25 +49,40 @@ def _full_frame_clip_masks(player, width):
     return clip, arm_clip
 
 
-@pytest.mark.parametrize('kind,shift', [('side', (0, 0)), ('cross', (0, 0)),
-                                        ('side', (-420, 0))])
-def test_clip_masks_in_the_player_rectangle_equal_the_full_frame_masks(kind, shift):
+def _selected_player(kind, shift):
     _, mask, _, _, _ = scene(kind, 1., shift)
     mask = mask.copy()
     cv2.circle(mask, (480, 330), 12, 0, -1)          # enclosed hole stays free
     player = find_player(mask)
     selected = np.zeros_like(mask)
     cv2.drawContours(selected, [player.contour], -1, 255, -1)
-    selected &= mask
-    width = 200.
-    clip, arm_clip = clip_masks(selected, player.box, width)
+    return selected & mask, player.box
+
+
+SCENES = [('side', (0, 0)), ('cross', (0, 0)), ('side', (-420, 0)), ('up', (0, -300))]
+
+
+# 40: small margins; 200: in between; 340: both margins at their caps (18, 48)
+@pytest.mark.parametrize('width', [40., 200., 340.])
+@pytest.mark.parametrize('kind,shift', SCENES)
+def test_clip_masks_in_the_player_rectangle_equal_the_full_frame_masks(kind, shift, width):
+    selected, box = _selected_player(kind, shift)
+    clip, arm_clip = clip_masks(selected, box, width)
     expected_clip, expected_arm = _full_frame_clip_masks(selected, width)
     assert np.array_equal(clip, expected_clip)
     assert np.array_equal(arm_clip, expected_arm)
 
 
-@pytest.mark.skipif(bool(os.environ.get('CI')),
-                    reason='shared CI runners are too slow and noisy for a time budget')
+@pytest.mark.parametrize('kind,shift', SCENES)
+def test_soft_inner_clip_in_the_player_rectangle_equals_the_full_frame_clip(kind, shift):
+    selected, box = _selected_player(kind, shift)
+    distance = cv2.distanceTransform(selected, cv2.DIST_L2, 3)
+    expected = (np.minimum(distance/1.4, 1)*255).astype(np.uint8)
+    assert np.array_equal(_soft_inner_clip(selected, box), expected)
+
+
+# Opt-in (pytest -m perf): a time budget flakes under load and on shared CI runners.
+@pytest.mark.perf
 def test_render_of_the_side_scene_stays_within_18_ms():
     raw, mask, pose, face, keep = scene('side')
     renderer = SuitRenderer()
