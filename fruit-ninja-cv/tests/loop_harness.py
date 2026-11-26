@@ -19,6 +19,8 @@ class FakeCamera:
     ``fail_reads``: numbers of the read calls (1-based) that fail.
     """
 
+    is_open = True                       # like cameras.Camera: False once no camera is left
+
     def __init__(self, frames, index=0, switch_ok=True, fail_reads=()):
         self.frames = list(frames)
         self.index = index
@@ -40,6 +42,9 @@ class FakeCamera:
             self.index = index
         return self.switch_ok
 
+    def reopen(self):
+        return self.is_open
+
     def release(self):
         pass
 
@@ -55,7 +60,7 @@ def run_loop(monkeypatch, tmp_path, camera, frames_to_run, keys=None, on_frame=N
     """
     settings = dict(SETTINGS_FILE=str(tmp_path / "settings.json"),
                     HIGHSCORE_FILE=str(tmp_path / "hs.json"),
-                    YOLO_ENABLED=False, POSE_ENABLED=False, MIRROR=False, FULLSCREEN=False,
+                    YOLO_ENABLED=False, POSE_ENABLED=False, ASYNC_INFERENCE=False, MIRROR=False, FULLSCREEN=False,
                     PERF_CSV=None)
     settings.update(cfg)
     for name, value in settings.items():

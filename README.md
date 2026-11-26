@@ -40,16 +40,17 @@ Bildverarbeitungs-Pipeline ab.
 - **Test-case-basiert:** automatisierte Tests unter `fruit-ninja-cv/tests/` (pytest).
 - **Logfiles:** Laufzeit-Ereignisse & Fehler in `logs/fruit-ninja.log` (rotierend).
 - **Inkrementell-iterativ:** Zuwächse werden als **GitHub-Issues** abgebildet.
-- **Automatische Tests:** GitHub Actions führt bei jedem Push und Pull Request alle
-  Tests aus (`.github/workflows/tests.yml`).
+- **Automatische Tests:** GitHub Actions führt bei jedem Pull Request und bei jedem
+  Push auf `main` alle Tests aus (`.github/workflows/tests.yml`).
 
 ## Arbeitsweise
-1. **Iterationen** sind [Milestones](../../milestones) auf GitHub, Aufgaben sind Issues darin.
+1. **Aufgaben** sind [Issues](../../issues) auf GitHub (ohne Milestones).
 2. **Ein Branch pro Issue**, von `main` abzweigen: `git switch -c <nr>-<kurzname>`.
 3. **Test zuerst:** Testcase in `fruit-ninja-cv/tests/` schreiben, dann implementieren.
    Jede Änderung bekommt neue oder angepasste Tests.
 4. **Alle Tests ausführen** (`cd fruit-ninja-cv` und `python -m pytest`), erst dann Pull Request.
-5. **Pull Request gegen `main`** mit `Closes #<nr>`. Gemergt wird nur, wenn alle Tests grün sind.
+5. **Pull Request gegen `main`** mit `Closes #<nr>`. `main` ist geschützt: Gemergt wird nur per
+   Pull Request und nur, wenn alle Tests grün sind.
 6. **Architekturentscheidungen** in [Architektur.md](Architektur.md) ergänzen.
 
 ## Schnellstart

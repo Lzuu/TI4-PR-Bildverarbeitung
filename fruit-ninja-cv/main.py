@@ -27,12 +27,16 @@ import sys
 import time
 
 import cv2
+import numpy as np
 
 import config
 import background
 import suit
 import lightsaber
 import yolo_seg
+from contextlib import nullcontext
+from inference_worker import LatestWorker
+from async_perception import AsyncSegmenter, AsyncPoseInfer
 import pose_tracking
 from suit_rig import SuitRenderer
 from marker_tracker import MarkerTracker
@@ -199,6 +203,7 @@ def pen_for_mode(pen, bg_mode):
 
 
 PEN_HINT = "Gruener Stift geht nicht mit Greenscreen"
+NOT_SAVED_HINT = "Gesicht konnte nicht gespeichert werden"
 
 
 def handle_background_click(click, mode, w, h):
@@ -463,8 +468,9 @@ def draw_face_scan(frame, circle, box, inside, progress, greeting, guest_t,
     _draw_pen_marker(frame, point)
 
 
-def draw_name_entry(frame, targets, entry, active, progress, point, color):
-    """On-screen keyboard: dwell on a key to type, OK to confirm."""
+def draw_name_entry(frame, targets, entry, active, progress, point, color, message=None):
+    """On-screen keyboard: dwell on a key to type, OK to confirm. ``message``: why the
+    typed name was refused (shown in red)."""
     _dim(frame, 0.6)
     h, w = frame.shape[:2]
     draw_text(frame, "Neuer Spieler - Name eingeben", (w // 2, int(h * 0.08)), scale=1.0,
@@ -473,6 +479,9 @@ def draw_name_entry(frame, targets, entry, active, progress, point, color):
               color=(0, 215, 255), thickness=3, center=True)
     draw_text(frame, f"Stift {config.KEYBOARD_DWELL_SECONDS:g}s auf eine Taste halten  -  "
               f"leer lassen = Spieler-Nummer", (w // 2, int(h * 0.27)), scale=0.55, center=True)
+    if message:
+        draw_text(frame, message, (w // 2, int(h * 0.32)), scale=0.7, color=(80, 80, 255),
+                  center=True)
     for i, (cx, cy, r) in enumerate(targets):
         key = keyboard.KEYS[i]
         on = i == active
@@ -494,6 +503,16 @@ def draw_mask_inset(frame, mask):
     frame[y0:y0 + ih, x0:x0 + iw] = small
     cv2.rectangle(frame, (x0, y0), (x0 + iw, y0 + ih), (255, 255, 255), 1)
     draw_text(frame, "Maske", (x0 + _s(4), y0 + ih - _s(8)), scale=0.5)
+
+
+def draw_no_camera():
+    """Black screen with a notice while no camera is left (#69)."""
+    canvas = np.zeros((config.HEIGHT, config.WIDTH, 3), np.uint8)
+    draw_text(canvas, "Kamera nicht verfuegbar - neuer Versuch ...",
+              (config.WIDTH // 2, config.HEIGHT // 2), scale=0.9, center=True)
+    draw_text(canvas, "Taste q: Beenden", (config.WIDTH // 2, int(config.HEIGHT * 0.58)),
+              scale=0.6, color=(200, 200, 200), center=True)
+    return canvas
 
 
 GAME_OVER_LABELS = ["Neustart", "Startmenue", "Quit"]
@@ -568,462 +587,635 @@ def draw_perf_overlay(frame, lines):
         draw_text(frame, line, (x, _s(28) + i * _s(22)), scale=0.45)
 
 
-def _run_game_loop(cap, sounds, previews=None, identifier=None):
-    tracker = MarkerTracker(point_mode=config.PEN_POINT)   # tip = lightsaber tip, cuts
-    blade = Blade()
-    motion = StrokeTracker(config.WIDTH)     # timestamped pen track for the direction cuts
-    play_mode = MODE_CLASSIC                 # chosen in the start menu
-    dwell = DwellTracker(config.DWELL_SECONDS)
-    game = None
-    difficulty = None
-    pen_color = COLORS[0]            # Pink by default -- only this colour is tracked
-    tracker.set_color(pen_color)
-    hint_text, hint_until = None, 0.0  # short on-screen notice (e.g. pen/mode conflict)
-    scores, rank = [], None
-    score_saved = True
-    player = face_id.GUEST
-    faces_dir = os.path.join(face_id.BASE_DIR, config.FACES_DIR)
-    scanner = face_id.FaceScanner()
-    greet_until = None             # set once the player is decided (greeting shown)
-    new_crops = []                 # face crops of a new player until the name is typed
-    entry = keyboard.NameEntry()
-    key_dwell = DwellTracker(config.KEYBOARD_DWELL_SECONDS)
-    typed_key = None               # key from the physical keyboard (name entry)
-    show_mask = False
-    settings_open = False
-    camera_open = False
-    previews = dict(previews or {})  # thumbnails of the cameras found at startup
-    frame_failures = 0
-    click = [None]
-    stats = perf.FrameStats(interval=config.PERF_LOG_INTERVAL, csv_path=config.PERF_CSV)
-    show_perf = False
+class Frame:
+    """What one pass of the loop knows about the current camera picture (#73, CR-23).
 
-    def on_mouse(event, x, y, flags, param):
+    ``frame`` is what is drawn on and finally shown; ``clean`` is the untouched camera
+    picture -- detection always runs on ``clean``, never on ``frame``.
+    """
+
+    def __init__(self, dt, now):
+        self.dt = dt                  # real seconds since the previous frame
+        self.now = now                # time.monotonic() right after the frame was read
+        self.frame = None
+        self.clean = None
+        self.point = None             # pen tip, or None when it is not seen
+        self.pen_mask = None
+        self.face_box = None
+        self.face_checked = False     # a face detection already ran this frame (even if empty)
+        self.scan_result = None       # (name, score, box, crop) on the face-scan screen
+        self.saber_hands = {}         # gloves the suit draws in THIS frame, never older (#46)
+        self.quit_requested = False
+
+
+_RETRY, _STOP = object(), object()    # outcomes of reading a camera frame that failed
+
+
+class GameLoop:
+    """The game loop and everything it remembers between frames (#73, CR-23).
+
+    ``run()`` does one pass per camera frame: read the picture, find the pen, cut the player
+    out and dress them, let the current screen update and draw, then the lightsaber, the
+    display and the keys. Each screen (face scan, name entry, menu, difficulty, play, game
+    over) is one ``_<name>_screen`` method; ``self.state`` says which one is current.
+    """
+
+    SCREENS = {                          # state -> the method that updates and draws it
+        STATE_FACE_SCAN: "_face_scan_screen",
+        STATE_NAME_ENTRY: "_name_entry_screen",
+        STATE_MENU: "_menu_screen",
+        STATE_DIFFICULTY: "_difficulty_screen",
+        STATE_PLAY: "_play_screen",
+        STATE_GAME_OVER: "_game_over_screen",
+    }
+
+    def __init__(self, cap, sounds, previews=None, identifier=None, worker=None):
+        self.cap = cap
+        self.worker = worker                 # latest-only inference worker, or None
+        self.sounds = sounds
+        self.identifier = identifier
+        self.tracker = MarkerTracker(point_mode=config.PEN_POINT)   # tip = lightsaber tip, cuts
+        self.blade = Blade()
+        self.motion = StrokeTracker(config.WIDTH)    # timestamped pen track for direction cuts
+        self.play_mode = MODE_CLASSIC                # chosen in the start menu
+        self.dwell = DwellTracker(config.DWELL_SECONDS)
+        self.game = None
+        self.difficulty = None
+        self.pen_color = COLORS[0]       # Pink by default -- only this colour is tracked
+        self.tracker.set_color(self.pen_color)
+        self.hint_text, self.hint_until = None, 0.0   # short on-screen notice (e.g. pen/mode)
+        self.scores, self.rank = [], None
+        self.score_saved = True
+        self.player = face_id.GUEST
+        self.faces_dir = os.path.join(face_id.BASE_DIR, config.FACES_DIR)
+        self.scanner = face_id.FaceScanner()
+        self.greet_until = None          # set once the player is decided (greeting shown)
+        self.new_crops = []              # face crops of a new player until the name is typed
+        self.entry = keyboard.NameEntry()
+        self.key_dwell = DwellTracker(config.KEYBOARD_DWELL_SECONDS)
+        self.typed_key = None            # key from the physical keyboard (name entry)
+        self.show_mask = False
+        self.settings_open = False
+        self.camera_open = False
+        self.previews = dict(previews or {})   # thumbnails of the cameras found at startup
+        self.frame_failures = 0
+        self.next_reopen, self.no_camera_since = 0.0, None   # while no camera is left (#69)
+        self.name_message, self.name_message_until = None, 0.0   # why a name was refused (#70)
+        self.click = None                # last mouse click (x, y) not handled yet
+        self.stats = perf.FrameStats(interval=config.PERF_LOG_INTERVAL, csv_path=config.PERF_CSV)
+        self.show_perf = False
+
+        self.state = initial_state(identifier)
+        self._open_window()
+
+        # Space background: load the backdrop. The reference is NOT captured
+        # automatically -- the player stands in frame to use the menu, so an auto
+        # capture would bake their silhouette into the background. They press 'b'
+        # (then step out during the countdown) to grab a clean empty background.
+        self.space_img = background.load_space((config.WIDTH, config.HEIGHT))
+        self.suit_renderer = SuitRenderer() if config.SUIT_ENABLED else None
+        self.pose_tracker = ((pose_tracking.PoseTracker(AsyncPoseInfer(worker)) if worker else
+                              pose_tracking.create_tracker()) if config.SUIT_ENABLED else None)
+        self.saber = lightsaber.SaberTracker()
+        self.reference = None
+        self.reference_camera = None     # camera the reference was taken with
+        self.bg_capture_at = None
+        self.bg_mode = cameras.load_background_mode(config.SETTINGS_FILE) or config.BG_MODE
+        if self.bg_mode not in background.MODES:
+            self.bg_mode = config.BG_MODE
+        logger.info("Background mode: %s", self.bg_mode)
+        # YOLO loads on first use. In async mode the worker owns both loading and
+        # inference; until a fresh result is ready the camera view stays usable.
+        self.yolo = ((AsyncSegmenter(worker) if worker else yolo_seg.LazySegmenter())
+                     if config.YOLO_ENABLED else None)
+        self.mode_session = 0            # +1 on every background mode change (YOLO cache source)
+
+        self.last_frame_t = time.monotonic()
+
+    def _open_window(self):
+        cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
+        if config.FULLSCREEN:
+            cv2.setWindowProperty(config.WINDOW_NAME, cv2.WND_PROP_FULLSCREEN,
+                                  cv2.WINDOW_FULLSCREEN)
+            try:
+                cv2.setWindowProperty(config.WINDOW_NAME, cv2.WND_PROP_ASPECT_RATIO,
+                                      cv2.WINDOW_FREERATIO)
+            except Exception:
+                logger.warning("WND_PROP_ASPECT_RATIO not supported", exc_info=True)
+        cv2.setMouseCallback(config.WINDOW_NAME, self._on_mouse)
+
+    def _on_mouse(self, event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
-            click[0] = (x, y)
+            self.click = (x, y)
 
-    state = initial_state(identifier)
-    cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
-    if config.FULLSCREEN:
-        cv2.setWindowProperty(config.WINDOW_NAME, cv2.WND_PROP_FULLSCREEN,
-                              cv2.WINDOW_FULLSCREEN)
-        try:
-            cv2.setWindowProperty(config.WINDOW_NAME, cv2.WND_PROP_ASPECT_RATIO,
-                                  cv2.WINDOW_FREERATIO)
-        except Exception:
-            logger.warning("WND_PROP_ASPECT_RATIO not supported", exc_info=True)
-    cv2.setMouseCallback(config.WINDOW_NAME, on_mouse)
-
-    # Space background: load the backdrop. The reference is NOT captured
-    # automatically -- the player stands in frame to use the menu, so an auto
-    # capture would bake their silhouette into the background. They press 'b'
-    # (then step out during the countdown) to grab a clean empty background.
-    space_img = background.load_space((config.WIDTH, config.HEIGHT))
-    suit_renderer = SuitRenderer() if config.SUIT_ENABLED else None
-    pose_tracker = pose_tracking.create_tracker() if config.SUIT_ENABLED else None
-    saber = lightsaber.SaberTracker()
-    reference = None
-    reference_camera = None          # camera the reference was taken with
-    bg_capture_at = None
-    bg_mode = cameras.load_background_mode(config.SETTINGS_FILE) or config.BG_MODE
-    if bg_mode not in background.MODES:
-        bg_mode = config.BG_MODE
-    logger.info("Background mode: %s", bg_mode)
-    # YOLO body segmenter for the "yolo" mode: loaded in the background the first
-    # time the mode is used, not at start (#42, PERF-07). Until it is ready, or
-    # if it is unavailable, the mode falls back like "off".
-    yolo = yolo_seg.LazySegmenter() if config.YOLO_ENABLED else None
-    mode_session = 0                 # +1 on every background mode change (YOLO cache source)
-
-    last_frame_t = time.monotonic()
-    while True:
-        stats.start_frame()
-        with stats.stage("read"):
-            ok, frame = cap.read()
-        if not ok:
-            stats.count("read_fail")
-            frame_failures += 1
-            if frame_failures >= config.MAX_FRAME_FAILURES:
-                logger.error("Lost camera after %d consecutive failed reads -- aborting",
-                             frame_failures)
-                print("ERROR: Lost camera feed.", file=sys.stderr)
+    # -- the loop ---------------------------------------------------------------------
+    def run(self):
+        while True:
+            self.stats.start_frame()
+            f = self._next_frame()
+            if f is _STOP:
                 break
-            cv2.waitKey(10)
-            continue
-        frame_failures = 0
-        now = time.monotonic()
-        frame_dt, last_frame_t = now - last_frame_t, now   # real time since the last frame
+            if f is _RETRY:
+                continue
+            self._find_pen_and_face(f)
+            self._cut_out_player(f)
+            self._run_screen(f)
+            self._draw_status_text(f)
+            self._draw_debug_mask()
+            self._draw_saber(f)
+            key = self._show(f)
+            if self._handle_key(f, key):
+                break
 
-        with stats.stage("prep"):
-            frame = crop_to_aspect(frame, config.WIDTH / config.HEIGHT)
-            frame = cv2.resize(frame, (config.WIDTH, config.HEIGHT))
+    def _next_frame(self):
+        """The next camera picture as a ``Frame`` (cropped, scaled, mirrored), or
+        ``_RETRY`` / ``_STOP`` when there is none."""
+        with self.stats.stage("read"):
+            ok, image = self.cap.read()
+        if not ok:
+            return self._read_failed()
+        self.frame_failures = 0
+        now = time.monotonic()
+        dt, self.last_frame_t = now - self.last_frame_t, now   # real time since the last frame
+        f = Frame(dt, now)
+        with self.stats.stage("prep"):
+            image = crop_to_aspect(image, config.WIDTH / config.HEIGHT)
+            image = cv2.resize(image, (config.WIDTH, config.HEIGHT))
             if config.MIRROR:
-                frame = cv2.flip(frame, 1)
-            clean = frame.copy()
+                image = cv2.flip(image, 1)
+            f.frame = image
+            f.clean = image.copy()
+        return f
+
+    def _read_failed(self):
+        self.stats.count("read_fail")
+        self.frame_failures += 1
+        if not self.cap.is_open:
+            # No camera at all (a switch and its rollback failed): try to open one again
+            # at intervals instead of counting failed reads up to the abort (#69).
+            now = time.monotonic()
+            if self.no_camera_since is None:
+                self.no_camera_since = now
+                logger.warning("No camera -- trying to open one every %.1f s",
+                               config.CAMERA_REOPEN_INTERVAL)
+            if now >= self.next_reopen:
+                self.next_reopen = now + config.CAMERA_REOPEN_INTERVAL
+                if self.cap.reopen():
+                    logger.info("Camera is back (index %s)", self.cap.index)
+                    self.no_camera_since, self.frame_failures = None, 0
+                    return _RETRY
+            if now - self.no_camera_since >= config.CAMERA_LOST_TIMEOUT:
+                logger.error("No camera for %.0f s -- aborting", now - self.no_camera_since)
+                print("ERROR: Lost camera feed.", file=sys.stderr)
+                return _STOP
+            cv2.imshow(config.WINDOW_NAME, draw_no_camera())
+            if cv2.waitKey(100) & 0xFF == ord("q"):
+                return _STOP
+            return _RETRY
+        if self.frame_failures >= config.MAX_FRAME_FAILURES:
+            logger.error("Lost camera after %d consecutive failed reads -- aborting",
+                         self.frame_failures)
+            print("ERROR: Lost camera feed.", file=sys.stderr)
+            return _STOP
+        cv2.waitKey(10)
+        return _RETRY
+
+    # -- perception ------------------------------------------------------------------------
+    def _find_pen_and_face(self, f):
         # perception first: one pen measurement per frame, used by suit, game and
         # drawing alike -- no stale mask from the previous frame (#41, CR-06)
-        with stats.stage("track"):
-            point = tracker.track(clean)
-        pen_mask = tracker.last_mask
-
+        with self.stats.stage("track"):
+            f.point = self.tracker.track(f.clean)
+        f.pen_mask = self.tracker.pen_mask   # only the pen, not other objects of its colour
         # One face detection per frame, shared by suit, saber and the player scan
         # (#42, PERF-05). In FACE_SCAN the scan's own detection (with recognition)
         # is the one; otherwise a cheap detection runs at most once, on demand.
-        face_box = None
-        face_checked = False         # detection already done this frame (even if no face)
-        scan_result = None
-        if state == STATE_FACE_SCAN and identifier is not None:
-            with stats.stage("face"):
-                scan_result = identifier.scan(clean)
-            face_box, face_checked = scan_result[2], True
-        # --- space background: capture the reference, then cut the player out ---
-        if bg_capture_at is not None and time.monotonic() >= bg_capture_at:
-            reference = clean.copy()
-            reference_camera = cap.index
-            bg_capture_at = None
+        if self.state == STATE_FACE_SCAN and self.identifier is not None:
+            with self.stats.stage("face"):
+                f.scan_result = self.identifier.scan(f.clean)
+            f.face_box, f.face_checked = f.scan_result[2], True
+
+    def _cut_out_player(self, f):
+        """Space background: capture the reference, then cut the player out and dress them."""
+        if self.bg_capture_at is not None and time.monotonic() >= self.bg_capture_at:
+            self.reference = f.clean.copy()
+            self.reference_camera = self.cap.index
+            self.bg_capture_at = None
             logger.info("Captured background reference for space compositing")
-        if reference is not None and not reference_still_valid(reference_camera, cap.index):
-            reference = None
+        if self.reference is not None and not reference_still_valid(self.reference_camera,
+                                                                    self.cap.index):
+            self.reference = None
             logger.info("Camera changed -- space background off until 'b' is pressed again")
-        saber_hands = {}                 # gloves the suit draws in THIS frame, never older ones (#46)
-        if config.BG_ENABLED and space_img is not None and bg_mode != background.MODE_OFF:
-            mask = None
-            t_stage = time.perf_counter()
-            if bg_mode == background.MODE_GREENSCREEN:
-                mask = background.greenscreen_mask(clean, scale=config.GREEN_SCALE)
-            elif bg_mode == background.MODE_YOLO and yolo is not None:
-                yolo.request()                       # first use: start loading
-                segmenter = yolo.get()
-                if segmenter is not None:
-                    # person mask, no green screen needed; the cache is bound to the
-                    # current camera and mode session (#41, CR-10)
-                    mask = segmenter.segment(clean, source=(cap.index, mode_session))
-                    if segmenter.last_inference_seconds is not None:
-                        stats.add("yolo_infer", segmenter.last_inference_seconds)
-                    stats.maximum("mask_age_ms", segmenter.mask_age * 1000.0)
-                    if segmenter.failed:
-                        yolo.mark_failed()           # off until chosen again (CR-09)
-            elif bg_mode == background.MODE_NORMAL and reference is not None:
-                mask = background.foreground_mask(clean, reference)
-            stats.add("segment", time.perf_counter() - t_stage)
+        if (config.BG_ENABLED and self.space_img is not None
+                and self.bg_mode != background.MODE_OFF):
+            mask = self._player_mask(f)
             if mask is not None:
-                with stats.stage("composite"):
-                    frame = background.composite_space(frame, mask, space_img,
-                                                       feather=1.5 if config.SUIT_ENABLED else 0.)
+                with self.stats.stage("composite"):
+                    f.frame = background.composite_space(
+                        f.frame, mask, self.space_img,
+                        feather=1.5 if config.SUIT_ENABLED else 0.)
                 if config.SUIT_ENABLED:
-                    # place the helmet at the face (if one is seen) -- detection only, ~3 ms
-                    if not face_checked and identifier is not None:
-                        with stats.stage("face"):
-                            face_box = identifier.largest_face_box(clean,
-                                                                   config.SUIT_FACE_DETECT_WIDTH)
-                        face_checked = True
-                    # the whole body becomes the suit; only the pen stays visible
-                    now_s = time.monotonic()
-                    with stats.stage("pose"):
-                        body_pose = pose_tracker.update(clean, mask, now=now_s,
-                                                        source=(cap.index, mode_session))
-                    with stats.stage("suit"):
-                        frame = suit.dress(frame, mask, face_box, pen_mask, now_s,
-                                           original=clean, pose=body_pose,
-                                           renderer=suit_renderer,
-                                           source=(cap.index, mode_session))
-                    # the saber hilt attaches to these gloves (pose socket, no extra inference)
-                    saber_hands = lightsaber.glove_grips(suit_renderer.last_parts)
+                    self._dress_player(f, mask)
 
-        quit_requested = False
+    def _player_mask(self, f):
         t_stage = time.perf_counter()
-
-        if state == STATE_MENU:
-            start_t = menu_start_target(config.WIDTH, config.HEIGHT)
-            quit_t = quit_target(config.WIDTH, config.HEIGHT)
-            sbtn = settings_button(config.WIDTH, config.HEIGHT)
-            swatches = color_swatches(config.WIDTH, config.HEIGHT)
-
-            cbtn = camera_button(config.WIDTH, config.HEIGHT)
-            previews[cap.index] = cv2.resize(clean, cameras.PREVIEW_SIZE)
-            available = sorted(previews)
-            cam_tiles = camera_tiles(config.WIDTH, config.HEIGHT, len(available))
-
-            if click[0] is not None:
-                was_open = camera_open
-                camera_open = handle_camera_click(click[0], camera_open, available, cap,
-                                                  config.WIDTH, config.HEIGHT)
-                if was_open or camera_open:  # click belonged to the camera selection
-                    settings_open = False
-                    dwell.reset()
-                    click[0] = None
-
-            if click[0] is not None:
-                new_mode = handle_background_click(click[0], bg_mode,
-                                                   config.WIDTH, config.HEIGHT)
-                if new_mode != bg_mode:          # click cycled the background mode
-                    bg_mode = new_mode
-                    mode_session += 1
-                    if bg_mode == background.MODE_YOLO and yolo is not None:
-                        yolo.retry()             # chosen again: a failed load may retry
-                    if not pen_allowed(pen_color, bg_mode):
-                        pen_color = pen_for_mode(pen_color, bg_mode)
-                        tracker.set_color(pen_color)
-                        logger.info("Pen colour switched to %s (not usable with %s)",
-                                    pen_color.name, bg_mode)
-                        hint_text, hint_until = PEN_HINT, time.time() + 3.0
-                    cameras.save_background_mode(config.SETTINGS_FILE, bg_mode)
-                    logger.info("Background mode set to %s (mouse)", bg_mode)
-                    settings_open = False
-                    dwell.reset()
-                    click[0] = None
-
-            if click[0] is not None:
-                if _in_rect(click[0], sbtn):
-                    settings_open = not settings_open
-                    dwell.reset()
-                elif settings_open:
-                    picked = False
-                    for i, sw_t in enumerate(swatches):
-                        if _hit(click[0], sw_t):
-                            if not pen_allowed(COLORS[i], bg_mode):
-                                logger.info("Pen colour %s refused in %s mode",
-                                            COLORS[i].name, bg_mode)
-                                hint_text, hint_until = PEN_HINT, time.time() + 3.0
-                                break
-                            pen_color = COLORS[i]
-                            tracker.set_color(pen_color)
-                            logger.info("Pen colour set to %s (mouse)", pen_color.name)
-                            picked = True
-                            break
-                    settings_open = False   # any click in the panel closes it
-                click[0] = None
-
-            player_t = player_target(config.WIDTH, config.HEIGHT) if identifier else None
-            challenge_t = challenge_target(config.WIDTH, config.HEIGHT)
-            targets = menu_targets(config.WIDTH, config.HEIGHT, identifier is not None)
-            if settings_open or camera_open:
-                active, progress, confirmed = None, 0.0, None
-            else:
-                active, progress, confirmed = dwell.update(point, targets)
-            draw_menu(frame, start_t, quit_t, sbtn, swatches, pen_color,
-                      settings_open, active, progress, point, player_t,
-                      player if identifier else None,
-                      blocked=[c for c in COLORS if not pen_allowed(c, bg_mode)],
-                      challenge_t=challenge_t)
-            if hint_text and time.time() < hint_until:
-                draw_text(frame, hint_text, (config.WIDTH // 2, int(config.HEIGHT * 0.68)),
-                          scale=0.6, color=(80, 80, 255), center=True)
-            if not settings_open and not camera_open:
-                _draw_background_button(frame, background_button(config.WIDTH, config.HEIGHT),
-                                        bg_mode)
-            if show_camera_button(available):
-                _draw_camera_button(frame, cbtn, cap.index, camera_open)
-            if camera_open:
-                draw_camera_panel(frame, cam_tiles, available, cap.index, previews)
-            if confirmed == MENU_START:
-                play_mode = MODE_CLASSIC
-                logger.info("Start (colour %s, player %s)", pen_color.name, player)
-                dwell.reset()
-                state = STATE_DIFFICULTY
-            elif confirmed == MENU_CHALLENGE:
-                play_mode = MODE_CHALLENGE
-                logger.info("Start challenge (colour %s, player %s)", pen_color.name, player)
-                dwell.reset()
-                state = STATE_DIFFICULTY
-            elif confirmed == MENU_QUIT:
-                quit_requested = True
-            elif confirmed == MENU_PLAYER:  # Spieler wechseln
-                logger.info("Switch player")
-                dwell.reset()
-                scanner.reset()
-                greet_until = None
-                state = STATE_FACE_SCAN
-
-        elif state == STATE_FACE_SCAN:
-            circle = face_circle(config.WIDTH, config.HEIGHT)
-            guest_t = guest_target(config.WIDTH, config.HEIGHT)
-            # camera selection here too: with the wrong camera nobody could be scanned
-            previews[cap.index] = cv2.resize(clean, cameras.PREVIEW_SIZE)
-            available = sorted(previews)
-            if click[0] is not None:
-                camera_open = handle_camera_click(click[0], camera_open, available, cap,
-                                                  config.WIDTH, config.HEIGHT)
-                click[0] = None
-                scanner.reset()          # restart the scan with the (new) camera
-            name, score, box, crop = scan_result      # detected once at the top of the frame
-            inside = face_id.face_in_circle(box, circle) and not camera_open
-            g_active, g_progress, g_confirmed = dwell.update(point, [guest_t])
-            if camera_open:
-                g_confirmed = None
-            if greet_until is None:
-                result = scanner.update(inside, name, crop)
-                if g_confirmed is not None:
-                    result = ("known", face_id.GUEST)
-                if result is not None and result[0] == "known":
-                    player = result[1]
-                    greet_until = time.time() + config.FACE_GREETING_SECONDS
-                    logger.info("Player recognised: %s", player)
-                elif result is not None:
-                    new_crops = result[1]
-                    entry = keyboard.NameEntry()
-                    key_dwell.reset()
-                    typed_key = None
-                    logger.info("New face recorded (%d crops) -- asking for the name",
-                                len(new_crops))
-                    state = STATE_NAME_ENTRY
-            if state == STATE_FACE_SCAN:
-                draw_face_scan(frame, circle, box, inside, scanner.progress,
-                               player if greet_until is not None else None, guest_t,
-                               g_active == 0, g_progress, point)
-                if show_camera_button(available):
-                    _draw_camera_button(frame, camera_button(config.WIDTH, config.HEIGHT),
-                                        cap.index, camera_open)
-                if camera_open:
-                    draw_camera_panel(frame, camera_tiles(config.WIDTH, config.HEIGHT,
-                                                          len(available)),
-                                      available, cap.index, previews)
-                if greet_until is not None and time.time() >= greet_until:
-                    dwell.reset()
-                    state = STATE_MENU
-
-        elif state == STATE_NAME_ENTRY:
-            k_targets = keyboard.layout(config.WIDTH, config.HEIGHT)
-            active, progress, confirmed = key_dwell.update(point, k_targets)
-            pressed = typed_key
-            typed_key = None
-            if confirmed is not None:
-                pressed = keyboard.KEYS[confirmed]
-                key_dwell.reset()        # hold again to repeat the same key
-            if pressed is not None and entry.press(pressed):
-                player = entry.result() or face_id.default_player_name(identifier.persons)
-                identifier.enroll(faces_dir, player, new_crops)
-                new_crops = []
-                scanner.reset()
-                greet_until = time.time() + config.FACE_GREETING_SECONDS
-                state = STATE_FACE_SCAN  # shows the greeting, then the menu
-            else:
-                draw_name_entry(frame, k_targets, entry, active, progress, point,
-                                pen_color.display)
-
-        elif state == STATE_DIFFICULTY:
-            d_targets = row_targets(config.WIDTH, config.HEIGHT, len(LEVELS))
-            q_target = quit_target(config.WIDTH, config.HEIGHT)
-            active, progress, confirmed = dwell.update(point, d_targets + [q_target])
-            draw_difficulty_screen(frame, d_targets, q_target, active, progress,
-                                   point, pen_color.display)
-            if confirmed is not None:
-                if confirmed == len(d_targets):
-                    quit_requested = True
+        mask = None
+        if self.bg_mode == background.MODE_GREENSCREEN:
+            mask = background.greenscreen_mask(f.clean, scale=config.GREEN_SCALE)
+        elif self.bg_mode == background.MODE_YOLO and self.yolo is not None:
+            self.yolo.request()                       # first use: start loading
+            segmenter = self.yolo if self.worker else self.yolo.get()
+            if segmenter is not None:
+                # person mask, no green screen needed; the cache is bound to the
+                # current camera and mode session (#41, CR-10)
+                if self.worker:
+                    mask = segmenter.segment(f.clean, source=(self.cap.index, self.mode_session),
+                                             captured_at=f.now)
                 else:
-                    difficulty = LEVELS[confirmed]
-                    game = new_game(play_mode, difficulty, sounds)
-                    sounds.play("combo")
-                    logger.info("Difficulty selected: %s (%s)", difficulty.name, play_mode)
-                    blade.reset()
-                    motion.reset()
-                    dwell.reset()
-                    state = STATE_PLAY
+                    mask = segmenter.segment(f.clean, source=(self.cap.index, self.mode_session))
+                if segmenter.last_inference_seconds is not None:
+                    self.stats.add("yolo_infer", segmenter.last_inference_seconds)
+                self.stats.maximum("mask_age_ms", segmenter.mask_age * 1000.0)
+                if segmenter.failed:
+                    self.yolo.mark_failed()           # off until chosen again (CR-09)
+        elif self.bg_mode == background.MODE_NORMAL and self.reference is not None:
+            mask = background.foreground_mask(f.clean, self.reference)
+        self.stats.add("segment", time.perf_counter() - t_stage)
+        return mask
 
-        elif state == STATE_PLAY:
-            blade.add(point)
-            motion.add(point, now)            # `now`: time right after the frame was read
-            game.update(blade, frame_dt, motion)   # seconds, not frames (#42, PERF-01)
-            game.draw(frame)
-            blade.draw(frame, pen_color.display if config.SABER_ENABLED else None)
-            game.draw_hud(frame)
-            game.draw_combo(frame)
-            game.draw_feedback(frame)
-            if game.game_over:
-                result = highscore.add_entry(config.HIGHSCORE_FILE,
-                                             game.board_name, game.score, player)
-                scores, rank, score_saved = result.board, result.rank, result.saved
-                sounds.play("over")
-                logger.info("Game over -- %s, %s scored %d (rank: %s)",
-                            game.board_name, player, game.score, rank)
-                dwell.reset()
-                state = STATE_GAME_OVER
+    def _dress_player(self, f, mask):
+        # place the helmet at the face (if one is seen) -- detection only, ~3 ms
+        if not f.face_checked and self.identifier is not None:
+            with self.stats.stage("face"):
+                f.face_box = self.identifier.largest_face_box(f.clean,
+                                                              config.SUIT_FACE_DETECT_WIDTH)
+            f.face_checked = True
+        # the whole body becomes the suit; only the pen stays visible
+        now_s = time.monotonic()
+        source = (self.cap.index, self.mode_session)
+        with self.stats.stage("pose"):
+            # contour searched once; pose and suit reuse it (#57)
+            body = pose_tracking.find_player(mask)
+            body_pose = self.pose_tracker.update(f.clean, mask, now=now_s, source=source,
+                                                 captured_at=f.now, player=body)
+            if self.pose_tracker._last_verified is not None:
+                self.stats.maximum("pose_age_ms",
+                                   max(0.0, now_s - self.pose_tracker._last_verified) * 1000.0)
+            cost = getattr(self.pose_tracker.infer, "last_inference_seconds", None)
+            if cost is not None:
+                self.stats.add("pose_infer", cost)
+        with self.stats.stage("suit"):
+            f.frame = suit.dress(f.frame, mask, f.face_box, f.pen_mask, now_s,
+                                 original=f.clean, pose=body_pose,
+                                 renderer=self.suit_renderer, source=source, player=body)
+        # the saber hilt attaches to these gloves (pose socket, no extra inference)
+        f.saber_hands = lightsaber.glove_grips(self.suit_renderer.last_parts)
 
-        elif state == STATE_GAME_OVER:
-            targets = row_targets(config.WIDTH, config.HEIGHT, 3, y_frac=0.80, r=50)
-            active, progress, confirmed = dwell.update(point, targets)
-            game.draw(frame)
-            game.draw_hud(frame)
-            draw_game_over(frame, game, scores, rank, targets, active, progress,
-                           point, pen_color.display, player, score_saved)
-            if confirmed == 0:              # Neustart
-                logger.info("Restart requested (%s)", game.board_name)
-                game.reset()
-                blade.reset()
-                motion.reset()
-                rank = None
-                dwell.reset()
-                state = STATE_PLAY
-            elif confirmed == 1:            # Startmenue
-                logger.info("Back to start menu")
-                rank = None
-                dwell.reset()
-                state = STATE_MENU
-            elif confirmed == 2:            # Quit
-                quit_requested = True
+    # -- screens ---------------------------------------------------------------------------
+    def _run_screen(self, f):
+        t_stage = time.perf_counter()
+        name = self.SCREENS.get(self.state)
+        if name is not None:
+            getattr(self, name)(f)
+        self.stats.add("screen", time.perf_counter() - t_stage)
 
-        stats.add("screen", time.perf_counter() - t_stage)
+    def _menu_screen(self, f):
+        w, h = config.WIDTH, config.HEIGHT
+        start_t, quit_t = menu_start_target(w, h), quit_target(w, h)
+        sbtn, swatches = settings_button(w, h), color_swatches(w, h)
+        cbtn = camera_button(w, h)
+        self.previews[self.cap.index] = cv2.resize(f.clean, cameras.PREVIEW_SIZE)
+        available = sorted(self.previews)
+        cam_tiles = camera_tiles(w, h, len(available))
+        self._menu_clicks(available, sbtn, swatches)
 
-        if bg_capture_at is not None:
-            secs = max(0, int(bg_capture_at - time.monotonic()) + 1)
-            draw_text(frame, f"Aus dem Bild gehen: {secs}",
-                      (config.WIDTH // 2, int(config.HEIGHT * 0.12)),
+        player_t = player_target(w, h) if self.identifier else None
+        challenge_t = challenge_target(w, h)
+        targets = menu_targets(w, h, self.identifier is not None)
+        if self.settings_open or self.camera_open:
+            active, progress, confirmed = None, 0.0, None
+        else:
+            active, progress, confirmed = self.dwell.update(f.point, targets)
+        draw_menu(f.frame, start_t, quit_t, sbtn, swatches, self.pen_color,
+                  self.settings_open, active, progress, f.point, player_t,
+                  self.player if self.identifier else None,
+                  blocked=[c for c in COLORS if not pen_allowed(c, self.bg_mode)],
+                  challenge_t=challenge_t)
+        if self.hint_text and time.time() < self.hint_until:
+            draw_text(f.frame, self.hint_text, (config.WIDTH // 2, int(config.HEIGHT * 0.68)),
+                      scale=0.6, color=(80, 80, 255), center=True)
+        if not self.settings_open and not self.camera_open:
+            _draw_background_button(f.frame, background_button(w, h), self.bg_mode)
+        if show_camera_button(available):
+            _draw_camera_button(f.frame, cbtn, self.cap.index, self.camera_open)
+        if self.camera_open:
+            draw_camera_panel(f.frame, cam_tiles, available, self.cap.index, self.previews)
+        self._menu_confirmed(f, confirmed)
+
+    def _menu_clicks(self, available, sbtn, swatches):
+        """A mouse click in the menu: camera selection, background mode or pen colour."""
+        w, h = config.WIDTH, config.HEIGHT
+        if self.click is not None:
+            was_open = self.camera_open
+            self.camera_open = handle_camera_click(self.click, self.camera_open, available,
+                                                   self.cap, w, h)
+            if was_open or self.camera_open:  # click belonged to the camera selection
+                self.settings_open = False
+                self.dwell.reset()
+                self.click = None
+        if self.click is not None:
+            new_mode = handle_background_click(self.click, self.bg_mode, w, h)
+            if new_mode != self.bg_mode:          # click cycled the background mode
+                self._set_background_mode(new_mode)
+                self.settings_open = False
+                self.dwell.reset()
+                self.click = None
+        if self.click is not None:
+            if _in_rect(self.click, sbtn):
+                self.settings_open = not self.settings_open
+                self.dwell.reset()
+            elif self.settings_open:
+                self._pick_swatch(swatches)
+                self.settings_open = False        # any click in the panel closes it
+            self.click = None
+
+    def _set_background_mode(self, new_mode):
+        self.bg_mode = new_mode
+        self.mode_session += 1
+        if self.bg_mode == background.MODE_YOLO and self.yolo is not None:
+            self.yolo.retry()                     # chosen again: a failed load may retry
+        if not pen_allowed(self.pen_color, self.bg_mode):
+            self.pen_color = pen_for_mode(self.pen_color, self.bg_mode)
+            self.tracker.set_color(self.pen_color)
+            logger.info("Pen colour switched to %s (not usable with %s)",
+                        self.pen_color.name, self.bg_mode)
+            self.hint_text, self.hint_until = PEN_HINT, time.time() + 3.0
+        cameras.save_background_mode(config.SETTINGS_FILE, self.bg_mode)
+        logger.info("Background mode set to %s (mouse)", self.bg_mode)
+
+    def _pick_swatch(self, swatches):
+        for i, sw_t in enumerate(swatches):
+            if _hit(self.click, sw_t):
+                if not pen_allowed(COLORS[i], self.bg_mode):
+                    logger.info("Pen colour %s refused in %s mode", COLORS[i].name, self.bg_mode)
+                    self.hint_text, self.hint_until = PEN_HINT, time.time() + 3.0
+                    break
+                self.pen_color = COLORS[i]
+                self.tracker.set_color(self.pen_color)
+                logger.info("Pen colour set to %s (mouse)", self.pen_color.name)
+                break
+
+    def _menu_confirmed(self, f, confirmed):
+        if confirmed == MENU_START:
+            self.play_mode = MODE_CLASSIC
+            logger.info("Start (colour %s, player %s)", self.pen_color.name, self.player)
+            self.dwell.reset(require_exit=True)
+            self.state = STATE_DIFFICULTY
+        elif confirmed == MENU_CHALLENGE:
+            self.play_mode = MODE_CHALLENGE
+            logger.info("Start challenge (colour %s, player %s)", self.pen_color.name,
+                        self.player)
+            self.dwell.reset(require_exit=True)
+            self.state = STATE_DIFFICULTY
+        elif confirmed == MENU_QUIT:
+            f.quit_requested = True
+        elif confirmed == MENU_PLAYER:            # Spieler wechseln
+            logger.info("Switch player")
+            self.dwell.reset(require_exit=True)
+            self.scanner.reset()
+            self.greet_until = None
+            self.state = STATE_FACE_SCAN
+
+    def _face_scan_screen(self, f):
+        w, h = config.WIDTH, config.HEIGHT
+        circle = face_circle(w, h)
+        guest_t = guest_target(w, h)
+        # camera selection here too: with the wrong camera nobody could be scanned
+        self.previews[self.cap.index] = cv2.resize(f.clean, cameras.PREVIEW_SIZE)
+        available = sorted(self.previews)
+        if self.click is not None:
+            self.camera_open = handle_camera_click(self.click, self.camera_open, available,
+                                                   self.cap, w, h)
+            self.click = None
+            self.scanner.reset()                  # restart the scan with the (new) camera
+        name, score, box, crop = f.scan_result    # detected once at the top of the frame
+        inside = face_id.face_in_circle(box, circle) and not self.camera_open
+        g_active, g_progress, g_confirmed = self.dwell.update(f.point, [guest_t])
+        if self.camera_open:
+            g_confirmed = None
+        if self.greet_until is None:
+            self._face_scan_result(inside, name, crop, g_confirmed)
+        if self.state == STATE_FACE_SCAN:
+            draw_face_scan(f.frame, circle, box, inside, self.scanner.progress,
+                           self.player if self.greet_until is not None else None, guest_t,
+                           g_active == 0, g_progress, f.point)
+            if show_camera_button(available):
+                _draw_camera_button(f.frame, camera_button(w, h), self.cap.index,
+                                    self.camera_open)
+            if self.camera_open:
+                draw_camera_panel(f.frame, camera_tiles(w, h, len(available)), available,
+                                  self.cap.index, self.previews)
+            if self.greet_until is not None and time.time() >= self.greet_until:
+                self.dwell.reset(require_exit=True)
+                self.state = STATE_MENU
+
+    def _face_scan_result(self, inside, name, crop, g_confirmed):
+        result = self.scanner.update(inside, name, crop)
+        if g_confirmed is not None:
+            result = ("known", face_id.GUEST)
+        if result is not None and result[0] == "known":
+            self.player = result[1]
+            self.greet_until = time.time() + config.FACE_GREETING_SECONDS
+            logger.info("Player recognised: %s", self.player)
+        elif result is not None:
+            self.new_crops = result[1]
+            self.entry = keyboard.NameEntry()
+            self.name_message, self.name_message_until = None, 0.0
+            self.key_dwell.reset(require_exit=True)
+            self.typed_key = None
+            logger.info("New face recorded (%d crops) -- asking for the name",
+                        len(self.new_crops))
+            self.state = STATE_NAME_ENTRY
+
+    def _name_entry_screen(self, f):
+        k_targets = keyboard.layout(config.WIDTH, config.HEIGHT)
+        active, progress, confirmed = self.key_dwell.update(f.point, k_targets)
+        pressed = self.typed_key
+        self.typed_key = None
+        if confirmed is not None:
+            pressed = keyboard.KEYS[confirmed]
+            self.key_dwell.reset()                # hold again to repeat the same key
+        name_confirmed = pressed is not None and self.entry.press(pressed)
+        if name_confirmed:
+            problem = face_id.name_problem(self.entry.result(), self.identifier.persons)
+            if problem:                           # "Gast" or taken: stay here and say why (#70)
+                logger.info("Name %r refused: %s", self.entry.result(), problem)
+                self.name_message, self.name_message_until = problem, time.time() + 3.0
+                name_confirmed = False
+        if name_confirmed:
+            self._enroll_player()
+        else:
+            draw_name_entry(f.frame, k_targets, self.entry, active, progress, f.point,
+                            self.pen_color.display,
+                            self.name_message if time.time() < self.name_message_until else None)
+
+    def _enroll_player(self):
+        self.player = self.entry.result() or face_id.default_player_name(self.identifier.persons)
+        enrolled = self.identifier.enroll(self.faces_dir, self.player, self.new_crops)
+        if enrolled.saved < enrolled.added:       # e.g. folder not writable (#65)
+            self.hint_text, self.hint_until = NOT_SAVED_HINT, time.time() + 4.0
+        self.new_crops = []
+        self.scanner.reset()
+        self.greet_until = time.time() + config.FACE_GREETING_SECONDS
+        self.state = STATE_FACE_SCAN              # shows the greeting, then the menu
+
+    def _difficulty_screen(self, f):
+        d_targets = row_targets(config.WIDTH, config.HEIGHT, len(LEVELS))
+        q_target = quit_target(config.WIDTH, config.HEIGHT)
+        active, progress, confirmed = self.dwell.update(f.point, d_targets + [q_target])
+        draw_difficulty_screen(f.frame, d_targets, q_target, active, progress, f.point,
+                               self.pen_color.display)
+        if confirmed is None:
+            return
+        if confirmed == len(d_targets):
+            f.quit_requested = True
+            return
+        self.difficulty = LEVELS[confirmed]
+        self.game = new_game(self.play_mode, self.difficulty, self.sounds)
+        self.sounds.play("combo")
+        logger.info("Difficulty selected: %s (%s)", self.difficulty.name, self.play_mode)
+        self.blade.reset()
+        self.motion.reset()
+        self.dwell.reset(require_exit=True)
+        self.state = STATE_PLAY
+
+    def _play_screen(self, f):
+        game = self.game
+        self.blade.add(f.point)
+        self.motion.add(f.point, f.now)           # f.now: time right after the frame was read
+        game.update(self.blade, f.dt, self.motion)    # seconds, not frames (#42, PERF-01)
+        game.draw(f.frame)
+        self.blade.draw(f.frame, self.pen_color.display if config.SABER_ENABLED else None)
+        game.draw_hud(f.frame)
+        game.draw_combo(f.frame)
+        game.draw_feedback(f.frame)
+        if game.game_over:
+            result = highscore.add_entry(config.HIGHSCORE_FILE, game.board_name,
+                                         game.score, self.player)
+            self.scores, self.rank, self.score_saved = result.board, result.rank, result.saved
+            self.sounds.play("over")
+            logger.info("Game over -- %s, %s scored %d (rank: %s)",
+                        game.board_name, self.player, game.score, self.rank)
+            self.dwell.reset(require_exit=True)
+            self.state = STATE_GAME_OVER
+
+    def _game_over_screen(self, f):
+        game = self.game
+        targets = row_targets(config.WIDTH, config.HEIGHT, 3, y_frac=0.80, r=50)
+        active, progress, confirmed = self.dwell.update(f.point, targets)
+        game.draw(f.frame)
+        game.draw_hud(f.frame)
+        draw_game_over(f.frame, game, self.scores, self.rank, targets, active, progress,
+                       f.point, self.pen_color.display, self.player, self.score_saved)
+        if confirmed == 0:                        # Neustart
+            logger.info("Restart requested (%s)", game.board_name)
+            game.reset()
+            self.blade.reset()
+            self.motion.reset()
+            self.rank = None
+            self.dwell.reset(require_exit=True)
+            self.state = STATE_PLAY
+        elif confirmed == 1:                      # Startmenue
+            logger.info("Back to start menu")
+            self.rank = None
+            self.dwell.reset(require_exit=True)
+            self.state = STATE_MENU
+        elif confirmed == 2:                      # Quit
+            f.quit_requested = True
+
+    # -- on top of every screen -------------------------------------------------------------
+    def _draw_status_text(self, f):
+        w, h = config.WIDTH, config.HEIGHT
+        if self.bg_capture_at is not None:
+            secs = max(0, int(self.bg_capture_at - time.monotonic()) + 1)
+            draw_text(f.frame, f"Aus dem Bild gehen: {secs}", (w // 2, int(h * 0.12)),
                       scale=1.0, center=True)
-        elif (config.BG_ENABLED and space_img is not None and reference is None
-              and bg_mode == background.MODE_NORMAL          # greenscreen needs no reference
-              and state != STATE_NAME_ENTRY):        # there 'b' types a letter
-            draw_text(frame, "Taste b: Weltall-Hintergrund",
-                      (config.WIDTH // 2, int(config.HEIGHT * 0.96)),
+        elif (config.BG_ENABLED and self.space_img is not None and self.reference is None
+              and self.bg_mode == background.MODE_NORMAL    # greenscreen needs no reference
+              and self.state != STATE_NAME_ENTRY):          # there 'b' types a letter
+            draw_text(f.frame, "Taste b: Weltall-Hintergrund", (w // 2, int(h * 0.96)),
                       scale=0.5, center=True)
-        elif bg_mode == background.MODE_YOLO and (yolo is None or yolo.get() is None):
-            loading = yolo is not None and yolo.state in (yolo.IDLE, yolo.LOADING)
-            draw_text(frame, "YOLO-Modell wird geladen ..." if loading
-                      else "YOLO-Modell nicht verfuegbar",
-                      (config.WIDTH // 2, int(config.HEIGHT * 0.96)), scale=0.5,
+        elif self.bg_mode == background.MODE_YOLO and (self.yolo is None
+                                                       or self.yolo.get() is None):
+            loading = self.yolo is not None and self.yolo.state in (self.yolo.IDLE,
+                                                                    self.yolo.LOADING)
+            draw_text(f.frame, "YOLO-Modell wird geladen ..." if loading
+                      else "YOLO-Modell nicht verfuegbar", (w // 2, int(h * 0.96)), scale=0.5,
                       color=(200, 200, 200) if loading else (80, 80, 255), center=True)
 
-        if show_mask and tracker.last_mask is not None:
-            cv2.imshow("mask (debug)",
-                       cv2.cvtColor(tracker.last_mask, cv2.COLOR_GRAY2BGR))
+    def _draw_debug_mask(self):
+        if self.show_mask and self.tracker.last_mask is not None:
+            cv2.imshow("mask (debug)", cv2.cvtColor(self.tracker.last_mask, cv2.COLOR_GRAY2BGR))
 
-        # the pen as a lightsaber, on every screen (drawn last, like a cursor)
-        if config.SABER_ENABLED:
-            # tip = pen point (the only thing that cuts); the hilt sits on the glove the
-            # suit drew from the pose (#46), otherwise on the hand found by skin colour --
-            # the skin mask is then computed only when needed; the face is never the hand
-            if not face_checked and identifier is not None and point is not None:
-                with stats.stage("face"):
-                    face_box = identifier.largest_face_box(clean, config.SUIT_FACE_DETECT_WIDTH)
-                face_checked = True
-            with stats.stage("saber"):
-                skin = (lambda: lightsaber.skin_mask(clean)) if point is not None else None
-                lightsaber.draw_saber(frame, saber.update(point, skin, face_box, hands=saber_hands),
-                                      pen_color.display)
+    def _draw_saber(self, f):
+        """The pen as a lightsaber, on every screen (drawn last, like a cursor)."""
+        if not config.SABER_ENABLED:
+            return
+        # tip = pen point (the only thing that cuts); the hilt sits on the glove the
+        # suit drew from the pose (#46), otherwise on the hand found by skin colour --
+        # the skin mask is then computed only when needed; the face is never the hand
+        if not f.face_checked and self.identifier is not None and f.point is not None:
+            with self.stats.stage("face"):
+                f.face_box = self.identifier.largest_face_box(f.clean,
+                                                              config.SUIT_FACE_DETECT_WIDTH)
+            f.face_checked = True
+        with self.stats.stage("saber"):
+            skin = (lambda: lightsaber.skin_mask(f.clean)) if f.point is not None else None
+            lightsaber.draw_saber(f.frame, self.saber.update(f.point, skin, f.face_box,
+                                                             hands=f.saber_hands),
+                                  self.pen_color.display)
 
-        if show_perf:
-            draw_perf_overlay(frame, stats.overlay_lines())
-        with stats.stage("show"):
-            cv2.imshow(config.WINDOW_NAME, frame)
+    def _show(self, f):
+        """Show the picture and return the pressed key (the stage timer closes the frame)."""
+        if self.show_perf:
+            draw_perf_overlay(f.frame, self.stats.overlay_lines())
+        with self.stats.stage("show"):
+            cv2.imshow(config.WINDOW_NAME, f.frame)
             key = cv2.waitKey(1) & 0xFF
-        stats.end_frame()
+        self.stats.end_frame()
+        return key
 
-        if state == STATE_NAME_ENTRY and keyboard.from_keycode(key) is not None:
-            typed_key = keyboard.from_keycode(key)   # letters type here instead of q/d
-        elif quit_requested or key == ord("q"):
+    def _handle_key(self, f, key):
+        """Returns True when the game should end."""
+        if self.state == STATE_NAME_ENTRY and keyboard.from_keycode(key) is not None:
+            self.typed_key = keyboard.from_keycode(key)   # letters type here instead of q/d
+        elif f.quit_requested or key == ord("q"):
             logger.info("Quit requested")
-            break
+            return True
         elif key == ord("p"):
-            show_perf = not show_perf
-            logger.info("Perf overlay %s", "on" if show_perf else "off")
+            self.show_perf = not self.show_perf
+            logger.info("Perf overlay %s", "on" if self.show_perf else "off")
         elif key == ord("d"):
-            show_mask = not show_mask
-            logger.info("Debug mask %s", "on" if show_mask else "off")
-            if not show_mask:
+            self.show_mask = not self.show_mask
+            logger.info("Debug mask %s", "on" if self.show_mask else "off")
+            if not self.show_mask:
                 cv2.destroyWindow("mask (debug)")
-        elif key == ord("b") and space_img is not None:
-            bg_capture_at = time.monotonic() + config.BG_COUNTDOWN_SECONDS
+        elif key == ord("b") and self.space_img is not None:
+            self.bg_capture_at = time.monotonic() + config.BG_COUNTDOWN_SECONDS
             logger.info("Background (re)capture armed -- %.1fs countdown",
                         config.BG_COUNTDOWN_SECONDS)
+        return False
+
+
+def _run_game_loop(cap, sounds, previews=None, identifier=None):
+    if config.ASYNC_INFERENCE:
+        cv2.setNumThreads(max(1, config.INFERENCE_CV_THREADS))
+    with LatestWorker() if config.ASYNC_INFERENCE else nullcontext() as worker:
+        return _game_loop(cap, sounds, previews, identifier, worker)
+
+
+def _game_loop(cap, sounds, previews=None, identifier=None, worker=None):
+    GameLoop(cap, sounds, previews, identifier, worker).run()
 
 
 if __name__ == "__main__":

@@ -17,19 +17,17 @@ The model (``yolov8n-seg.onnx``) is exported from Ultralytics YOLOv8n-seg
 (AGPL-3.0) and hosted as a release asset for runtime download.
 """
 
-import hashlib
 import logging
 import os
-import shutil
 import threading
 import time
-import urllib.request
 from collections import namedtuple
 
 import cv2
 import numpy as np
 
 import config
+import model_download
 
 logger = logging.getLogger(__name__)
 
@@ -47,42 +45,18 @@ MODEL = ModelFile(
 
 
 # --------------------------------------------------------------------------- #
-# Model download (same pattern as face_id.ensure_models)
+# Model download (shared with face_id and pose_tracking: model_download.py)
 # --------------------------------------------------------------------------- #
-def _sha256(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def ensure_model(model_dir=MODEL_DIR, download=True):
     """Return the local ONNX path, downloading it on first use.
 
     Raises ``RuntimeError`` if the model is missing (and may not be downloaded),
-    the download fails or the file does not match its hash.
+    the download fails (a dead network fails after ``YOLO_DOWNLOAD_TIMEOUT``) or the
+    file does not match its hash.
     """
-    os.makedirs(model_dir, exist_ok=True)
-    path = os.path.join(model_dir, MODEL.filename)
-    if not os.path.exists(path):
-        if not download:
-            raise RuntimeError(f"{MODEL.filename} fehlt in {model_dir}")
-        logger.info("Downloading %s ...", MODEL.filename)
-        tmp = path + ".part"
-        try:
-            # bounded wait: a dead network fails after the timeout instead of hanging
-            with urllib.request.urlopen(MODEL.url, timeout=config.YOLO_DOWNLOAD_TIMEOUT) as r, \
-                    open(tmp, "wb") as f:
-                shutil.copyfileobj(r, f)
-        except OSError as exc:                       # incl. TimeoutError / URLError
-            if os.path.exists(tmp):
-                os.remove(tmp)
-            raise RuntimeError(f"Download von {MODEL.filename} fehlgeschlagen: {exc}")
-        os.replace(tmp, path)
-    if _sha256(path) != MODEL.sha256:
-        raise RuntimeError(f"{MODEL.filename} ist beschaedigt (Hash stimmt nicht)")
-    return path
+    return model_download.ensure_file(os.path.join(model_dir, MODEL.filename), MODEL.url,
+                                      MODEL.sha256, download=download,
+                                      timeout=config.YOLO_DOWNLOAD_TIMEOUT)
 
 
 # --------------------------------------------------------------------------- #

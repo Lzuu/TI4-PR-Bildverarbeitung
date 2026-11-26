@@ -10,4 +10,3 @@ Closes #
 - [ ] CI ist grün
 - [ ] Wichtige Abläufe schreiben Log-Meldungen
 - [ ] Architekturentscheidung getroffen? → in `Architektur.md` festgehalten
-- [ ] Pull Request ist dem Milestone der aktuellen Iteration zugeordnet

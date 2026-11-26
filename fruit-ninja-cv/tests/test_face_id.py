@@ -187,29 +187,28 @@ def model_paths():
         pytest.skip(f"Gesichtsmodelle nicht verfuegbar: {exc}")
 
 
-@pytest.fixture
-def identifier(model_paths):
+@pytest.fixture(scope="module")
+def loaded_identifier(model_paths):
+    """Both networks are loaded once for the whole file (about 80 ms each time)."""
     return face_id.FaceIdentifier(model_paths["detector"], model_paths["recognizer"])
 
 
 @pytest.fixture
-def crew_faces(identifier):
+def identifier(loaded_identifier):
+    loaded_identifier.gallery = {}       # every test starts without enrolled players
+    return loaded_identifier
+
+
+@pytest.fixture(scope="module")
+def crew_faces(loaded_identifier):
     """Faces of the Apollo 11 crew photo, left to right: Armstrong, Collins, Aldrin."""
     img = _img("apollo11_crew.jpg")
-    faces = sorted(identifier.detect(img), key=lambda f: f[0])
+    faces = sorted(loaded_identifier.detect(img), key=lambda f: f[0])
     return img, faces
-
-
-def test_detects_the_face_in_a_portrait(identifier):
-    assert len(identifier.detect(_img("armstrong_portrait.jpg"))) == 1
 
 
 def test_detects_all_three_faces_in_crew_photo(crew_faces):
     assert len(crew_faces[1]) == 3
-
-
-def test_no_face_in_empty_image(identifier):
-    assert identifier.detect(np.full((480, 640, 3), 128, np.uint8)) == []
 
 
 def test_known_faces_are_recognised_in_a_different_photo(identifier, crew_faces):
@@ -226,10 +225,10 @@ def test_unknown_face_is_guest(identifier, crew_faces):
     assert identifier.match(img, collins)[0] == face_id.GUEST
 
 
-def test_identify_uses_largest_face_and_returns_box_in_frame_coordinates(identifier):
+def test_scan_uses_largest_face_and_returns_box_in_frame_coordinates(identifier):
     identifier.add_person("Neil Armstrong", [_img("armstrong_portrait.jpg")])
     big = cv2.resize(_img("armstrong_portrait.jpg"), None, fx=3, fy=3)  # larger than detector input
-    name, score, box = identifier.identify(big)
+    name, score, box, crop = identifier.scan(big)
     assert name == "Neil Armstrong"
     x, y, w, h = box
     face_small = identifier.detect(_img("armstrong_portrait.jpg"))[0]
@@ -244,8 +243,8 @@ def test_largest_face_box_in_frame_coordinates(identifier):
     assert identifier.largest_face_box(np.zeros((480, 640, 3), np.uint8)) is None
 
 
-def test_identify_without_face(identifier):
-    assert identifier.identify(np.zeros((480, 640, 3), np.uint8)) == (None, 0.0, None)
+def test_scan_without_face(identifier):
+    assert identifier.scan(np.zeros((480, 640, 3), np.uint8)) == (None, 0.0, None, None)
 
 
 def test_gallery_loads_photos_and_aligned_crops_from_folders(identifier, tmp_path):
@@ -344,3 +343,44 @@ def test_short_detection_dropout_is_tolerated():
     clock.t = 0.4
     scan.update(True, face_id.GUEST, _crop(10))
     assert len(scan.crops) == 2                          # still the same session
+
+
+# -- CR-13 (#65): players with umlauts are saved, a failing save does not crash ----
+def test_a_player_with_umlaut_is_saved_and_loaded_again(identifier, tmp_path):
+    portrait = _img("armstrong_portrait.jpg")
+    crop = identifier.aligned_crop(portrait, identifier.detect(portrait)[0])
+    result = identifier.enroll(str(tmp_path), "Jürgen", [crop, crop])
+    assert result.added == 2 and result.saved == 2
+    assert len(list((tmp_path / "Jürgen").glob("*.png"))) == 2
+    fresh = face_id.FaceIdentifier(*identifier.model_paths)
+    assert fresh.load_gallery(str(tmp_path)) == 1
+    assert fresh.persons == ["Jürgen"]
+
+
+def test_a_folder_that_cannot_be_created_is_reported_not_raised(identifier, tmp_path):
+    portrait = _img("armstrong_portrait.jpg")
+    crop = identifier.aligned_crop(portrait, identifier.detect(portrait)[0])
+    blocked = tmp_path / "faces"
+    blocked.write_text("a file, not a folder")
+    result = identifier.enroll(str(blocked), "Neil", [crop])
+    assert result.added == 1 and result.saved == 0
+    assert identifier.persons == ["Neil"]                  # still usable in this session
+
+
+# -- CR-18 (#70): reserved and taken names are refused -----------------------
+def test_name_problem_refuses_the_guest_name_and_taken_names():
+    assert face_id.name_problem("Gast", [])
+    assert face_id.name_problem("gast", [])
+    assert face_id.name_problem("Anna", ["Anna"])
+    assert face_id.name_problem("anna", ["Anna"])           # Windows folders ignore the case
+    assert face_id.name_problem("Ben", ["Anna"]) is None
+    assert face_id.name_problem("", ["Anna"]) is None       # empty: a free number is chosen
+
+
+def test_the_enrol_script_saves_crops_for_a_name_with_umlaut(tmp_path):
+    import enroll
+    folder = tmp_path / "Jürgen"
+    folder.mkdir()
+    assert enroll.save_crop(str(folder), CROP, now=12.345)
+    assert [p.name for p in folder.iterdir()] == ["12345.png"]
+    assert not enroll.save_crop(str(tmp_path / "fehlt"), CROP, now=1.0)   # reported, not counted

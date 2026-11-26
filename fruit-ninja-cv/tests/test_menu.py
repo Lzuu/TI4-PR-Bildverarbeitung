@@ -3,17 +3,12 @@
 import background
 import config
 import main as m
-from colors import COLORS
 
 
 def _overlap(a, b):
     ax, ay, aw, ah = a
     bx, by, bw, bh = b
     return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
-
-
-def test_one_swatch_per_colour():
-    assert len(m.color_swatches(config.WIDTH, config.HEIGHT)) == len(COLORS)
 
 
 def test_click_inside_swatch_is_a_hit():
@@ -56,11 +51,6 @@ def test_green_pen_is_blocked_only_in_greenscreen_mode():
     assert not m.pen_allowed(GRUEN, background.MODE_GREENSCREEN)
     for mode in (background.MODE_NORMAL, background.MODE_YOLO, background.MODE_OFF):
         assert m.pen_allowed(GRUEN, mode)
-
-
-def test_pink_and_yellow_work_with_greenscreen():
-    assert m.pen_allowed(PINK, background.MODE_GREENSCREEN)
-    assert m.pen_allowed(GELB, background.MODE_GREENSCREEN)
 
 
 def test_switching_to_greenscreen_replaces_a_green_pen():

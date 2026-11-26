@@ -55,3 +55,51 @@ def test_point_outside_all_targets():
     d = DwellTracker(3.0, time_fn=FakeClock())
     active, progress, confirmed = d.update((5, 5), TARGETS)
     assert active is None and progress == 0.0 and confirmed is None
+
+
+# -- CR-11 (#63): after a screen change the marker must leave every target first --
+def test_after_reset_with_require_exit_the_marker_must_leave_every_target_first():
+    clk = FakeClock()
+    d = DwellTracker(3.0, time_fn=clk)
+    d.reset(require_exit=True)
+    assert d.update((100, 100), TARGETS) == (None, 0.0, None)    # still on a target: ignored
+    clk.t = 5.0
+    assert d.update((100, 100), TARGETS) == (None, 0.0, None)    # however long it stays
+    d.update((5, 5), TARGETS)                                     # leaves every target
+    clk.t = 5.1
+    active, progress, confirmed = d.update((100, 100), TARGETS)
+    assert active == 0 and progress == 0.0 and confirmed is None
+
+
+def test_a_marker_lost_for_a_while_counts_as_leaving():
+    clk = FakeClock()
+    d = DwellTracker(3.0, time_fn=clk, lost_unlock_seconds=0.5)
+    d.reset(require_exit=True)
+    d.update(None, TARGETS)
+    clk.t = 0.6
+    d.update(None, TARGETS)                                       # gone for more than 0.5 s
+    assert d.update((100, 100), TARGETS)[0] == 0
+
+
+def test_a_short_dropout_of_the_detection_does_not_lift_the_lock():
+    clk = FakeClock()
+    d = DwellTracker(3.0, time_fn=clk, lost_unlock_seconds=0.5)
+    d.reset(require_exit=True)
+    d.update((100, 100), TARGETS)
+    clk.t = 0.1
+    d.update(None, TARGETS)                                       # one flickering frame
+    clk.t = 0.2
+    assert d.update((100, 100), TARGETS) == (None, 0.0, None)     # still resting there: ignored
+    clk.t = 5.0
+    assert d.update((100, 100), TARGETS) == (None, 0.0, None)
+
+
+def test_plain_reset_still_restarts_the_timer_on_the_same_target():
+    clk = FakeClock()
+    d = DwellTracker(3.0, time_fn=clk)
+    d.update((100, 100), TARGETS)
+    clk.t = 2.0
+    d.reset()
+    clk.t = 2.1
+    active, progress, _ = d.update((100, 100), TARGETS)
+    assert active == 0 and progress == 0.0

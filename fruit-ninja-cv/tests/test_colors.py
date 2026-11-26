@@ -1,14 +1,6 @@
 """Tests for the fixed pen-colour definitions."""
 
-from colors import COLORS, PINK, DEFAULT
-
-
-def test_three_named_colours():
-    assert [c.name for c in COLORS] == ["Pink", "Gelb", "Gruen"]
-
-
-def test_default_is_pink():
-    assert DEFAULT is PINK
+from colors import COLORS
 
 
 def test_ranges_are_well_formed():

@@ -6,7 +6,8 @@ Architekturentscheidungen und Aufbau des Fruit-Ninja-CV-Spiels
 ## Überblick
 Das Spiel ist in **kleine, fokussierte Module** aufgeteilt (eine Verantwortung je
 Datei). `main.py` ist der Einstieg und hält die **Game-Loop** sowie die
-**State-Machine** (Kalibrierung → Spiel → Game Over). Die Bildverarbeitung, die
+**State-Machine** (Gesichtsscan → Namenseingabe → Menü → Schwierigkeit → Spiel →
+Game Over). Die Bildverarbeitung, die
 Spiel-Physik und das Rendering sind davon getrennt.
 
 ```
@@ -37,26 +38,55 @@ Kamera ─► main (Loop, States, Input)
 | `lightsaber.py` | Lichtschwert: Spitze am Stiftpunkt, Griff am Handschuh des Anzugs (Pose), sonst Richtung zur per Hautfarbe erkannten Hand |
 | `suit.py` / `suit_rig.py` | EVA-Körperteile, maskiertes Alpha-Compositing, Kameragesicht im klaren Visier |
 | `pose_tracking.py` | Lokale BlazePose-ONNX-Modelle, Gelenke, Flow, begrenzte Überbrückung |
-| `frame_metrics.py` | Optionale aggregierte Live-Zeiten ohne Pro-Frame-Logspam |
 | `cameras.py` | Kameras finden (Indizes durchprobieren), öffnen (1080p MJPG, unter Windows MSMF), wechseln, Auswahl in `settings.json` merken |
 | `highscore.py` | Top-3-Highscore **je Schwierigkeit** mit Spielername (JSON-Persistenz) |
-| `face_id.py` | Spielererkennung per Gesicht: YuNet-Detektion, SFace-Merkmale, Abgleich mit `faces/`, Scan im Kreis (`FaceScanner`), Einlernen |
+| `face_id.py` | Spielererkennung per Gesicht: YuNet-Detektion, SFace-Merkmale, Abgleich mit `faces/`, Scan im Kreis (`FaceScanner`), Einlernen, Namensprüfung |
+| `model_download.py` | Geprüfter Modell-Download (Timeout, Hash vor dem Installieren) für Gesicht, YOLO und Pose |
 | `keyboard.py` | Bildschirmtastatur (Dwell pro Taste) für den Namen neuer Spieler |
 | `enroll.py` | Spieler einlernen: speichert ausgerichtete Gesichtsausschnitte nach `faces/<Name>/` |
-| `sound.py` | Soundeffekte (synthetisiert, non-blocking via afplay) |
-| `utils.py` | Wiederverwendbare Helfer: Linie-Kreis-Abstand, Text mit Schatten |
+| `sound.py` | Soundeffekte (synthetisiert, non-blocking: `winsound` unter Windows, `afplay` auf macOS) |
+| `utils.py` | Wiederverwendbare Helfer: Linie-Kreis-Abstand, Text mit Schatten, Bilddateien mit Umlaut im Pfad |
 | `logging_config.py` | Zentrales Logging (rotierendes Logfile + Konsole) |
 
 ## Datenfluss (pro Frame)
 1. `main` liest Frame, skaliert auf feste Größe, spiegelt (Mirror).
 2. `MarkerTracker.track(frame)` → HSV → `inRange` → Morphologie → größte Kontur →
-   Schwerpunkt = Stiftposition (oder `None`).
+   oberes Ende des Stifts = Stiftposition (`PEN_POINT = "tip"`; bei rundem Marker
+   der Schwerpunkt; ohne Stift `None`).
 3. `Blade.add(point)` hält die letzten N Punkte (die Klinge).
-4. `Game.update(blade)` wirft Früchte ein, bewegt sie (Schwerkraft), prüft
+4. `Game.update(blade, dt)` wirft Früchte ein, bewegt sie (Schwerkraft), prüft
    **Kollision** (Abstand Frucht-Mittelpunkt ↔ Klingen-Segment ≤ Radius).
 5. `Game.draw` + `Blade.draw` + HUD zeichnen ins Frame; `main` zeigt es an.
 
 ## Architekturentscheidungen (ADR-Kurzform)
+- **Asynchrone Inferenz (#56).** YOLO und Pose teilen sich einen einzigen
+  Hintergrund-Worker mit höchstens einem wartenden Auftrag je Typ. Neue Bilder
+  ersetzen wartende Bilder; es gibt keine FIFO-Bildschlange. Nur der Worker
+  verwendet die Netze zur Inferenz. Ergebnisse tragen Quellkennung, Bildform,
+  Generation und Aufnahmezeit; Quellenwechsel und Reset verwerfen alte Resultate
+  einschließlich noch laufender Aufträge. Ergebnisalter zählt ab Aufnahme, nicht
+  ab Fertigstellung. Der Hauptthread wartet weder auf Modellladen noch Inferenz.
+  Optischer Fluss überträgt eine neue Pose vom tatsächlich ausgewerteten Bild
+  auf das aktuelle Bild; seine Ergebnisse verlängern das Inferenzalter nicht.
+  Ein Worker serialisiert die beiden Netze statt gleichzeitiger Inferenzspitzen.
+  OpenCV wird vor Workerstart prozessweit auf eine konfigurierbare Threadzahl
+  begrenzt. Shutdown stoppt neue Aufträge ohne unbeschränkt auf native Inferenz
+  zu warten. Die bisherige Entscheidung gegen asynchrone Inferenz ist damit
+  durch expliziten Netzbesitz und Bild-/Quellenidentität ersetzt.
+- **Lokale Frucht-Sprites statt einfacher Kreise (#77, 26.11.2026).** Fünf
+  realistische Fruchtsorten und eine stilisierte 3D-Spielbombe wurden einmalig mit
+  dem integrierten Bildgenerator erzeugt. Transparente PNGs liegen versioniert in
+  `fruit-ninja-cv/fruit_assets/`; Prompts, Prüfsummen und Körperanker stehen in
+  `generation.json`. `fruit_sprites.py` lädt sechs Originale einmalig und hält
+  höchstens 128 skalierte Varianten vor. Größenänderung erfolgt mit vormultipliziertem
+  Alpha gegen dunkle Ränder, Compositing nur im sichtbaren Bildausschnitt. Körper
+  bleiben am bisherigen Kollisionskreis verankert, Stiele und Lunte sind Dekoration.
+  Die Schnittlinie teilt die echte Textur in komplementäre Hälften, die senkrecht
+  zum Schnitt auseinanderfliegen. Eigene Fruchtfleisch-Schnittflächen sind nicht
+  simuliert. Physik, Trefferlogik und Punkte bleiben unverändert. Fehlende Assets
+  werden einmal geloggt und durch die vorhandene prozedurale Darstellung ersetzt.
+  Tests und `tools/preview_fruits.py` prüfen Alpha, Bildränder, Schnittrichtungen,
+  Größen-Cache und Fallback. Vorschauen/Messwerte: `docs/fruit-previews/`.
 - **Klassische Bildverarbeitung statt ML.** Farb-Segmentierung (HSV) + Konturen
   statt MediaPipe o. Ä. → passt zur Kursintention, transparente Pipeline, kein
   Modell-Overhead.
@@ -96,8 +126,8 @@ Kamera ─► main (Loop, States, Input)
   es zählt der Abstand zur Klinge (Punkt bei Ruhe, Segment bei Bewegung).
 - **Prozedurale Grafik.** Früchte werden gezeichnet (Kreis + Highlight + Stiel) →
   keine Asset-Abhängigkeiten, läuft überall sofort.
-- **State-Machine.** Klar getrennte Zustände (Kalibrierung/Play/GameOver) halten die
-  Loop übersichtlich.
+- **State-Machine.** Klar getrennte Zustände (FaceScan/NameEntry/Menu/Difficulty/
+  Play/GameOver) halten die Loop übersichtlich.
 - **Zentrale Konfiguration.** Alle Stellschrauben in `config.py` → einfaches Tuning,
   keine Magic Numbers im Code.
 - **Schwierigkeitsgrade als Presets.** `difficulty.py` bündelt die variierenden
@@ -147,7 +177,8 @@ Kamera ─► main (Loop, States, Input)
   so unabhängig testbar (defekte/fehlende Datei → leere Liste).
 - **Sound entkoppelt & non-blocking.** `Game` ruft nur `sounds.play(name)`; in Tests
   wird ein `NullSound` injiziert. WAVs werden synthetisiert (keine Asset-Dateien),
-  Wiedergabe via `afplay` ohne die Game-Loop zu blockieren.
+  Wiedergabe ohne die Game-Loop zu blockieren: `winsound` unter Windows, `afplay` auf macOS
+  (siehe CR-24, #74).
 - **Logging statt Prints.** Rotierendes Logfile unter `logs/`; unbehandelte Fehler
   werden mit Traceback geloggt → nachvollziehbares Debugging nach einem Problem.
 - **Test-case-basiert.** Die gesamte Logik (Geometrie, Tracking, Physik, Spiel) ist
@@ -259,10 +290,9 @@ Kamera ─► main (Loop, States, Input)
     → vordere Unterarme/Handschuhe → Original-Stiftpixel → Spiel/UI/Lichtschwert.
     Der Stift bleibt auch dann sichtbar, wenn YOLO ihn aus der Personenmaske entfernt.
     Ein Face-Scan wird mit dem Anzug geteilt, statt YuNet doppelt auszuführen.
-  - `FrameMetrics` misst optional Capture, Tracking, Segmentierung, Face, Pose,
-    Anzug, Ausgabe und Gesamtframe; aggregierte Median-/P95-Werte alle fünf Sekunden.
-    Start mit `--suit-diagnostics`. Echte Live-FPS werden erst mit angeschlossener
-    Kamera/Anzeige bestätigt. Reproduzierbare Vorschauen und Messungen:
+  - Stufenzeiten misst `perf.FrameStats` (Taste `p`); das frühere `frame_metrics.py`
+    war nie angeschlossen und wurde entfernt. Echte Live-FPS werden erst mit
+    angeschlossener Kamera/Anzeige bestätigt. Reproduzierbare Vorschauen und Messungen:
     [EVA-Implementierung und Prüfung](docs/astronaut-suit.md).
 - **Stift als Lichtschwert, Griff auf der Hand (`lightsaber.py`).** Am Stift wird auf
   jedem Bildschirm ein Lichtschwert gezeichnet. Die Klingenspitze ist der Punkt, der
@@ -424,8 +454,9 @@ Kamera ─► main (Loop, States, Input)
     zu alte Maske wird früher aufgefrischt, aber nur, wenn eine Inferenz selbst günstig
     ist (höchstens das halbe Budget). Sonst würde bei langsamer Hardware jede Inferenz
     die Frames weiter verlangsamen (Rückkopplung, im Messlauf aufgetreten). Eine
-    asynchrone Inferenz ist bewusst nicht gebaut: Dafür müssten Thread-Besitz und
-    Frame-Identität erst festgelegt werden, und ohne belegten Bedarf kommt sie nicht.
+    asynchrone Inferenz war damals bewusst nicht gebaut. **Durch #56 ersetzt:**
+    Netzbesitz, Quellen-/Bildidentität und Ergebnisalter sind jetzt im Worker
+    festgelegt; siehe die aktuelle ADR zur asynchronen Inferenz oben.
   - **PERF-04 Verarbeitungsskala.** `TRACK_SCALE = 0.5` und `GREEN_SCALE = 0.5`. Der Tracker
     skaliert Morphologie- und Weichzeichner-Kernel und die Flächenschwelle mit
     (ein fester 5×5-Kernel löschte Stifte unter 8 px komplett); Punkt und `last_mask`
@@ -459,6 +490,57 @@ Kamera ─► main (Loop, States, Input)
   angeschlossen war (Kamera 0, 1920×1080, wurde stattdessen verwendet).
   Offen: Der prozedurale Anzug ist auf diesem Gerät der größte Einzelposten.
 
+- **Fehlerbehebung aus dem Code-Review #55 (CR-11 bis CR-19, 12.11.2026).** Jeder Fehler
+  wurde zuerst als Test nachgestellt (rot) und dann behoben; 36 neue Tests. Ein Review des
+  Pull Requests #76 ergab drei Nachbesserungen, die unten mit „Nachtrag“ markiert sind.
+  - **CR-11 (#63) Bildschirmwechsel.** `DwellTracker.reset(require_exit=True)`: Nach einem
+    Wechsel zählt ein Ziel erst, wenn der Stift alle Ziele einmal verlassen hat (oder
+    verloren ging). „Startmenue“ und „Quit“ liegen an derselben Stelle, „Start“ im Kreis
+    „Mittel“; das Layout zu verschieben hätte das Problem bei der nächsten Änderung wieder
+    erzeugt. Die Tastenwiederholung der Namenseingabe (`key_dwell.reset()` nach einer Taste)
+    bleibt bewusst ohne Sperre, sonst ginge kein Doppelbuchstabe mehr. Nachtrag: Ein
+    verlorener Stift hebt die Sperre erst nach 0,5 s auf (`lost_unlock_seconds`); ein
+    einzelner Aussetzer der Erkennung würde sie sonst lösen, während der Stift auf dem Ziel
+    ruht.
+  - **CR-12 (#64) Bombe im selben Schwung.** `_handle_slicing` zählt die vor der Bombe
+    geschnittenen Früchte zur Kombo, bevor das Spiel endet; danach läuft in diesem Frame
+    keine Physik mehr (kein Leben, kein „miss“-Ton nach Game Over).
+  - **CR-13 (#65) Umlaute in Spielernamen.** `cv2.imread/imwrite` scheitern unter Windows an
+    Pfaden wie `faces/Jürgen`. `utils.imread/imwrite` gehen über `imencode/imdecode` und
+    normale Dateizugriffe. `FaceIdentifier.enroll` liefert `Enrolled(added, saved)`; der
+    Spieler bleibt in der Sitzung nutzbar, schlägt das Speichern fehl, wird das geloggt und
+    im Menü angezeigt. Nachtrag: Auch `enroll.py` speichert über `utils.imwrite` und zählt
+    nur tatsächlich geschriebene Bilder. Offen: `cv2.dnn.readNetFromONNX` und die Sprite-/Hintergrundbilder
+    lesen Pfade mit Umlaut weiterhin über OpenCV direkt (Repo unter einem Benutzerpfad mit
+    Umlaut).
+  - **CR-14 (#66) Lichtschwert.** Beim Wechsel vom Handschuh zur Hautsuche wird die Klingenlänge
+    auf `min_blade` bis `max_blade` begrenzt statt auf 0 zu fallen.
+  - **CR-15 (#67) Modell-Download.** Ein Pfad für alle drei Modelle: `model_download.py`
+    (Timeout, Hash beim Schreiben der `.part`-Datei, erst bei passendem Hash an den Endnamen
+    verschoben, Größenlimit). Eine beschädigte Datei aus einem früheren Lauf wird bei erlaubtem
+    Download ersetzt; ohne Download bleibt sie unangetastet und wird gemeldet. Auch ein
+    Verbindungsabbruch (`http.client.HTTPException`) endet als `RuntimeError`.
+    `MODEL_DOWNLOAD_TIMEOUT = 20` gilt auch für Gesichts- und Posemodelle. Damit ist auch
+    CR-21 erledigt.
+  - **CR-16 (#68) Dateipfade.** `config.BASE_DIR` (Programmordner); `settings.json`,
+    `highscores.json`, `logs/perf.csv` und `logs/fruit-ninja.log` liegen dort, egal von wo
+    gestartet wird. Wer bisher aus dem Repo-Wurzelordner gestartet hat, hat dort eigene
+    Dateien, die nicht mehr gelesen werden.
+  - **CR-17 (#69) Kamera verloren.** `Camera.reopen()` probiert die zuletzt funktionierende,
+    dann die konfigurierte und dann alle übrigen Kameras. Ohne Kamera zeigt die Schleife einen
+    Hinweis und versucht es alle `CAMERA_REOPEN_INTERVAL` (1 s); erst nach
+    `CAMERA_LOST_TIMEOUT` (30 s) endet das Spiel, Taste `q` beendet jederzeit. Liefert eine
+    geöffnete Kamera nur keine Bilder, gilt weiter `MAX_FRAME_FAILURES`.
+  - **CR-18 (#70) Namen.** `face_id.name_problem`: „Gast“ und vergebene Namen (ohne
+    Beachtung der Groß-/Kleinschreibung, die Ordner sind unter Windows nicht
+    unterscheidend) werden abgelehnt, mit Hinweis in der Namenseingabe. Ein leerer Name
+    bleibt erlaubt („Spieler N“).
+  - **CR-19 (#71) Stiftmaske.** `MarkerTracker.pen_mask` enthält nur die Kontur, die als Stift
+    gewählt wurde; der Anzug schont nur sie. `last_mask` bleibt die Maske aller
+    stiftfarbenen Pixel für die Debug-Ansicht (Taste `d`). Ein pinkes Kissen im Raum scheint
+    damit nicht mehr durch den Weltraum. Nachtrag: Stiftfarbene Flächen direkt neben der
+    gewählten Kontur (halbe Stiftlänge Abstand) gehören mit zur Maske, sonst würde der Anzug
+    den Teil des Stifts überdecken, den die Faust vom Rest trennt.
 - **Agent-Wartezeit: Short-Video-Fenster per Hook (#48, `fruit-ninja-cv/tools/doomscroll/`).**
   Kein Teil des Spiels. Claude-Code-Hooks (`UserPromptSubmit` öffnet, `Stop`,
   `StopFailure`, `SessionEnd` schließen) rufen ein Skript je System auf: `doomscroll.ps1`
@@ -519,12 +601,91 @@ Kamera ─► main (Loop, States, Input)
     Winkel im Log, `tools/analyze_cuts.py` fasst das zusammen; das Vorgehen und die
     Protokolltabelle stehen im README. Der praktische Versuch bei mindestens zwei
     Beleuchtungsbedingungen ist offen.
+- **Spielschleife als Klasse (CR-23, #73).** Die rund 480 Zeilen lange Funktion
+  `_run_game_loop` mit über 30 lokalen Variablen ist jetzt die Klasse `GameLoop` in `main.py`.
+  Der Zustand zwischen den Frames liegt in Attributen, die Daten eines Frames in einem
+  `Frame`-Objekt (`frame`, `clean`, `point`, `face_box` ...). `run()` ruft je Frame die
+  Schritte `_next_frame`, `_find_pen_and_face`, `_cut_out_player`, `_run_screen`,
+  `_draw_status_text`, `_draw_saber`, `_show` und `_handle_key` auf; jeder der sechs Zustände ist
+  eine eigene Methode `_<zustand>_screen` (Zuordnung `GameLoop.SCREENS`, ein Test sichert ab,
+  dass jeder `STATE_*` einen Bildschirm hat). Die längste Methode hat rund 35 Zeilen.
+  - **Reine Umstrukturierung.** Reihenfolge der Schritte, Zeitmessung je Stufe und alle
+    Verzweigungen blieben gleich. `_run_game_loop(...)` bleibt als dünne Hülle, damit die
+    Integrationstests (`test_main_loop.py`, `test_perf_loop.py`) unverändert laufen.
+  - **Prüfung über die Tests hinaus.** Ein deterministischer Durchlauf der echten Schleife (feste
+    Uhr, feste Zufallszahlen, Skript-Kamera, die Stiftbewegung folgt dem Log des Spiels) führt durch
+    alle sechs Bildschirme: Gesichtsscan zweimal, Namenseingabe mit abgelehntem Namen,
+    Einlernen, Menü-Klicks (Stiftfarbe, Hintergrundmodus), Start, Schwierigkeit, Spiel, zweimal
+    Game Over, Neustart, Startmenü, Spielerwechsel, Quit; dazu Greenscreen-Compositing und eine
+    Phase ohne Kamera. Alte und neue Schleife zeigen in 1688 Bildern (je 550 bis 576 pro
+    Szenario) und allen Log-Meldungen **Byte für Byte dasselbe**.
+  - **Bewusst nicht gemacht:** Die Klasse bleibt in `main.py`, statt in eigene Module zu wandern.
+    Tests tauschen Namen wie `main.draw_text` oder `main.suit` aus, ein Umzug würde sie
+    verfehlen. Layout- und Zeichenfunktionen in `main.py` auszulagern wäre ein eigener, späterer
+    Schritt.
+- **Ungenutzten Code entfernen (CR-22, #72).** Entfernt wurden `MarkerTracker.set_colors`,
+  `FaceIdentifier.identify` (die Tests prüfen jetzt `scan`, die einzige Stelle, die die
+  Skalierung der Gesichtsbox absichert), `Blade.speed`, `lightsaber.saber_at` (die
+  Zeichentests bauen die gerade Klinge selbst), `last_ms` in `SuitRenderer` und
+  `PoseEstimator` (wurde nirgends gelesen; Zeiten je Stufe misst `perf.FrameStats`) und der
+  unerreichbare Zweig `person_mask is None` in `SuitRenderer._helmet`. Verhalten und
+  Testabdeckung des genutzten Codes sind unverändert.
+- **Kleinere Punkte (CR-24, #74).**
+  - **Ton unter Windows.** `SoundPlayer` nutzt dort `winsound.PlaySound` mit `SND_ASYNC` (Standardbibliothek,
+    keine neue Abhängigkeit), auf macOS weiter `afplay`, sonst bleibt es stumm. `SND_ASYNC` kann nur
+    einen Ton gleichzeitig: Ein neuer Effekt schneidet den vorigen ab, das ist bei kurzen Effekten
+    gewollt einfach statt eines Mischers. Backend, Plattform und Attrappen werden hineingereicht, die
+    Tests spielen nie echten Ton. Am Windows-Laptop geprüft: `play()` kehrt nach wenigen Millisekunden zurück.
+  - **Töne nur erzeugen, wenn sie fehlen.** `ensure_sounds` schreibt vorhandene Dateien nicht neu
+    (vorher bei jedem Start). Eine leere oder abgeschnittene Datei zählt als fehlend, geschrieben wird
+    über eine Temp-Datei, so bleibt nach einem Abbruch keine kaputte Datei liegen. Einen Ton ändern:
+    Datei in `assets/sounds/` löschen oder `ensure_sounds(force=True)`.
+  - **Formatierung.** `suit_rig.py` und `pose_tracking.py` sind mit `black` (100 Zeichen Zeilenlänge)
+    an den Stil der übrigen Module angeglichen. Der Syntaxbaum beider Dateien ist vor und nach
+    der Formatierung identisch (geprüft), es ändert sich kein Verhalten.
+  - **`tools/doomscroll/` bleibt im Repo.** Es ist ein ausdrücklich gewünschtes Werkzeug, das jede Person
+    selbst einbindet, ohne Einfluss auf das Spiel (eigener Ordner, Tests ohne Kamera). Wer das nicht
+    will, kann den Ordner samt `tests/test_doomscroll.py` ohne Folgen für das Spiel löschen.
+  - **Kommentar zu `CAMERA_INDEX`** nennt jetzt beide Rechner (Mac und Windows-Laptop mit ELP-Kamera).
+- **PERF-10 (#57): Anzug-Renderer in uint8 und im Spielerrechteck.** Das Bild bleibt gleich
+  (höchstens 3 Graustufen Abweichung; Referenzbilder `tests/data/suit_ref_*.png`, mit dem
+  alten Renderer erzeugt). Bei `scene('side')`, 960×720, auf dem M3: 14,1 → 7,6 ms
+  im Median.
+  - `Sprite.premultiplied` ist jetzt **uint8**-BGRA. `alpha_over` rechnet mit `cv2.multiply`/
+    `cv2.add` statt float32 in NumPy. Rundung einmal beim Laden, dadurch höchstens 1 bis 2
+    Graustufen Fehler.
+  - `clip_masks`: Die Masken für `clip`/`arm_clip` (Abstandskarte, `floodFill` für den
+    Außenbereich) werden nur im Rechteck des Spielers plus `PLAYER_PAD` (50 px) berechnet,
+    mit `cv2.compare`/`bitwise_*` statt boolescher Arrays. Das Ergebnis ist identisch: Der
+    Rand um das Rechteck ist reiner Hintergrund. Jeder Weg nach außen und jeder nächste
+    Spielerpixel liegt daher im Rechteck (Test gegen die alte Vollbildversion). Stoff
+    (`region`, `base`) arbeitet im selben Rechteck. Die linke obere Ecke ist gerade, damit
+    das halbe Raster von `paint_fabric` gleich bleibt. Die Abstandskarte für weiche Kanten
+    wird nur noch gerechnet, wenn sie gebraucht wird (keine Schulterbreite).
+  - Helmglas: `nx`, `ny` sind in Sprite-Koordinaten unabhängig vom Gesicht, weil die
+    Helmmatrix die Öffnungsellipse auf das Gesicht abbildet. Das Randfeld entsteht deshalb
+    einmal in `load_assets`. Der Glanz hängt nur von `nx` ab und ist pro Frame eine Zeile.
+    Öffnung und Glasfeld werden in einem `warpAffine` verzerrt.
+  - `pose_tracking.find_player` sucht die Spielerkontur einmal pro Frame. `PoseTracker`,
+    `PoseEstimator`, `PersonDetector` und `SuitRenderer.render` nehmen sie als `player=`
+    entgegen und suchen nur selbst, wenn keine übergeben wird. Die `infer`-Funktion des
+    Trackers bekommt sie als dritten Parameter.
+  - Der Zeittest (≤ 18 ms) trägt die Markierung `perf` und läuft nur auf Abruf
+    (`python -m pytest -m perf`). `pytest.ini` wählt ihn sonst ab, weil ein Zeitbudget
+    unter Last und auf geteilten CI-Runnern zufällig scheitert.
+  - Restabweichung: Wo mehrere Sprites übereinanderliegen, summieren sich die Rundungen der
+    uint8-Schritte. In einem Abgleich mit 192 synthetischen Fällen weicht in 8 Fällen je
+    1 Pixel um 4 Graustufen ab, alles andere um höchstens 3. Die Szenen aus dem Issue
+    halten ≤ 3 ein. Bewusst so gelassen, weil der Fehler nicht sichtbar ist.
+  - Die alten Vorschaubilder in `docs/suit-previews` (Porträt) stammten von einem älteren
+    Stand. Neu erzeugt, alter und neuer Renderer liefern dort heute dasselbe Bild.
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.
 - **Logging:** `logs/fruit-ninja.log` (rotierend), Konsole zeigt nur Warnungen/Fehler.
-- **CI:** GitHub Actions (`.github/workflows/tests.yml`) führt bei jedem Push und
-  Pull Request alle Tests aus. In `main` kommt nur Code mit grünen Tests.
+- **CI:** GitHub Actions (`.github/workflows/tests.yml`) führt bei jedem Pull Request
+  und bei jedem Push auf `main` alle Tests aus (nicht mehr doppelt für Push und Pull
+  Request desselben Branches). In `main` kommt nur Code mit grünen Tests.
 
 ## Prozessentscheidungen
 - **Noahs Programm ist die gemeinsame Basis.** Es gab zwei parallele Umsetzungen
@@ -542,20 +703,48 @@ Kamera ─► main (Loop, States, Input)
 - **Maßgeblich ist `aufgabenstellung.md`.** Noahs frühere `Aufgabenstellung.md`
   wurde nicht übernommen (veraltet; kollidiert unter Windows wegen gleicher
   Schreibweise bis auf Groß-/Kleinschreibung).
-- **Iterationen über GitHub.** Jede Iteration ist ein Milestone, Aufgaben sind
-  Issues, ein Branch pro Issue, Änderungen nur per Pull Request mit Tests.
+- **Iterationen über GitHub.** Aufgaben sind Issues, ein Branch pro Issue, Änderungen
+  nur per Pull Request mit Tests. Milestones werden nicht verwendet (Entscheidung
+  12.11.2026; es gab nie einen). `main` ist auf GitHub geschützt: Änderungen nur per
+  Pull Request mit grüner CI, eine Freigabe durch Dritte ist nicht nötig.
+- **Sammel-Issues aufgeteilt (12.11.2026).** Die Reviews #54 (Performance) und #55
+  (Fehler, Aufräumen) bleiben als Übersicht; jedes Arbeitspaket hat ein eigenes Issue
+  (#56 bis #74), damit eine Aufgabe klein und abgegrenzt bleibt.
+- **Übersicht für KI-Agenten.** `CLAUDE.md` enthält neben den Regeln Befehle,
+  Modul-/Testtabelle und Fallstricke; `AGENTS.md` verweist darauf.
 
-## Offen gegenüber der Aufgabenstellung
-- **Netzwerk-Mehrspieler (Teilaufgabe 6)** – fehlt noch, Architektur offen.
-- **Schnittgeste (Teilaufgabe 4):** Aktuell schneidet schon Berührung ohne
-  Mindestgeschwindigkeit; gefordert ist, dass langsame/ruhende Bewegungen kein
-  Schnitt sind.
-- **Tracking (Teilaufgabe 3):** Glättung von Messrauschen und Überbrücken kurzer
-  Erkennungsaussetzer.
-- **Stiftspitze (Teilaufgabe 2):** Aktuell wird der Schwerpunkt verwendet.
-- **Debug-Fenster** mit Kamerabild und erkannter Stiftposition (bisher Maske per `d`).
-- **Windows:** Sound (`afplay`) ist auf macOS ausgelegt. Kamera-Auswahl und
-  Bildschirmgröße sind für Windows gelöst (#31, #41 CR-08).
+## Abgleich mit der Aufgabenstellung (Stand 12.11.2026)
+Geprüft am Code des Stands 93621a2, nicht an einer Live-Vorführung.
+
+| Teilaufgabe / Anforderung | Stand | Beleg bzw. was fehlt |
+|---|---|---|
+| 1 Bilderfassung: USB-Kamera fortlaufend einlesen | erfüllt | `cameras.py`, Schleife in `main.py` |
+| 1 Bildrate und Auflösung für flüssiges Spiel | teilweise | 1080p MJPG mit 30 fps, Canvas auf 720 Zeilen begrenzt; mit Anzug nur rund 15 Bilder/s am Demo-Laptop (#54) |
+| 2 Stift in jedem Bild finden | erfüllt | `marker_tracker.py` (HSV-Farbe, größte Kontur) |
+| 2 Position der Stiftspitze | erfüllt | `MarkerTracker._tip`, `PEN_POINT = "tip"` |
+| 2 Zuverlässig bei wechselndem Licht und unruhigem Hintergrund | teilweise | feste Farbbereiche, nur mit synthetischen Bildern getestet; stiftfarbene Gegenstände stören (#71) |
+| 3 Position über mehrere Bilder verfolgen | erfüllt | `blade.py` (Spur der letzten Punkte) |
+| 3 Bewegungsbahn, Richtung, Geschwindigkeit | teilweise | Bahn und Richtung werden genutzt; die Geschwindigkeit wird vom klassischen Spiel nicht ausgewertet (`Blade.speed` wurde als ungenutzt entfernt, #72) |
+| 3 Messrauschen glätten, Aussetzer überbrücken | fehlt | Die Stiftposition wird ungeglättet übernommen; bei einem Aussetzer endet die Spur sofort (bewusst seit CR-01, damit kein Schnitt aus alter Position entsteht) |
+| 4 Schnelle Wischbewegung als Schnitt erkennen | fehlt | Jede Berührung schneidet, es gibt keine Mindestgeschwindigkeit |
+| 4 Langsame oder ruhende Bewegung nicht werten | fehlt | Ein ruhender Stift auf einer Frucht schneidet (`Game._handle_slicing`) |
+| 5 Fruit-Ninja-Variante | erfüllt | `game.py`, `fruit.py` |
+| 5 Kamerakoordinaten auf das Spielfeld übertragen | erfüllt | Kamerabild wird auf den Canvas zugeschnitten, skaliert und gespiegelt; Stiftpunkt in Canvas-Koordinaten |
+| 5 Schnittbahn trifft Frucht | erfüllt | Abstand Fruchtmitte zu Klingensegment (`utils.point_segment_distance`) |
+| 5 Punkte, optional Bomben und Leben | erfüllt | Punkte, Kombos, Bomben, 3 Leben, Bestenliste |
+| 6 Netzwerk: gegen einen zweiten Spieler | fehlt | Kein Netzwerkcode, Architektur offen |
+| Echtzeit: geringe Verzögerung | teilweise | Rechenzeit gemessen (#54); die Verzögerung Kamera → Bildschirm ist nicht gemessen |
+| Robustheit ohne aufwendige Kalibrierung | erfüllt | feste Farbbereiche, keine Kalibrierung; der Modus „Normal“ braucht ein Referenzbild (Taste `b`) |
+| Schnittspur anzeigen | erfüllt | `Blade.draw`, Lichtschwert |
+| Debug-Fenster mit Kamerabild und Stiftposition | teilweise | Taste `d` zeigt nur die Farbmaske, nicht das Kamerabild mit markierter Position |
+| Testcase-basiert, alle Tests auf GitHub | erfüllt | 381 Tests in `fruit-ninja-cv/tests/`, CI bei jedem Pull Request |
+| Inkrementell-iterativ, über GitHub abgebildet | erfüllt | Issues #1 bis #74, Pull Requests |
+| Architekturentscheidungen in `Architektur.md` | erfüllt | diese Datei |
+| Logfiles zum Debuggen | erfüllt | `logging_config.py`, `logs/fruit-ninja.log` |
+
+Offen sind damit vor allem **Netzwerk (6)**, **Schnittgeste (4)** und **Glättung/
+Überbrückung im Tracking (3)**; dafür gibt es noch keine Issues. Außerhalb der
+Aufgabenstellung: Ton läuft unter Windows (`winsound`) und macOS (`afplay`).
 
 ## Bewusste Nicht-Ziele
 - Kein ML für die Stifterkennung (klassische Bildverarbeitung). Ausnahme:
@@ -614,3 +803,16 @@ und wechselnde Beleuchtung benötigen weiterhin eine Live-Abnahme.
 
 
 Integration: main / faa6023 mit den Performance-Änderungen aus PR #45 wurde übernommen. Lazy-YOLO-Laden, zeitbasierte Spielbewegung, halbaufgelöstes Tracking und die Performance-Anzeige bleiben erhalten. Die zwischenzeitliche Integration auf demselben Branch (3e240c6) bleibt erhalten: Pose-Rig und gemeinsame Performance-Diagnose verwenden weiterhin das unveränderte Kamerabild und eine Gesichtserkennung je Frame. Die gemeinsame Testsuite besteht aus 353 erfolgreichen Tests.
+
+
+### Feinabstimmung: Arme 10 Prozent kleiner
+
+Auf Rückmeldung wurden Oberarm- und Unterarmbreite sowie Handschuhbreite/-länge
+gegenüber der vorigen Armkorrektur gemeinsam um 10 Prozent reduziert. Aktuelle
+Breiten relativ zur Körpergrößenbasis: Oberarm 0,504, Unterarm 0,486, Handschuh
+0,495. Anatomische Segmentlängen und Gelenkpositionen folgen weiterhin direkt
+der Pose. Angeglichene Bundprofile, Schulteranschlüsse, breitenabhängige
+Gelenküberlappung und Bewegungsverhalten bleiben erhalten. Rumpf und Helm sind
+unverändert. Nach Übernahme des aktuellen main bestehen 371 Tests; 17 plattformabhängige
+Shell-Tests sind unter Windows übersprungen. Vorschauen und Headless-Messungen wurden
+erneuert. Die Größenänderung benötigt weiterhin eine Live-Webcam-Abnahme.

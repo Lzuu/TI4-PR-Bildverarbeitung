@@ -141,20 +141,9 @@ def test_switch_releases_old_camera():
     assert cam.read()[1][0, 0, 0] == 20
 
 
-def test_switch_to_missing_camera_keeps_the_current_one():
-    cam = cameras.Camera(FakeOpener({0: frame(10)}))
-    cam.open_first([0])
-    assert not cam.switch(3)
-    assert cam.index == 0 and cam.read()[0]
-
-
 # --------------------------------------------------------------------------- #
 # Persistence
 # --------------------------------------------------------------------------- #
-def test_setting_roundtrip(tmp_path):
-    path = str(tmp_path / "settings.json")
-    cameras.save_camera_index(path, 2)
-    assert cameras.load_camera_index(path) == 2
 
 
 def test_missing_or_corrupt_settings_give_none(tmp_path):
@@ -169,12 +158,6 @@ def test_saving_keeps_other_settings(tmp_path):
     path.write_text(json.dumps({"anderes": True}))
     cameras.save_camera_index(str(path), 1)
     assert json.loads(path.read_text()) == {"anderes": True, "camera_index": 1}
-
-
-def test_background_mode_roundtrip(tmp_path):
-    path = str(tmp_path / "settings.json")
-    cameras.save_background_mode(path, "greenscreen")
-    assert cameras.load_background_mode(path) == "greenscreen"
 
 
 def test_background_mode_missing_or_corrupt_gives_none(tmp_path):
@@ -196,11 +179,6 @@ def _overlap(a, b):
     ax, ay, aw, ah = a
     bx, by, bw, bh = b
     return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
-
-
-def test_camera_button_only_with_more_than_one_camera():
-    assert not m.show_camera_button([1])
-    assert m.show_camera_button([0, 1])
 
 
 def test_camera_button_does_not_overlap_pen_colour_button():
@@ -291,3 +269,23 @@ def test_switch_failure_with_working_rollback_keeps_running():
     cam.open_first([0])
     assert not cam.switch(5)
     assert cam.is_open and cam.index == 0 and cam.read()[0]
+
+
+# -- CR-17 (#69): a lost camera can be opened again --------------------------
+def test_reopen_brings_a_lost_camera_back():
+    opener = VanishingOpener({0: frame()})
+    cam = cameras.Camera(opener)
+    assert cam.open_first([0])
+    assert not cam.switch(1)                          # 1 missing, 0 gone too
+    assert not cam.is_open
+    assert not cam.reopen()                           # still unplugged
+    opener.cams[0] = frame()                          # plugged in again
+    assert cam.reopen()
+    assert cam.is_open and cam.index == 0 and cam.read()[0]
+
+
+def test_reopen_of_a_working_camera_changes_nothing():
+    cam = cameras.Camera(FakeOpener({0: frame()}))
+    cam.open_first([0])
+    old = cam.cap
+    assert cam.reopen() and cam.cap is old

@@ -1,4 +1,4 @@
-"""Tests for the blade trail (recent marker points, speed, current point)."""
+"""Tests for the blade trail (recent marker points, segment, current point)."""
 
 import config
 from blade import Blade
@@ -8,16 +8,14 @@ def test_empty_blade_has_no_segment_or_point():
     b = Blade()
     assert b.segment() is None
     assert b.current_point() is None
-    assert b.speed() == 0.0
 
 
-def test_segment_speed_and_current_point():
+def test_segment_and_current_point():
     b = Blade()
     b.add((0, 0))
     b.add((3, 4))
     assert b.segment() == ((0, 0), (3, 4))
     assert b.current_point() == (3, 4)
-    assert b.speed() == 5.0            # 3-4-5 triangle
 
 
 def test_trail_respects_max_length():

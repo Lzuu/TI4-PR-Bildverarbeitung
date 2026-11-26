@@ -2,7 +2,8 @@
 import cv2
 import numpy as np
 
-from pose_tracking import Pose, PoseTracker, crop_transform, decode_landmarks, detector_anchors, oriented_crop
+import pose_tracking
+from pose_tracking import Pose, PoseTracker, find_player, crop_transform, decode_landmarks, detector_anchors, oriented_crop
 
 
 def sample_pose(dx=0):
@@ -64,7 +65,7 @@ def test_tracking_is_adaptive_and_does_not_strongly_lag_a_fast_move():
 
 
 def test_missing_body_immediately_hides_parts_and_resets_tracking():
-    tracker=PoseTracker(lambda frame,mask:sample_pose(),interval=.1)
+    tracker=PoseTracker(lambda frame,mask,player:sample_pose(),interval=.1)
     frame=np.zeros((200,160,3),np.uint8)
     mask=np.full((200,160),255,np.uint8)
     assert tracker.update(frame,mask,now=0,source=0) is not None
@@ -74,7 +75,7 @@ def test_missing_body_immediately_hides_parts_and_resets_tracking():
 
 def test_source_switch_forces_inference_even_with_same_canvas():
     calls=[]
-    def infer(frame,mask):
+    def infer(frame,mask,player):
         calls.append(1)
         return sample_pose()
     tracker=PoseTracker(infer,interval=1)
@@ -87,7 +88,7 @@ def test_source_switch_forces_inference_even_with_same_canvas():
 
 def test_failed_pose_expires_instead_of_leaving_floating_limbs():
     calls=[sample_pose(),None,None]
-    tracker=PoseTracker(lambda f,m:calls.pop(0),interval=0,max_age=.15)
+    tracker=PoseTracker(lambda f,m,p:calls.pop(0),interval=0,max_age=.15)
     frame=np.zeros((200,160,3),np.uint8)
     mask=np.full((200,160),255,np.uint8)
     assert tracker.update(frame,mask,now=0) is not None
@@ -100,3 +101,22 @@ def test_bad_joint_is_not_fabricated_from_a_bbox():
     pose.confidence[15]=0
     assert pose.segment(13,15) is None
     assert pose.segment(11,13) is not None
+
+
+def test_tracker_reuses_the_player_found_once_per_frame(monkeypatch):
+    mask=np.zeros((200,160),np.uint8);mask[20:190,30:130]=255
+    player=find_player(mask)
+    assert player.box==(30,20,100,170)
+    seen=[]
+    tracker=PoseTracker(lambda f,m,p:seen.append(p) or sample_pose(),interval=0)
+    def no_second_search(mask):
+        raise AssertionError('contour searched again')
+    monkeypatch.setattr(pose_tracking,'find_player',no_second_search)
+    assert tracker.update(np.zeros((200,160,3),np.uint8),mask,now=0,player=player) is not None
+    assert len(seen)==1 and seen[0] is player
+
+
+def test_tiny_blob_is_not_a_player():
+    mask=np.zeros((200,160),np.uint8);mask[10:14,10:14]=255
+    assert find_player(mask) is None
+    assert find_player(np.zeros_like(mask)) is None

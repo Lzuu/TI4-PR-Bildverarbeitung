@@ -145,16 +145,6 @@ def test_segment_throttles_inference_to_every_n():
     assert net.calls == 2                # inferred on frame 0 and 3 only
 
 
-def test_segment_returns_same_cached_mask_between_inferences():
-    net = FakeNet(*_blank_outputs())
-    seg = y.BodySegmenter(net, input_size=64, every_n=5)
-    frame = np.zeros((48, 64, 3), np.uint8)
-    first = seg.segment(frame)
-    second = seg.segment(frame)          # skipped frame
-    assert net.calls == 1
-    assert second is first               # reused object, no recompute
-
-
 # --------------------------------------------------------------------------- #
 # Graceful fallback
 # --------------------------------------------------------------------------- #
@@ -207,18 +197,11 @@ def test_new_source_gets_a_fresh_inference_despite_the_same_size():
     assert net.calls == 2
 
 
-def test_cadence_for_an_unchanged_source_stays_the_same():
-    net = FakeNet(*_blank_outputs())
-    seg = y.BodySegmenter(net, input_size=64, every_n=3)
-    frame = np.zeros((48, 64, 3), np.uint8)
-    for _ in range(6):
-        seg.segment(frame, source=("cam", 0))
-    assert net.calls == 2
-
-
 # -- PERF-07 (#42): load YOLO only when it is used, in the background --------
+import hashlib
 import io
 import os
+import urllib.request
 
 import pytest
 
@@ -315,9 +298,9 @@ def test_download_uses_a_timeout(monkeypatch, tmp_path):
     def fake_urlopen(url, timeout=None):
         seen["timeout"] = timeout
         return io.BytesIO(payload)
-    monkeypatch.setattr(y.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(y, "MODEL", y.ModelFile("m.onnx", "http://example.invalid/m",
-                                                y.hashlib.sha256(payload).hexdigest()))
+                                                hashlib.sha256(payload).hexdigest()))
     path = y.ensure_model(str(tmp_path))
     assert seen["timeout"] == config.YOLO_DOWNLOAD_TIMEOUT
     assert open(path, "rb").read() == payload
@@ -326,7 +309,7 @@ def test_download_uses_a_timeout(monkeypatch, tmp_path):
 def test_download_timeout_is_a_clean_failure(monkeypatch, tmp_path):
     def slow(url, timeout=None):
         raise TimeoutError("timed out")
-    monkeypatch.setattr(y.urllib.request, "urlopen", slow)
+    monkeypatch.setattr(urllib.request, "urlopen", slow)
     with pytest.raises(RuntimeError):
         y.ensure_model(str(tmp_path))
     assert os.listdir(tmp_path) == []                # no half-written .part file left

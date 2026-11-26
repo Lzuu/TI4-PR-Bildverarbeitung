@@ -4,13 +4,20 @@ All tunable constants live here so gameplay, camera and hand-tracking can be
 tweaked without touching the logic modules.
 """
 
+import os
+
+# Files the game writes (settings, highscores, logs) live in the program folder, wherever it is
+# started from -- like faces/, models/ and assets/ (#68).
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # ---------------------------------------------------------------------------
 # Camera / window
 # ---------------------------------------------------------------------------
-CAMERA_INDEX = 1          # 1 = MacBook FaceTime HD. (0 = iPhone Continuity on this Mac.)
-                          # Default only -- the camera chosen in the menu wins (SETTINGS_FILE).
+CAMERA_INDEX = 1          # Default only -- the camera chosen in the menu wins (SETTINGS_FILE).
+                          # Mac: 1 = FaceTime HD (0 = iPhone Continuity). Windows laptop: the
+                          # ELP USB camera is index 2 (MSMF backend, see cameras.py).
 CAMERA_MAX_INDEX = 5      # Camera indices 0..4 are searched for the camera selection
-SETTINGS_FILE = "settings.json"   # Local settings (chosen camera), not in git
+SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")   # Local settings (chosen camera), not in git
 # WIDTH/HEIGHT are the render canvas size. They default to 960x540 but are set to
 # the actual screen resolution at startup (fullscreen, responsive layout). SCALE is
 # derived from HEIGHT so physics and UI scale with the resolution.
@@ -27,8 +34,10 @@ FULLSCREEN = True         # Open the window in fullscreen
 MIRROR = True             # Flip horizontally so moving right moves the hand right
 WINDOW_NAME = "Fruit Ninja CV"
 MAX_FRAME_FAILURES = 60   # Abort only after this many *consecutive* failed reads
+CAMERA_REOPEN_INTERVAL = 1.0   # Without any camera (failed switch): seconds between two attempts to open one
+CAMERA_LOST_TIMEOUT = 30.0     # ... and the game ends after this many seconds without a camera
 PERF_LOG_INTERVAL = 10.0  # Seconds per frame-time summary in the log (perf.py; key 'p' shows it)
-PERF_CSV = "logs/perf.csv"  # Summaries are also appended here (None = no CSV)
+PERF_CSV = os.path.join(BASE_DIR, "logs", "perf.csv")  # Summaries are also appended here (None = no CSV)
 
 # ---------------------------------------------------------------------------
 # Marker tracking (fixed colour ranges -- no self-calibration; see colors.py)
@@ -59,6 +68,9 @@ GREEN_SCALE = 0.5                # Greenscreen on a scaled frame: 12.5 -> 4.3 ms
 SUIT_ENABLED = True              # Dress the cut-out player in a space suit (suit.py)
 SUIT_FACE_DETECT_WIDTH = 320     # Face detection for placing the suit runs at this width
 POSE_ENABLED = True             # OpenCV Zoo BlazePose ONNX, no extra Python dependency
+ASYNC_INFERENCE = True          # Single latest-only worker; False for comparison runs
+INFERENCE_CV_THREADS = 4        # Process-wide cap, set before worker startup (#56)
+ASYNC_MAX_MASK_AGE = 0.30       # Capture-time budget includes native forward latency
 POSE_CONFIDENCE = 0.5            # Whole-person pose confidence
 POSE_INTERVAL = 0.10             # Seconds between pose inferences; LK follows interim movement
 POSE_MAX_AGE = 0.20              # Maximum extrapolation after last verified pose (seconds)
@@ -72,7 +84,8 @@ YOLO_EVERY_N = 3                 # Infer every Nth frame, reuse the last mask in
 YOLO_CONF = 0.4                  # Minimum person confidence
 YOLO_MASK_THRESH = 0.5           # Prototype-mask threshold
 YOLO_MAX_MASK_AGE = 0.1          # A reused mask may be at most this old (s); older => infer early
-YOLO_DOWNLOAD_TIMEOUT = 20       # Seconds a model download may stall before it fails
+MODEL_DOWNLOAD_TIMEOUT = 20      # Seconds a model download (face, pose) may stall before it fails
+YOLO_DOWNLOAD_TIMEOUT = MODEL_DOWNLOAD_TIMEOUT   # same for the YOLO model
 
 # ---------------------------------------------------------------------------
 # Selection (VR-style dwell: hold the pen in a circle to confirm)
@@ -144,7 +157,7 @@ CUT_HINT_FRACTION = 0.3          # A too-slow swipe above this share of CUT_MIN_
 # ---------------------------------------------------------------------------
 # Highscore
 # ---------------------------------------------------------------------------
-HIGHSCORE_FILE = "highscores.json"
+HIGHSCORE_FILE = os.path.join(BASE_DIR, "highscores.json")
 
 # ---------------------------------------------------------------------------
 # Player identification by face (YuNet detection + SFace recognition, see face_id.py)
