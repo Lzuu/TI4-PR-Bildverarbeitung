@@ -59,6 +59,20 @@ Kamera ─► main (Loop, States, Input)
 5. `Game.draw` + `Blade.draw` + HUD zeichnen ins Frame; `main` zeigt es an.
 
 ## Architekturentscheidungen (ADR-Kurzform)
+- **Lokale Frucht-Sprites statt einfacher Kreise (#77, 26.11.2026).** Fünf
+  realistische Fruchtsorten und eine stilisierte 3D-Spielbombe wurden einmalig mit
+  dem integrierten Bildgenerator erzeugt. Transparente PNGs liegen versioniert in
+  `fruit-ninja-cv/fruit_assets/`; Prompts, Prüfsummen und Körperanker stehen in
+  `generation.json`. `fruit_sprites.py` lädt sechs Originale einmalig und hält
+  höchstens 128 skalierte Varianten vor. Größenänderung erfolgt mit vormultipliziertem
+  Alpha gegen dunkle Ränder, Compositing nur im sichtbaren Bildausschnitt. Körper
+  bleiben am bisherigen Kollisionskreis verankert, Stiele und Lunte sind Dekoration.
+  Die Schnittlinie teilt die echte Textur in komplementäre Hälften, die senkrecht
+  zum Schnitt auseinanderfliegen. Eigene Fruchtfleisch-Schnittflächen sind nicht
+  simuliert. Physik, Trefferlogik und Punkte bleiben unverändert. Fehlende Assets
+  werden einmal geloggt und durch die vorhandene prozedurale Darstellung ersetzt.
+  Tests und `tools/preview_fruits.py` prüfen Alpha, Bildränder, Schnittrichtungen,
+  Größen-Cache und Fallback. Vorschauen/Messwerte: `docs/fruit-previews/`.
 - **Klassische Bildverarbeitung statt ML.** Farb-Segmentierung (HSV) + Konturen
   statt MediaPipe o. Ä. → passt zur Kursintention, transparente Pipeline, kein
   Modell-Overhead.

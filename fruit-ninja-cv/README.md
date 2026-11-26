@@ -9,6 +9,9 @@ Projekt im Modul **Bildverarbeitung** (TI, Semester 4 – HS Albstadt-Sigmaringe
 Entwickelt **inkrementell-iterativ** und **test-case-basiert**.
 
 ## Features
+- 🍊 **Neue Fruchtgrafiken:** realistische lokale PNGs für Apfel, Orange, Limette,
+  Blaubeere und Zitrone sowie eine plastische Spielbombe; auch die Schnittanimation
+  verwendet die neuen Grafiken. Keine zusätzlichen Downloads nötig.
 - 🎯 **Farb-Tracking** mit festen Bereichen (keine Kalibrierung nötig).
 - 🏠 **Startmenü:** standardmäßig **Pink** aktiv (nur Pink wird getrackt). Spiel per
   Stift (**Dwell**) starten; Quit ebenfalls per Stift.

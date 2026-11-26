@@ -1,0 +1,18 @@
+{
+  "objects": 16,
+  "frame": [
+    960,
+    540
+  ],
+  "iterations": 100,
+  "median_ms": 4.302,
+  "p95_ms": 4.859,
+  "camera": false,
+  "display": false,
+  "cache": {
+    "hits": 1674,
+    "misses": 30,
+    "maxsize": 128,
+    "currsize": 30
+  }
+}
