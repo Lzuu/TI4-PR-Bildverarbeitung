@@ -38,6 +38,8 @@ Alle Befehle laufen in `fruit-ninja-cv/`.
 | `main.py` (rund 1150 Zeilen) | Einstieg, Layout- und Zeichenfunktionen, Klasse `GameLoop` (eine Methode je Bildschirm) | `test_main_loop.py`, `test_menu.py`, `test_screen.py`, `test_perf_loop.py` |
 | `config.py` | alle Konstanten | keine eigenen |
 | `game.py`, `fruit.py`, `blade.py` | Spiellogik, Wurfphysik, Klinge | `test_game.py`, `test_fruit.py`, `test_blade.py` |
+| `motion.py` | Stiftbahn aus Position und Zeitstempel, Richtung und Tempo (Spielfeldbreiten/s), Schnittentscheidung | `test_motion.py` |
+| `challenge.py` | Challenge-Modus: Richtungsfrüchte, Timer, Rückmeldung; `tools/analyze_cuts.py` wertet das Log aus | `test_challenge.py`, `test_cut_log.py` |
 | `difficulty.py`, `colors.py`, `dwell.py`, `keyboard.py`, `highscore.py`, `heart.py` | Presets, Stiftfarben, Dwell-Auswahl, Bildschirmtastatur, Bestenliste, Herz-Sprite | gleichnamige `test_*.py` |
 | `utils.py` | `point_segment_distance`, `draw_text`, `imread`/`imwrite` (Pfade mit Umlaut) | `test_geometry.py`, `test_image_io.py` |
 | `marker_tracker.py` | Stift per HSV finden, Spitze bestimmen | `test_marker_tracker.py` |

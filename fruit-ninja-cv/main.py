@@ -41,7 +41,9 @@ import pose_tracking
 from suit_rig import SuitRenderer
 from marker_tracker import MarkerTracker
 from blade import Blade
+from challenge import ChallengeGame
 from game import Game
+from motion import StrokeTracker
 from utils import draw_text
 from logging_config import setup_logging
 from difficulty import LEVELS
@@ -221,6 +223,31 @@ def player_target(w, h):
     return (int(w * 0.82), int(h * 0.38), _s(55))
 
 
+MODE_CLASSIC = "classic"
+MODE_CHALLENGE = "challenge"
+MENU_START, MENU_QUIT, MENU_CHALLENGE, MENU_PLAYER = 0, 1, 2, 3    # order of the dwell targets
+
+
+def challenge_target(w, h):
+    """'Challenge' circle, left of the Start circle (the player circle is on the right)."""
+    return (int(w * 0.18), int(h * 0.38), _s(80))
+
+
+def menu_targets(w, h, with_player):
+    """The dwell targets of the start menu, in the order of the MENU_* indices."""
+    targets = [menu_start_target(w, h), quit_target(w, h), challenge_target(w, h)]
+    if with_player:
+        targets.append(player_target(w, h))
+    return targets
+
+
+def new_game(mode, difficulty, sounds):
+    """The game for the chosen mode (the start menu chooses it, #33)."""
+    if mode == MODE_CHALLENGE:
+        return ChallengeGame(config.WIDTH, config.HEIGHT, difficulty, sounds)
+    return Game(config.WIDTH, config.HEIGHT, difficulty, sounds)
+
+
 def face_circle(w, h):
     return (w // 2, int(h * 0.48), _s(config.FACE_SCAN_RADIUS))
 
@@ -325,18 +352,22 @@ def _draw_settings_button(frame, rect, pen_color, is_open):
 
 
 def draw_menu(frame, start_t, quit_t, sbtn, swatches, pen_color, settings_open,
-              active, progress, point, player_t=None, player=None, blocked=()):
+              active, progress, point, player_t=None, player=None, blocked=(),
+              challenge_t=None):
     _dim(frame)
     h, w = frame.shape[:2]
     draw_text(frame, "FRUIT NINJA CV", (w // 2, int(h * 0.16)), scale=1.4,
               color=(180, 0, 255), thickness=3, center=True)
-    _draw_circle_option(frame, start_t, pen_color.display, "Start", active == 0,
+    _draw_circle_option(frame, start_t, pen_color.display, "Start", active == MENU_START,
                         progress)
-    _draw_circle_option(frame, quit_t, (200, 200, 200), "Quit", active == 1,
+    _draw_circle_option(frame, quit_t, (200, 200, 200), "Quit", active == MENU_QUIT,
                         progress)
+    if challenge_t is not None:
+        _draw_circle_option(frame, challenge_t, (0, 215, 255), "Challenge",
+                            active == MENU_CHALLENGE, progress)
     if player_t is not None:
         _draw_circle_option(frame, player_t, (200, 200, 200), "Spieler wechseln",
-                            active == 2, progress)
+                            active == MENU_PLAYER, progress)
         if player is not None:
             px, py, pr = player_t
             draw_text(frame, face_id.display_name(player), (px, py - pr - _s(22)),
@@ -491,14 +522,14 @@ def draw_game_over(frame, game, scores, rank, targets, active, progress, point,
                    color, player, saved=True):
     _dim(frame, 0.55)
     h, w = frame.shape[:2]
-    draw_text(frame, "GAME OVER", (w // 2, int(h * 0.16)), scale=1.6,
+    draw_text(frame, game.title, (w // 2, int(h * 0.16)), scale=1.6,
               color=(80, 80, 255), thickness=3, center=True)
-    draw_text(frame, f"{face_id.display_name(player)}:  {game.score}",
+    draw_text(frame, f"{face_id.display_name(player)}:  {game.result_text()}",
               (w // 2, int(h * 0.26)), scale=1.0, center=True)
     if rank is not None:
         draw_text(frame, f"NEUER HIGHSCORE  (#{rank})!", (w // 2, int(h * 0.33)),
                   scale=0.75, color=(0, 215, 255), center=True)
-    draw_text(frame, f"Leaderboard - {game.difficulty.name}",
+    draw_text(frame, f"Leaderboard - {game.board_name}",
               (w // 2, int(h * 0.42)), scale=0.7, center=True)
     if not saved:                    # honest storage status (#41, CR-07)
         draw_text(frame, "Highscore konnte nicht gespeichert werden", (w // 2, int(h * 0.37)),
@@ -605,6 +636,8 @@ class GameLoop:
         self.identifier = identifier
         self.tracker = MarkerTracker(point_mode=config.PEN_POINT)   # tip = lightsaber tip, cuts
         self.blade = Blade()
+        self.motion = StrokeTracker(config.WIDTH)    # timestamped pen track for direction cuts
+        self.play_mode = MODE_CLASSIC                # chosen in the start menu
         self.dwell = DwellTracker(config.DWELL_SECONDS)
         self.game = None
         self.difficulty = None
@@ -857,7 +890,8 @@ class GameLoop:
         self._menu_clicks(available, sbtn, swatches)
 
         player_t = player_target(w, h) if self.identifier else None
-        targets = [start_t, quit_t] + ([player_t] if player_t else [])
+        challenge_t = challenge_target(w, h)
+        targets = menu_targets(w, h, self.identifier is not None)
         if self.settings_open or self.camera_open:
             active, progress, confirmed = None, 0.0, None
         else:
@@ -865,7 +899,8 @@ class GameLoop:
         draw_menu(f.frame, start_t, quit_t, sbtn, swatches, self.pen_color,
                   self.settings_open, active, progress, f.point, player_t,
                   self.player if self.identifier else None,
-                  blocked=[c for c in COLORS if not pen_allowed(c, self.bg_mode)])
+                  blocked=[c for c in COLORS if not pen_allowed(c, self.bg_mode)],
+                  challenge_t=challenge_t)
         if self.hint_text and time.time() < self.hint_until:
             draw_text(f.frame, self.hint_text, (config.WIDTH // 2, int(config.HEIGHT * 0.68)),
                       scale=0.6, color=(80, 80, 255), center=True)
@@ -931,13 +966,20 @@ class GameLoop:
                 break
 
     def _menu_confirmed(self, f, confirmed):
-        if confirmed == 0:                        # Start
+        if confirmed == MENU_START:
+            self.play_mode = MODE_CLASSIC
             logger.info("Start (colour %s, player %s)", self.pen_color.name, self.player)
             self.dwell.reset(require_exit=True)
             self.state = STATE_DIFFICULTY
-        elif confirmed == 1:                      # Quit
+        elif confirmed == MENU_CHALLENGE:
+            self.play_mode = MODE_CHALLENGE
+            logger.info("Start challenge (colour %s, player %s)", self.pen_color.name,
+                        self.player)
+            self.dwell.reset(require_exit=True)
+            self.state = STATE_DIFFICULTY
+        elif confirmed == MENU_QUIT:
             f.quit_requested = True
-        elif confirmed == 2:                      # Spieler wechseln
+        elif confirmed == MENU_PLAYER:            # Spieler wechseln
             logger.info("Switch player")
             self.dwell.reset(require_exit=True)
             self.scanner.reset()
@@ -1039,28 +1081,31 @@ class GameLoop:
             f.quit_requested = True
             return
         self.difficulty = LEVELS[confirmed]
-        self.game = Game(config.WIDTH, config.HEIGHT, self.difficulty, self.sounds)
+        self.game = new_game(self.play_mode, self.difficulty, self.sounds)
         self.sounds.play("combo")
-        logger.info("Difficulty selected: %s", self.difficulty.name)
+        logger.info("Difficulty selected: %s (%s)", self.difficulty.name, self.play_mode)
         self.blade.reset()
+        self.motion.reset()
         self.dwell.reset(require_exit=True)
         self.state = STATE_PLAY
 
     def _play_screen(self, f):
         game = self.game
         self.blade.add(f.point)
-        game.update(self.blade, f.dt)             # seconds, not frames (#42, PERF-01)
+        self.motion.add(f.point, f.now)           # f.now: time right after the frame was read
+        game.update(self.blade, f.dt, self.motion)    # seconds, not frames (#42, PERF-01)
         game.draw(f.frame)
         self.blade.draw(f.frame, self.pen_color.display if config.SABER_ENABLED else None)
         game.draw_hud(f.frame)
         game.draw_combo(f.frame)
+        game.draw_feedback(f.frame)
         if game.game_over:
-            result = highscore.add_entry(config.HIGHSCORE_FILE, game.difficulty.name,
+            result = highscore.add_entry(config.HIGHSCORE_FILE, game.board_name,
                                          game.score, self.player)
             self.scores, self.rank, self.score_saved = result.board, result.rank, result.saved
             self.sounds.play("over")
             logger.info("Game over -- %s, %s scored %d (rank: %s)",
-                        game.difficulty.name, self.player, game.score, self.rank)
+                        game.board_name, self.player, game.score, self.rank)
             self.dwell.reset(require_exit=True)
             self.state = STATE_GAME_OVER
 
@@ -1073,9 +1118,10 @@ class GameLoop:
         draw_game_over(f.frame, game, self.scores, self.rank, targets, active, progress,
                        f.point, self.pen_color.display, self.player, self.score_saved)
         if confirmed == 0:                        # Neustart
-            logger.info("Restart requested (%s)", game.difficulty.name)
+            logger.info("Restart requested (%s)", game.board_name)
             game.reset()
             self.blade.reset()
+            self.motion.reset()
             self.rank = None
             self.dwell.reset(require_exit=True)
             self.state = STATE_PLAY

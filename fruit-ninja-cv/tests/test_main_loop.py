@@ -362,6 +362,160 @@ def test_a_glove_from_an_earlier_frame_is_never_used(monkeypatch, tmp_path):
     assert all(_hilt_offset(s, GLOVE) > 10 for s in drawn)
 
 
+# -- #33: challenge mode through the real loop ---------------------------------
+from motion import LEFT, RIGHT
+from challenge import ChallengeGame, DirectionFruit
+from game import Game
+import config as _config
+
+
+class ScriptedCamera:
+    """Frames are produced on demand: a pen position (screen coordinates) per read.
+
+    The camera image is mirrored here when ``mirror`` is on, because the loop mirrors
+    it again -- so the pen shows up at ``pen()`` on the screen the player sees.
+    """
+
+    index = 0
+
+    def __init__(self, pen, mirror):
+        self.pen = pen
+        self.mirror = mirror
+        self.reads = 0
+
+    def read(self):
+        self.reads += 1
+        pos = self.pen(self.reads)
+        frame = green_frame(person=False)
+        if pos is not None:
+            x, y = pos
+            cam_x = _config.WIDTH - x if self.mirror else x
+            frame = with_pen(frame, int(cam_x), int(y) + 30)     # tip = upper end of the pen
+        return True, frame
+
+    def switch(self, i):
+        return True
+
+    def release(self):
+        pass
+
+
+def _play_through_menu(monkeypatch, tmp_path, mode, mirror=False, swipe=None, fruit=None,
+                       frames=400, stop=None):
+    """Menu -> mode circle -> difficulty circle -> play; then ``swipe`` (screen points)."""
+    w, h = _config.WIDTH, _config.HEIGHT
+    mode_t = m.challenge_target(w, h) if mode == m.MODE_CHALLENGE else m.menu_start_target(w, h)
+    diff_t = m.row_targets(w, h, len(m.LEVELS))[2]
+    games, state = [], {"swipe_at": None}
+    real_new_game = m.new_game
+
+    def recording_new_game(*a, **k):
+        g = real_new_game(*a, **k)
+        games.append(g)
+        return g
+    monkeypatch.setattr(m, "new_game", recording_new_game)
+
+    def pen(read):
+        if state["swipe_at"] is not None:
+            k = read - state["swipe_at"]
+            if swipe and 0 <= k < len(swipe):
+                return swipe[k]
+            return (40, 40)                                    # parked, away from everything
+        if games:
+            return (40, 40)
+        # alternate between the two circles until the game exists: robust against timing.
+        # A target only counts after the pen has left all targets once (CR-11), so the pen
+        # is parked away from everything in between.
+        phase = (read // 8) % 4
+        if phase == 0:
+            return (mode_t[0], mode_t[1])
+        if phase == 2:
+            return (diff_t[0], diff_t[1])
+        return (40, 40)
+
+    camera = ScriptedCamera(pen, mirror)
+
+    def on_frame(n, mouse):
+        if stop is not None:
+            return stop(games)
+        if games and state["swipe_at"] is None:
+            if fruit is not None:
+                games[0].fruits = [fruit]
+            state["swipe_at"] = camera.reads + 3              # a few parked frames first
+        if state["swipe_at"] is not None:
+            return camera.reads > state["swipe_at"] + (len(swipe) if swipe else 0) + 3
+        return False
+
+    run_loop(monkeypatch, tmp_path, camera, frames, on_frame=on_frame, BG_MODE="off",
+             SABER_ENABLED=False, DWELL_SECONDS=0.001, MIRROR=mirror, CUT_MIN_SPEED=0.02)
+    return games
+
+
+def _parked_fruit(direction, x, y):
+    f = DirectionFruit(_config.WIDTH, _config.HEIGHT, direction)
+    f.x, f.y, f.radius = float(x), float(y), 45
+    f.vx = f.vy = f.gravity = 0.0
+    return f
+
+
+def _swipe_screen(x0, x1, y, step=60):
+    n = int(abs(x1 - x0) / step) + 1
+    return [(x0 + (x1 - x0) * k / (n - 1), y) for k in range(n)]
+
+
+def test_challenge_selected_in_the_menu_starts_a_challenge(monkeypatch, tmp_path):
+    games = _play_through_menu(monkeypatch, tmp_path, m.MODE_CHALLENGE)
+    assert len(games) == 1 and isinstance(games[0], ChallengeGame)
+
+
+def test_start_selected_in_the_menu_still_starts_the_classic_game(monkeypatch, tmp_path):
+    games = _play_through_menu(monkeypatch, tmp_path, m.MODE_CLASSIC)
+    assert len(games) == 1 and type(games[0]) is Game
+
+
+def test_camera_motion_cuts_a_direction_fruit(monkeypatch, tmp_path):
+    w, h = _config.WIDTH, _config.HEIGHT
+    fruit = _parked_fruit(RIGHT, w / 2, h * 0.7)
+    games = _play_through_menu(monkeypatch, tmp_path, m.MODE_CHALLENGE, fruit=fruit,
+                               swipe=_swipe_screen(w * 0.2, w * 0.8, h * 0.7))
+    assert fruit.sliced and games[0].directions_done == 1
+
+
+def test_wrong_camera_direction_does_not_cut(monkeypatch, tmp_path):
+    w, h = _config.WIDTH, _config.HEIGHT
+    fruit = _parked_fruit(RIGHT, w / 2, h * 0.7)
+    games = _play_through_menu(monkeypatch, tmp_path, m.MODE_CHALLENGE, fruit=fruit,
+                               swipe=_swipe_screen(w * 0.8, w * 0.2, h * 0.7))
+    assert not fruit.sliced and games[0].wrong_cuts >= 1
+
+
+def test_mirrored_camera_image_and_arrow_use_the_same_screen_direction(monkeypatch, tmp_path):
+    # The player sees the mirrored picture: the arrow refers to the screen. A pen moving
+    # to the screen's left must cut a LEFT fruit although the raw camera image shows it
+    # moving to the right.
+    w, h = _config.WIDTH, _config.HEIGHT
+    left_fruit = _parked_fruit(LEFT, w / 2, h * 0.7)
+    games = _play_through_menu(monkeypatch, tmp_path, m.MODE_CHALLENGE, mirror=True,
+                               fruit=left_fruit,
+                               swipe=_swipe_screen(w * 0.8, w * 0.2, h * 0.7))
+    assert left_fruit.sliced and games[0].directions_done == 1
+
+
+def test_a_finished_challenge_is_saved_on_its_own_leaderboard(monkeypatch, tmp_path):
+    import json
+    real = m.ChallengeGame
+    monkeypatch.setattr(m, "ChallengeGame", lambda *a, **k: real(*a, seconds=0.3, **k))
+    after = {"frames": 0}
+
+    def stop(games):                       # run on for a few frames: the game-over screen is drawn
+        if games and games[0].game_over:
+            after["frames"] += 1
+        return after["frames"] > 3
+    games = _play_through_menu(monkeypatch, tmp_path, m.MODE_CHALLENGE, frames=900, stop=stop)
+    assert games[0].game_over and games[0].time_up
+    scores = json.loads((tmp_path / "hs.json").read_text(encoding="utf-8"))
+    assert list(scores) == ["Challenge Schwer"]             # not mixed with the classic boards
+    assert scores["Challenge Schwer"][0]["score"] == games[0].score
 # -- CR-11 (#63): after a screen change the pen must leave the targets before a dwell counts
 from dwell import DwellTracker
 import face_id
@@ -402,11 +556,22 @@ class _EndedGame:
     """A run that is over at once, so the game-over screen comes up without playing."""
     game_over = True
     score = 0
+    title = "GAME OVER"                    # what the game-over screen reads from a game (#33)
 
     def __init__(self, width, height, difficulty, sounds):
         self.difficulty = difficulty
 
-    def update(self, blade, dt):
+    @property
+    def board_name(self):
+        return self.difficulty.name
+
+    def result_text(self):
+        return str(self.score)
+
+    def update(self, blade, dt, motion=None):
+        pass
+
+    def draw_feedback(self, frame):
         pass
 
     def draw(self, frame):
