@@ -59,6 +59,20 @@ Kamera ─► main (Loop, States, Input)
 5. `Game.draw` + `Blade.draw` + HUD zeichnen ins Frame; `main` zeigt es an.
 
 ## Architekturentscheidungen (ADR-Kurzform)
+- **Lokale Frucht-Sprites statt einfacher Kreise (#77, 26.11.2026).** Fünf
+  realistische Fruchtsorten und eine stilisierte 3D-Spielbombe wurden einmalig mit
+  dem integrierten Bildgenerator erzeugt. Transparente PNGs liegen versioniert in
+  `fruit-ninja-cv/fruit_assets/`; Prompts, Prüfsummen und Körperanker stehen in
+  `generation.json`. `fruit_sprites.py` lädt sechs Originale einmalig und hält
+  höchstens 128 skalierte Varianten vor. Größenänderung erfolgt mit vormultipliziertem
+  Alpha gegen dunkle Ränder, Compositing nur im sichtbaren Bildausschnitt. Körper
+  bleiben am bisherigen Kollisionskreis verankert, Stiele und Lunte sind Dekoration.
+  Die Schnittlinie teilt die echte Textur in komplementäre Hälften, die senkrecht
+  zum Schnitt auseinanderfliegen. Eigene Fruchtfleisch-Schnittflächen sind nicht
+  simuliert. Physik, Trefferlogik und Punkte bleiben unverändert. Fehlende Assets
+  werden einmal geloggt und durch die vorhandene prozedurale Darstellung ersetzt.
+  Tests und `tools/preview_fruits.py` prüfen Alpha, Bildränder, Schnittrichtungen,
+  Größen-Cache und Fallback. Vorschauen/Messwerte: `docs/fruit-previews/`.
 - **Klassische Bildverarbeitung statt ML.** Farb-Segmentierung (HSV) + Konturen
   statt MediaPipe o. Ä. → passt zur Kursintention, transparente Pipeline, kein
   Modell-Overhead.
@@ -674,3 +688,16 @@ und wechselnde Beleuchtung benötigen weiterhin eine Live-Abnahme.
 
 
 Integration: main / faa6023 mit den Performance-Änderungen aus PR #45 wurde übernommen. Lazy-YOLO-Laden, zeitbasierte Spielbewegung, halbaufgelöstes Tracking und die Performance-Anzeige bleiben erhalten. Die zwischenzeitliche Integration auf demselben Branch (3e240c6) bleibt erhalten: Pose-Rig und gemeinsame Performance-Diagnose verwenden weiterhin das unveränderte Kamerabild und eine Gesichtserkennung je Frame. Die gemeinsame Testsuite besteht aus 353 erfolgreichen Tests.
+
+
+### Feinabstimmung: Arme 10 Prozent kleiner
+
+Auf Rückmeldung wurden Oberarm- und Unterarmbreite sowie Handschuhbreite/-länge
+gegenüber der vorigen Armkorrektur gemeinsam um 10 Prozent reduziert. Aktuelle
+Breiten relativ zur Körpergrößenbasis: Oberarm 0,504, Unterarm 0,486, Handschuh
+0,495. Anatomische Segmentlängen und Gelenkpositionen folgen weiterhin direkt
+der Pose. Angeglichene Bundprofile, Schulteranschlüsse, breitenabhängige
+Gelenküberlappung und Bewegungsverhalten bleiben erhalten. Rumpf und Helm sind
+unverändert. Nach Übernahme des aktuellen main bestehen 371 Tests; 17 plattformabhängige
+Shell-Tests sind unter Windows übersprungen. Vorschauen und Headless-Messungen wurden
+erneuert. Die Größenänderung benötigt weiterhin eine Live-Webcam-Abnahme.

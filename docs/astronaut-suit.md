@@ -115,15 +115,15 @@ keine gemessene Kamera-zu-Bildschirm-Latenz.** Keine garantierte Live-Framerate.
 
 | Schritt | Eingabe | Median ms | P95 ms |
 | --- | --- | ---: | ---: |
-| Artikulierter Anzug inkl. Eingabekopie | synthetisch 960×720 | 37.40 | 39.53 |
-| Stifttracking | synthetisch 960×720 | 1.14 | 1.29 |
-| Pose inkl. periodischer Initialisierung | Porträt 480×600 / 256px Netz | 14.77 | 34.37 |
-| YOLO-Inferenz+Decode | Porträt 480×600 / 320px Netz | 28.42 | 31.11 |
-| YuNet-Detektion | Porträt 480×600 / 320px Netz | 6.76 | 7.39 |
-| Alle Modelle und Rendering bei jedem Aufruf | Porträt 480×600 | 83.34 | 103.97 |
-| Getaktete Pipeline (Marker, N=3 YOLO, Pose/Flow, Face, Rendering) | Porträt 480×600 | 79.52 | 99.83 |
+| Artikulierter Anzug inkl. Eingabekopie | synthetisch 960×720 | 36.91 | 39.51 |
+| Stifttracking | synthetisch 960×720 | 0.76 | 1.23 |
+| Pose inkl. periodischer Initialisierung | Porträt 480×600 / 256px Netz | 14.39 | 36.57 |
+| YOLO-Inferenz+Decode | Porträt 480×600 / 320px Netz | 27.79 | 30.00 |
+| YuNet-Detektion | Porträt 480×600 / 320px Netz | 5.37 | 6.14 |
+| Alle Modelle und Rendering bei jedem Aufruf | Porträt 480×600 | 78.42 | 100.06 |
+| Getaktete Pipeline (Marker, N=3 YOLO, Pose/Flow, Face, Rendering) | Porträt 480×600 | 77.32 | 96.70 |
 
-Der getaktete Durchlauf benötigte im Mittel **64.95 ms**, entsprechend etwa **15.4 verarbeiteten Testbildern/s** ohne Capture/Anzeige. Das ist kein 720p-Live-FPS-Wert; Komponenten mit verschiedenen Eingabegrößen
+Der getaktete Durchlauf benötigte im Mittel **62.57 ms**, entsprechend etwa **16.0 verarbeiteten Testbildern/s** ohne Capture/Anzeige. Das ist kein 720p-Live-FPS-Wert; Komponenten mit verschiedenen Eingabegrößen
 dürfen nicht einfach addiert werden. Die zusätzliche Figur kostet Rechenzeit;
 30 oder 60 Live-FPS werden auf dieser Grundlage ausdrücklich nicht zugesichert.
 Ausgabeauflösung und Inferenzintervalle am Demogerät anhand Bildqualität UND
@@ -209,3 +209,16 @@ und wechselnde Beleuchtung benötigen weiterhin eine Live-Abnahme.
 
 
 Integration: main / faa6023 mit den Performance-Änderungen aus PR #45 wurde übernommen. Lazy-YOLO-Laden, zeitbasierte Spielbewegung, halbaufgelöstes Tracking und die Performance-Anzeige bleiben erhalten. Die zwischenzeitliche Integration auf demselben Branch (3e240c6) bleibt erhalten: Pose-Rig und gemeinsame Performance-Diagnose verwenden weiterhin das unveränderte Kamerabild und eine Gesichtserkennung je Frame. Die gemeinsame Testsuite besteht aus 353 erfolgreichen Tests.
+
+
+### Feinabstimmung: Arme 10 Prozent kleiner
+
+Auf Rückmeldung wurden Oberarm- und Unterarmbreite sowie Handschuhbreite/-länge
+gegenüber der vorigen Armkorrektur gemeinsam um 10 Prozent reduziert. Aktuelle
+Breiten relativ zur Körpergrößenbasis: Oberarm 0,504, Unterarm 0,486, Handschuh
+0,495. Anatomische Segmentlängen und Gelenkpositionen folgen weiterhin direkt
+der Pose. Angeglichene Bundprofile, Schulteranschlüsse, breitenabhängige
+Gelenküberlappung und Bewegungsverhalten bleiben erhalten. Rumpf und Helm sind
+unverändert. Nach Übernahme des aktuellen main bestehen 371 Tests; 17 plattformabhängige
+Shell-Tests sind unter Windows übersprungen. Vorschauen und Headless-Messungen wurden
+erneuert. Die Größenänderung benötigt weiterhin eine Live-Webcam-Abnahme.

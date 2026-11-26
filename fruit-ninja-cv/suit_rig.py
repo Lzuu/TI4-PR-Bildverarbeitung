@@ -517,8 +517,8 @@ class SuitRenderer:
                 for asset, a, b, factor, layer in [
                     ("thigh", hip, knee, 0.53, 0),
                     ("shin", knee, ankle, 0.48, 1),
-                    ("upper_arm", sh, el, 0.56, 8),
-                    ("forearm", el, wr, 0.54, 40),
+                    ("upper_arm", sh, el, 0.504, 8),
+                    ("forearm", el, wr, 0.486, 40),
                 ]:
                     part = self._limb(
                         asset, asset + "_" + side, a, b, width * factor, pose, player, quad
@@ -544,13 +544,16 @@ class SuitRenderer:
                     wrist = hand[0].copy()
                     hand = np.array(
                         (
-                            wrist - direction * width * 0.08,
+                            wrist - direction * width * 0.072,
                             wrist
                             + direction
-                            * max(width * 0.40, min(np.linalg.norm(hand[1] - wrist), width * 0.62)),
+                            * max(
+                                width * 0.36,
+                                min(np.linalg.norm(hand[1] - wrist) * 0.9, width * 0.558),
+                            ),
                         )
                     )
-                    commands.append((45, self._part("glove", "glove_" + side, hand, width * 0.55)))
+                    commands.append((45, self._part("glove", "glove_" + side, hand, width * 0.495)))
                 foot = pose.segment(ankle, toe)
                 if foot is not None:
                     if np.linalg.norm(foot[1] - foot[0]) < width * 0.17:
