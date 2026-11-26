@@ -741,6 +741,19 @@ Kamera ─► main (Loop, States, Input)
   `open_first` und `switch` starten ihn neu. Abschaltbar über `config.CAMERA_THREAD`. Echte
   Kamera mit 80 ms simulierter Arbeit pro Frame: `read` 20,0 → 0,1 ms im Median, 61 → 75
   Frames in 6 s.
+- **PERF-14 (#61): Kleine Posten.** Gemessen bei 1470×956 und Maßstab 1,53 auf dem M3.
+  - `Blade.draw`: Kopie und Mischung der Glühschicht nur im Rechteck der Spur plus halber
+    Linienbreite. Bitgenau wie vorher. 0,85 → 0,08 ms.
+  - `_dim`: `cv2.convertScaleAbs(frame, frame, 1 - alpha)` statt einer schwarzen
+    Vollbildkopie mit `addWeighted`. Für alle verwendeten Alphas bitgenau. 0,87 → 0,46 ms.
+  - `draw_saber`: Beide Glühschichten bleiben. Die äußere (Sigma ≥ `GLOW_QUARTER_SIGMA`, 20,
+    also Vollbild ab Maßstab 1,43) wird auf einer Leinwand in Viertel- statt halber Größe
+    gezeichnet und weichgezeichnet. Das Sigma auf der Leinwand bleibt ≥ 5 px; die Lichtmenge
+    weicht beim echten Schwert um weniger als 3 % ab, im Mittel um gut 1 Graustufe. Bei kleinerem
+    Sigma würde die Viertelgröße die Linie dicker machen (14 % mehr Licht bei Maßstab 1,0),
+    deshalb gilt die Schwelle. 2,94 → 1,18 ms. Eine Schicht wegzulassen hätte den Look
+    geändert, das war nicht nötig.
+  - `find_hand` (nur ohne Handschuh) bleibt wie im Issue vorgesehen unverändert.
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.

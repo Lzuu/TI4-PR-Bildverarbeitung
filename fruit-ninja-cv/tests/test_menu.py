@@ -1,5 +1,9 @@
 """Tests for the start-menu layout and the mouse colour-swatch hit test."""
 
+import cv2
+import numpy as np
+import pytest
+
 import background
 import config
 import main as m
@@ -107,3 +111,13 @@ def test_menu_draws_with_the_challenge_circle():
                 m.MENU_CHALLENGE, 0.5, None, m.player_target(w, h), "Leon",
                 challenge_t=m.challenge_target(w, h))
     assert frame.any()
+
+
+# -- PERF-14 (#61): darkening without a black overlay copy ---------------------
+@pytest.mark.parametrize("alpha", [0.35, 0.45, 0.5, 0.55, 0.6])
+def test_dim_darkens_like_a_black_overlay(alpha):
+    frame = np.random.default_rng(4).integers(0, 256, (60, 80, 3), dtype=np.uint8)
+    overlay = np.zeros_like(frame)
+    expected = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
+    m._dim(frame, alpha)
+    assert np.array_equal(frame, expected)

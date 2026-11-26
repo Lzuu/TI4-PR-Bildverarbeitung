@@ -1,5 +1,9 @@
 """Tests for the blade trail (recent marker points, segment, current point)."""
 
+import cv2
+import numpy as np
+import pytest
+
 import config
 from blade import Blade
 
@@ -50,3 +54,36 @@ def test_trail_glow_can_take_the_saber_colour():
     b.draw(frame, glow_color=(0, 0, 255))            # red glow (BGR)
     halo = frame[100 - 8, 150]                       # beside the white core
     assert halo[2] > 40 and halo[2] > halo[0] + 20
+
+
+# -- PERF-14 (#61): the glow pass works only in the trail's rectangle ----------
+def _full_frame_draw(frame, points, glow_color=None):
+    """The former whole-frame version of Blade.draw, kept as the test oracle."""
+    pts = list(points)
+    s = config.SCALE
+    overlay = frame.copy()
+    for i in range(1, len(pts)):
+        thick = int((2 + (i / len(pts)) * config.BLADE_MAX_THICKNESS) * s)
+        cv2.line(overlay, pts[i - 1], pts[i], glow_color or config.BLADE_GLOW_COLOR,
+                 thick + int(8 * s), cv2.LINE_AA)
+    cv2.addWeighted(overlay, 0.35, frame, 0.65, 0, frame)
+    for i in range(1, len(pts)):
+        thick = max(1, int((2 + (i / len(pts)) * config.BLADE_MAX_THICKNESS) * s))
+        cv2.line(frame, pts[i - 1], pts[i], config.BLADE_COLOR, thick, cv2.LINE_AA)
+    cv2.circle(frame, pts[-1], max(3, int(6 * s)), config.BLADE_COLOR, -1, cv2.LINE_AA)
+    return frame
+
+
+@pytest.mark.parametrize("points", [
+    [(100, 100), (140, 120), (190, 160), (230, 230)],     # middle of the picture
+    [(2, 3), (40, 5), (80, 30)],                          # along the top-left edge
+    [(300, 230), (318, 238), (319, 239)],                 # into the bottom-right corner
+])
+def test_trail_in_its_rectangle_matches_the_whole_frame_drawing(points):
+    frame = np.random.default_rng(3).integers(0, 256, (240, 320, 3), dtype=np.uint8)
+    b = Blade()
+    for p in points:
+        b.add(p)
+    out = frame.copy()
+    b.draw(out, (40, 200, 255))
+    assert np.array_equal(out, _full_frame_draw(frame.copy(), points, (40, 200, 255)))

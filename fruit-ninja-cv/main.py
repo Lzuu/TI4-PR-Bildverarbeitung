@@ -313,9 +313,8 @@ def _in_rect(point, rect):
 # Drawing helpers
 # --------------------------------------------------------------------------- #
 def _dim(frame, alpha=0.5):
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+    # same as blending a black overlay, without the full-frame copy (#61)
+    cv2.convertScaleAbs(frame, frame, 1 - alpha)
 
 
 def _draw_ring(frame, center, r, progress, color):

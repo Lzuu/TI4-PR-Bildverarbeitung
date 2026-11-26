@@ -60,13 +60,22 @@ class Blade:
         if len(pts) < 2:
             return
         s = config.SCALE
-        # Glow pass on a copy, then blend for a soft halo
-        overlay = frame.copy()
-        for i in range(1, len(pts)):
-            thick = int((2 + (i / len(pts)) * config.BLADE_MAX_THICKNESS) * s)
-            cv2.line(overlay, pts[i - 1], pts[i], glow_color or config.BLADE_GLOW_COLOR,
-                     thick + int(8 * s), cv2.LINE_AA)
-        cv2.addWeighted(overlay, 0.35, frame, 0.65, 0, frame)
+        # Glow pass on a copy, then blend for a soft halo -- only in the trail's
+        # rectangle: outside it the copy equals the frame (#61)
+        reach = (int((2 + config.BLADE_MAX_THICKNESS) * s) + int(8 * s)) // 2 + 2
+        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+        x0, y0 = max(min(xs) - reach, 0), max(min(ys) - reach, 0)
+        x1 = min(max(xs) + reach + 1, frame.shape[1])
+        y1 = min(max(ys) + reach + 1, frame.shape[0])
+        if x0 < x1 and y0 < y1:
+            roi = frame[y0:y1, x0:x1]
+            overlay = roi.copy()
+            for i in range(1, len(pts)):
+                thick = int((2 + (i / len(pts)) * config.BLADE_MAX_THICKNESS) * s)
+                cv2.line(overlay, (pts[i - 1][0] - x0, pts[i - 1][1] - y0),
+                         (pts[i][0] - x0, pts[i][1] - y0),
+                         glow_color or config.BLADE_GLOW_COLOR, thick + int(8 * s), cv2.LINE_AA)
+            cv2.addWeighted(overlay, 0.35, roi, 0.65, 0, roi)
         # Sharp bright core
         for i in range(1, len(pts)):
             thick = max(1, int((2 + (i / len(pts)) * config.BLADE_MAX_THICKNESS) * s))
