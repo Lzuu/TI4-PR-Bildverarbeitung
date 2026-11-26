@@ -202,7 +202,6 @@ class SuitRenderer:
         self._source = None
         self._shape = None
         self.last_parts = []
-        self.last_ms = 0.
         self._widths={}
         self._body_size=None
         self._face_calibration=None
@@ -326,7 +325,7 @@ class SuitRenderer:
                                [cx-w*1.2,y+h*4.3],[cx+w*1.2,y+h*4.3]])
         return None
 
-    def _helmet(self, frame, original, head, phase=0, person_mask=None):
+    def _helmet(self, frame, original, head, phase, person_mask):
         (fx, fy, fw, fh), angle = head
         if fw < 5 or fh < 5:
             return
@@ -350,17 +349,14 @@ class SuitRenderer:
             x0,y0,x1,y1,coverage=warped
             roi, raw = frame[y0:y1,x0:x1],original[y0:y1,x0:x1]
             coverage=np.clip(coverage,0,1)
-            if person_mask is None:
-                camera=raw
-            else:
-                support=person_mask[y0:y1,x0:x1].astype(np.float32)/255
-                # Keep actual face pixels even if the coarse person model has a hole.
-                face_support=np.zeros(support.shape,np.uint8)
-                cv2.ellipse(face_support,(round(fx+fw/2-x0),round(fy+fh/2-y0)),
-                            (max(1,round(fw*.5)),max(1,round(fh*.53))),angle,0,360,255,-1,cv2.LINE_AA)
-                support=np.maximum(support,face_support/255.)
-                interior=np.array((31,34,38),np.float32)
-                camera=raw*support[:,:,None]+interior*(1-support[:,:,None])
+            support=person_mask[y0:y1,x0:x1].astype(np.float32)/255
+            # Keep actual face pixels even if the coarse person model has a hole.
+            face_support=np.zeros(support.shape,np.uint8)
+            cv2.ellipse(face_support,(round(fx+fw/2-x0),round(fy+fh/2-y0)),
+                        (max(1,round(fw*.5)),max(1,round(fh*.53))),angle,0,360,255,-1,cv2.LINE_AA)
+            support=np.maximum(support,face_support/255.)
+            interior=np.array((31,34,38),np.float32)
+            camera=raw*support[:,:,None]+interior*(1-support[:,:,None])
             roi[:]=(camera*coverage[:,:,None]+roi*(1-coverage[:,:,None])).astype(np.uint8)
         alpha_over(frame,sprite,matrix)
         if warped is not None:
@@ -395,7 +391,6 @@ class SuitRenderer:
 
     def render(self, frame, original, mask, pose=None, face=None, keep=None,
                now=None, source=None):
-        started=time.perf_counter()
         now=time.monotonic() if now is None else now
         if np.shares_memory(frame,original):
             original=original.copy()
@@ -414,7 +409,6 @@ class SuitRenderer:
             # or leave a guessed helmet/limb at the old position.
             cv2.copyTo(original,player,frame)
             if keep is not None:cv2.copyTo(original,keep,frame)
-            self.last_ms=(time.perf_counter()-started)*1000
             return frame
         # Mask only inward to soften edges without painting the background.
         distance=cv2.distanceTransform(player,cv2.DIST_L2,3)
@@ -522,5 +516,4 @@ class SuitRenderer:
             self.last_parts.append(part)
         if keep is not None:
             cv2.copyTo(original,keep,frame)  # includes pen excluded by the person model
-        self.last_ms=(time.perf_counter()-started)*1000
         return frame

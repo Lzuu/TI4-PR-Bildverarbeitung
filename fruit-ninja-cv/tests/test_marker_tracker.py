@@ -5,7 +5,7 @@ import numpy as np
 
 import config
 from marker_tracker import MarkerTracker
-from colors import PINK, GELB, GRUEN, COLORS
+from colors import GELB, GRUEN
 
 W, H = config.WIDTH, config.HEIGHT
 
@@ -41,13 +41,6 @@ def test_set_color_yellow_and_green():
     assert _centroid_near(t.track(_frame_with(YELLOW_BGR)))
     t.set_color(GRUEN)
     assert _centroid_near(t.track(_frame_with(GREEN_BGR)))
-
-
-def test_union_detects_any_pen_colour():
-    t = MarkerTracker()
-    t.set_colors(COLORS)
-    for bgr in (PINK_BGR, YELLOW_BGR, GREEN_BGR):
-        assert _centroid_near(t.track(_frame_with(bgr))), bgr
 
 
 # -- pen tip mode: the upper end of the pen is the point (lightsaber tip) -----

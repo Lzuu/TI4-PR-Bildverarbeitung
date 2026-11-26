@@ -525,6 +525,13 @@ Kamera ─► main (Loop, States, Input)
   (ein Skript mit CRLF läuft auf dem Mac nicht). Die macOS-Version ist headless nur
   zum Teil testbar (Browsererkennung, Zuordnung, Zeilenenden); Öffnen und Schließen
   sind noch nicht auf einem echten Mac geprüft.
+- **Ungenutzten Code entfernen (CR-22, #72).** Entfernt wurden `MarkerTracker.set_colors`,
+  `FaceIdentifier.identify` (die Tests prüfen jetzt `scan`, die einzige Stelle, die die
+  Skalierung der Gesichtsbox absichert), `Blade.speed`, `lightsaber.saber_at` (die
+  Zeichentests bauen die gerade Klinge selbst), `last_ms` in `SuitRenderer` und
+  `PoseEstimator` (wurde nirgends gelesen; Zeiten je Stufe misst `perf.FrameStats`) und der
+  unerreichbare Zweig `person_mask is None` in `SuitRenderer._helmet`. Verhalten und
+  Testabdeckung des genutzten Codes sind unverändert.
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.
@@ -570,7 +577,7 @@ Geprüft am Code des Stands 93621a2, nicht an einer Live-Vorführung.
 | 2 Position der Stiftspitze | erfüllt | `MarkerTracker._tip`, `PEN_POINT = "tip"` |
 | 2 Zuverlässig bei wechselndem Licht und unruhigem Hintergrund | teilweise | feste Farbbereiche, nur mit synthetischen Bildern getestet; stiftfarbene Gegenstände stören (#71) |
 | 3 Position über mehrere Bilder verfolgen | erfüllt | `blade.py` (Spur der letzten Punkte) |
-| 3 Bewegungsbahn, Richtung, Geschwindigkeit | teilweise | Bahn und Richtung werden genutzt; `Blade.speed` existiert, wird vom Spiel aber nicht verwendet |
+| 3 Bewegungsbahn, Richtung, Geschwindigkeit | teilweise | Bahn und Richtung werden genutzt; die Geschwindigkeit wird vom klassischen Spiel nicht ausgewertet (`Blade.speed` wurde als ungenutzt entfernt, #72) |
 | 3 Messrauschen glätten, Aussetzer überbrücken | fehlt | Die Stiftposition wird ungeglättet übernommen; bei einem Aussetzer endet die Spur sofort (bewusst seit CR-01, damit kein Schnitt aus alter Position entsteht) |
 | 4 Schnelle Wischbewegung als Schnitt erkennen | fehlt | Jede Berührung schneidet, es gibt keine Mindestgeschwindigkeit |
 | 4 Langsame oder ruhende Bewegung nicht werten | fehlt | Ein ruhender Stift auf einer Frucht schneidet (`Game._handle_slicing`) |
