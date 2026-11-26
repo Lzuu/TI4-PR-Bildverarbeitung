@@ -67,6 +67,7 @@ GREEN_DOMINANCE = 18             # G must beat max(B, R) by this to count as bac
 GREEN_SCALE = 0.5                # Greenscreen on a scaled frame: 12.5 -> 4.3 ms at 1080x720, 0.1 % edge pixels differ (#42)
 SUIT_ENABLED = True              # Dress the cut-out player in a space suit (suit.py)
 SUIT_FACE_DETECT_WIDTH = 320     # Face detection for placing the suit runs at this width
+FACE_DETECT_EVERY = 3            # While the pose tracks the eyes, detect the face every Nth frame (#59)
 POSE_ENABLED = True             # OpenCV Zoo BlazePose ONNX, no extra Python dependency
 ASYNC_INFERENCE = True          # Single latest-only worker; False for comparison runs
 INFERENCE_CV_THREADS = 4        # Process-wide cap, set before worker startup (#56)

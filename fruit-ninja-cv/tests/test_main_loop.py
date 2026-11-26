@@ -265,6 +265,54 @@ def test_no_face_found_is_not_searched_again_for_the_saber(monkeypatch, tmp_path
     assert ident.box_calls == 3                      # one try per frame, not two
 
 
+# -- PERF-12 (#59): while the pose tracks the eyes, detect the face every 3rd frame
+def _eye_pose(eyes=True):
+    from test_pose_tracking import sample_pose
+    pose = sample_pose(dx=80)
+    pose.points[[2, 5], :2] = ((150, 120), (170, 120))   # eyes inside CountingIdentifier.BOX
+    pose.confidence[[2, 5]] = 1. if eyes else 0.
+    return pose
+
+
+def _pose_loop(monkeypatch, tmp_path, pose, frames, **cfg):
+    import pose_tracking
+    ident = CountingIdentifier()
+    monkeypatch.setattr(m, "initial_state", lambda identifier: m.STATE_MENU)
+    monkeypatch.setattr(pose_tracking, "create_tracker", lambda download=True: (
+        pose_tracking.PoseTracker(lambda frame, mask, player: pose.copy(), interval=0)))
+    faces = _record_face_args(monkeypatch)
+    run_loop(monkeypatch, tmp_path, FakeCamera([with_pen(green_frame(), 200)]), frames,
+             identifier=ident, BG_MODE="greenscreen", SUIT_ENABLED=True,
+             SABER_ENABLED=True, **cfg)
+    return ident, faces
+
+
+def test_tracked_eyes_need_a_face_detection_only_every_third_frame(monkeypatch, tmp_path):
+    ident, faces = _pose_loop(monkeypatch, tmp_path, _eye_pose(), 9)
+    assert ident.box_calls == 3                      # frames 1, 4, 7; saber shares it
+    assert faces[0] == CountingIdentifier.BOX
+    assert faces[1] is None                          # the renderer follows the eyes instead
+
+
+def test_without_tracked_eyes_the_face_is_detected_every_frame(monkeypatch, tmp_path):
+    ident, faces = _pose_loop(monkeypatch, tmp_path, _eye_pose(eyes=False), 6)
+    assert ident.box_calls == 6
+    assert faces == [CountingIdentifier.BOX] * 6
+
+
+def test_skipped_detection_still_keeps_the_face_out_of_the_hand_search(monkeypatch, tmp_path):
+    seen = []
+    real_update = m.lightsaber.SaberTracker.update
+
+    def recording(self, tip, skin, face=None, hands=None):
+        seen.append(face)
+        return real_update(self, tip, skin, face, hands)
+    monkeypatch.setattr(m.lightsaber.SaberTracker, "update", recording)
+    _pose_loop(monkeypatch, tmp_path, _eye_pose(), 3)
+    assert len(seen) == 3
+    assert all(face is not None for face in seen)    # frames 2, 3: head box from the eyes
+
+
 # -- PERF-08 (#42): YOLO inference and mask age show up in the diagnostics ----
 def test_yolo_inference_and_mask_age_are_reported(monkeypatch, tmp_path, caplog):
     import logging

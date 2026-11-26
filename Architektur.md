@@ -720,6 +720,17 @@ Kamera ─► main (Loop, States, Input)
   ich nicht umgesetzt: Dann müsste der Hintergrund wissen, was der Anzug später zeichnet,
   und im Fall „Pose ohne Gesicht“ würde sich das Bild ändern. Die bitgenaue Variante spart
   etwas weniger, ändert aber kein Verhalten.
+- **PERF-12 (#59): Gesichtserkennung nur jedes dritte Frame, solange die Pose die Augen
+  verfolgt.** `GameLoop._detect_face_for_suit` läuft nach der Pose. Sind beide Augenpunkte
+  gültig und hat der Renderer schon einen Kopf, wird die Erkennung bis zu
+  `FACE_DETECT_EVERY - 1` (2) Frames übersprungen. In diesen Frames bekommt `suit.dress`
+  `face=None`, und `SuitRenderer._head` leitet die Kopfbox aus den Augen ab (kalibriert an der
+  letzten Erkennung, `_face_calibration`). Ohne gültige Augen, ohne Kopf (Start, neue Quelle,
+  Ausfall) und im Gesichtsscan wird wie bisher in jedem Frame erkannt. Für die Handsuche des
+  Lichtschwerts ist `f.face_box` in übersprungenen Frames die Kopfbox des Renderers, damit
+  das Gesicht nie als Hand gilt. Die letzte erkannte Box wird bewusst nicht weiterverwendet:
+  Sie stünde bei Kopfbewegung zwei Frames lang still, die Augenpunkte bewegen sich mit.
+  Spart rund zwei Drittel der Erkennung (live 10,5 ms pro Erkennung auf dem M3).
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.

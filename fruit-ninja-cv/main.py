@@ -674,6 +674,7 @@ class GameLoop:
         # (then step out during the countdown) to grab a clean empty background.
         self.space_img = background.load_space((config.WIDTH, config.HEIGHT))
         self.suit_renderer = SuitRenderer() if config.SUIT_ENABLED else None
+        self.face_skips = 0           # frames without a face detection while the eyes are tracked
         self.pose_tracker = ((pose_tracking.PoseTracker(AsyncPoseInfer(worker)) if worker else
                               pose_tracking.create_tracker()) if config.SUIT_ENABLED else None)
         self.saber = lightsaber.SaberTracker()
@@ -844,12 +845,6 @@ class GameLoop:
         return mask
 
     def _dress_player(self, f, mask):
-        # place the helmet at the face (if one is seen) -- detection only, ~3 ms
-        if not f.face_checked and self.identifier is not None:
-            with self.stats.stage("face"):
-                f.face_box = self.identifier.largest_face_box(f.clean,
-                                                              config.SUIT_FACE_DETECT_WIDTH)
-            f.face_checked = True
         # the whole body becomes the suit; only the pen stays visible
         now_s = time.monotonic()
         source = (self.cap.index, self.mode_session)
@@ -864,13 +859,36 @@ class GameLoop:
             cost = getattr(self.pose_tracker.infer, "last_inference_seconds", None)
             if cost is not None:
                 self.stats.add("pose_infer", cost)
+        self._detect_face_for_suit(f, body_pose)
         with self.stats.stage("suit"):
             f.frame = suit.dress(f.frame, mask, f.face_box, f.pen_mask, now_s,
                                  original=f.clean, pose=body_pose,
                                  renderer=self.suit_renderer, source=source, player=body,
                                  stats=self.stats)
+        if f.face_box is None and self.suit_renderer.head is not None:
+            f.face_box = self.suit_renderer.head[0]   # keeps the face out of the hand search
         # the saber hilt attaches to these gloves (pose socket, no extra inference)
         f.saber_hands = lightsaber.glove_grips(self.suit_renderer.last_parts)
+
+    def _detect_face_for_suit(self, f, pose):
+        """Place the helmet at the face -- detection only, ~3 ms, not in every frame (#59).
+
+        While the pose tracks both eyes and the renderer still holds a head, it derives
+        the head box from the eyes (calibrated by the last detection), so the face is
+        detected only every ``FACE_DETECT_EVERY`` frames; otherwise in every frame.
+        """
+        if f.face_checked or self.identifier is None:
+            return
+        eyes = pose is not None and pose.valid(2) and pose.valid(5)
+        if (eyes and self.suit_renderer.head is not None
+                and self.face_skips < config.FACE_DETECT_EVERY - 1):
+            self.face_skips += 1
+        else:
+            with self.stats.stage("face"):
+                f.face_box = self.identifier.largest_face_box(f.clean,
+                                                              config.SUIT_FACE_DETECT_WIDTH)
+            self.face_skips = 0
+        f.face_checked = True
 
     # -- screens ---------------------------------------------------------------------------
     def _run_screen(self, f):
