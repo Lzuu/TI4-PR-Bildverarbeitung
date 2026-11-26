@@ -301,10 +301,6 @@ class FaceIdentifier:
             return None
         return tuple(int(round(v / scale)) for v in faces[0][:4])
 
-    def identify(self, frame):
-        """``(name, similarity, box)`` for the largest face, or ``(None, 0.0, None)``."""
-        return self.scan(frame)[:3]
-
     def enroll(self, faces_dir, name, crops):
         """Add the player to the gallery and save the crops to ``faces_dir/<name>/``.
 

@@ -225,10 +225,10 @@ def test_unknown_face_is_guest(identifier, crew_faces):
     assert identifier.match(img, collins)[0] == face_id.GUEST
 
 
-def test_identify_uses_largest_face_and_returns_box_in_frame_coordinates(identifier):
+def test_scan_uses_largest_face_and_returns_box_in_frame_coordinates(identifier):
     identifier.add_person("Neil Armstrong", [_img("armstrong_portrait.jpg")])
     big = cv2.resize(_img("armstrong_portrait.jpg"), None, fx=3, fy=3)  # larger than detector input
-    name, score, box = identifier.identify(big)
+    name, score, box, crop = identifier.scan(big)
     assert name == "Neil Armstrong"
     x, y, w, h = box
     face_small = identifier.detect(_img("armstrong_portrait.jpg"))[0]
@@ -243,8 +243,8 @@ def test_largest_face_box_in_frame_coordinates(identifier):
     assert identifier.largest_face_box(np.zeros((480, 640, 3), np.uint8)) is None
 
 
-def test_identify_without_face(identifier):
-    assert identifier.identify(np.zeros((480, 640, 3), np.uint8)) == (None, 0.0, None)
+def test_scan_without_face(identifier):
+    assert identifier.scan(np.zeros((480, 640, 3), np.uint8)) == (None, 0.0, None, None)
 
 
 def test_gallery_loads_photos_and_aligned_crops_from_folders(identifier, tmp_path):

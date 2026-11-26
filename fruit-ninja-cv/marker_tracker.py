@@ -56,10 +56,6 @@ class MarkerTracker:
         """Track a single PenColor."""
         self.set_ranges([(pen.lower, pen.upper)])
 
-    def set_colors(self, pens):
-        """Track the union of several PenColors (used on the colour screen)."""
-        self.set_ranges([(p.lower, p.upper) for p in pens])
-
     # -- per-frame tracking -------------------------------------------------
     def track(self, frame):
         """Return the marker point (x, y) in ``frame`` coordinates, or ``None``."""

@@ -9,6 +9,18 @@ Projekt im Modul **Bildverarbeitung** (TI, Semester 4 – HS Albstadt-Sigmaringe
 Entwickelt **inkrementell-iterativ** und **test-case-basiert**.
 
 ## Features
+- **Asynchrone Erkennung (#56):** YOLO und Pose laufen in einem gemeinsamen
+  Hintergrund-Worker. Neue Bilder ersetzen wartende Aufträge; das Spiel wartet
+  nicht auf Modellladen oder Inferenz. Taste `p` zeigt weiterhin die Stufenzeiten;
+  Logs/CSV enthalten `yolo_infer`, `pose_infer`, `mask_age_ms` und `pose_age_ms`,
+  sobald entsprechende Ergebnisse vorliegen. Die Zahlen der Inferenzstufen sind
+  Hintergrund-Laufzeiten und dürfen nicht zur UI-Framezeit addiert werden.
+  Konfiguration: `ASYNC_INFERENCE=True`, `INFERENCE_CV_THREADS=4` (globales
+  OpenCV-Limit), `ASYNC_MAX_MASK_AGE=0.30` s, `POSE_MAX_AGE=0.20` s.
+  Zu alte Ergebnisse werden ausgeblendet; Stift und Spiel bleiben bedienbar.
+  `ASYNC_INFERENCE=False` erlaubt Vergleichsläufe mit dem synchronen Pfad.
+  Reproduzierbarer Offline-Vergleich: `python tools/benchmark_async_inference.py`;
+  Grenzen und Messwerte stehen in `docs/async-inference-56/README.md`.
 - 🍊 **Neue Fruchtgrafiken:** realistische lokale PNGs für Apfel, Orange, Limette,
   Blaubeere und Zitrone sowie eine plastische Spielbombe; auch die Schnittanimation
   verwendet die neuen Grafiken. Keine zusätzlichen Downloads nötig.
@@ -204,7 +216,7 @@ Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.p
 | `face_id.py` | Spielererkennung (YuNet + SFace), Scan im Kreis, Einlernen |
 | `keyboard.py` | Bildschirmtastatur für die Namenseingabe per Stift |
 | `enroll.py` | Spieler einlernen (`faces/<Name>/`) |
-| `sound.py` | Soundeffekte (synthetisiert, afplay) |
+| `sound.py` | Soundeffekte (synthetisiert; Windows: `winsound`, macOS: `afplay`) |
 | `logging_config.py` | Logfiles (rotierend, `logs/`) |
 | `utils.py` | Geometrie (Linie-Kreis) + Text-HUD |
 | `tests/` | pytest-Suite |
