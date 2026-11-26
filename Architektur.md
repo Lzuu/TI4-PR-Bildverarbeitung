@@ -59,6 +59,20 @@ Kamera ─► main (Loop, States, Input)
 5. `Game.draw` + `Blade.draw` + HUD zeichnen ins Frame; `main` zeigt es an.
 
 ## Architekturentscheidungen (ADR-Kurzform)
+- **Comic-Grafiken und Laserschwert (#84, 26.11.2026).** Die fünf Frucht-PNGs
+  wurden mit dem eingebauten Bildgenerator durch Comic-Sprites mit Konturen und
+  Cel-Shading ersetzt. Körperanker, Größen-Cache und Schnittdarstellung bleiben
+  erhalten. Die freigegebene Bombe bleibt bytegenau unverändert. Prompts und
+  SHA-256-Werte stehen in `fruit_assets/generation.json`. Das separat generierte
+  Schwert liegt in `weapon_assets/laser-sword.png` mit Pixelankern/Prompt in JSON.
+  `saber_art.py` bereitet zwei Alpha-Teile einmalig vor und nutzt die vorhandenen
+  Affin-/ROI-Hilfen aus `suit_rig.py`: Klinge folgt Spitze→Emitter, Griff folgt
+  Emitter→Knauf. Dadurch passen auch wechselnde Klingen-/Grifflängen. Ein weich
+  begrenzter generierter Lichtsaum vermeidet große Glow-Flächen; der bestehende
+  dynamische Halo und weiße Kern bleiben. Erkennung und Kollisionsmodell ändern
+  sich nicht. Bei fehlenden Assets bleibt die prozedurale Waffe verfügbar, mit
+  einmaligem Logeintrag. Reproduzierbare Posen-, Spiel- und Laufzeitvorschauen:
+  `python tools/preview_comic_art.py`; keine Kamera/Anzeige erforderlich.
 - **Asynchrone Inferenz (#56).** YOLO und Pose teilen sich einen einzigen
   Hintergrund-Worker mit höchstens einem wartenden Auftrag je Typ. Neue Bilder
   ersetzen wartende Bilder; es gibt keine FIFO-Bildschlange. Nur der Worker

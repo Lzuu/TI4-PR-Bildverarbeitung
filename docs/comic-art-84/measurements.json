@@ -1,0 +1,12 @@
+{
+  "stage": "draw_saber",
+  "iterations": 80,
+  "frame": [
+    960,
+    540
+  ],
+  "median_ms": 6.589,
+  "p95_ms": 7.59,
+  "camera": false,
+  "display": false
+}

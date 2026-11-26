@@ -26,6 +26,7 @@ import cv2
 import numpy as np
 
 import config
+import saber_art
 
 logger = logging.getLogger(__name__)
 
@@ -315,6 +316,10 @@ def draw_saber(frame, saber, color):
     # blade: wide soft glow, tighter bright glow, thick white-hot core (round tip)
     _add_glow(frame, tip, emitter, color, max(4, int(44 * s)), max(1.0, 14 * s))
     _add_glow(frame, tip, emitter, color, max(3, int(24 * s)), max(1.0, 5 * s))
+    if saber_art.draw(frame, saber, s):
+        # Keep the sharp gameplay tip and white core readable at small sizes.
+        cv2.line(frame, tip, emitter, (255, 255, 255), max(3, int(12 * s)), cv2.LINE_AA)
+        return frame
     cv2.line(frame, tip, emitter, (255, 255, 255), max(3, int(12 * s)), cv2.LINE_AA)
 
     # hilt along the saber axis: dark metal grip with ridges, bright emitter ring

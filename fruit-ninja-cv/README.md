@@ -21,9 +21,14 @@ Entwickelt **inkrementell-iterativ** und **test-case-basiert**.
   `ASYNC_INFERENCE=False` erlaubt Vergleichsläufe mit dem synchronen Pfad.
   Reproduzierbarer Offline-Vergleich: `python tools/benchmark_async_inference.py`;
   Grenzen und Messwerte stehen in `docs/async-inference-56/README.md`.
-- 🍊 **Neue Fruchtgrafiken:** realistische lokale PNGs für Apfel, Orange, Limette,
-  Blaubeere und Zitrone sowie eine plastische Spielbombe; auch die Schnittanimation
+- 🍊 **Comic-Fruchtgrafiken:** lokale PNGs mit kräftigen Konturen für Apfel, Orange,
+  Limette, Blaubeere und Zitrone sowie die bewährte Spielbombe; auch die Schnittanimation
   verwendet die neuen Grafiken. Keine zusätzlichen Downloads nötig.
+- **Laserschwert-Grafik:** generierte cyanfarbene Energieklinge und dunkler
+  Metallgriff mit leuchtenden Akzenten, an Spitze/Emitter/Griff der bestehenden
+  Waffenpose ausgerichtet. Steuerung und Trefferlogik bleiben gleich. Fehlt die
+  Grafik, greift die bisherige Darstellung. Vorschau ohne Kamera:
+  `python tools/preview_comic_art.py` (Bilder unter `docs/comic-art-84/`).
 - 🎯 **Farb-Tracking** mit festen Bereichen (keine Kalibrierung nötig).
 - 🏠 **Startmenü:** standardmäßig **Pink** aktiv (nur Pink wird getrackt). Spiel per
   Stift (**Dwell**) starten; Quit ebenfalls per Stift.

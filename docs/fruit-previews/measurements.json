@@ -5,8 +5,8 @@
     540
   ],
   "iterations": 100,
-  "median_ms": 4.302,
-  "p95_ms": 4.859,
+  "median_ms": 5.467,
+  "p95_ms": 7.027,
   "camera": false,
   "display": false,
   "cache": {
