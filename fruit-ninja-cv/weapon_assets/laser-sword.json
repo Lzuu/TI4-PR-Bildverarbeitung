@@ -1,0 +1,21 @@
+{
+  "generator": "built-in image_gen",
+  "prompt": "Asset: one vertical futuristic LASER SWORD sprite for a comic arcade video game, genuinely transparent RGBA background. Straight vertical sword, tip UP, handle DOWN, perfectly straight front view, entire object including blade tip and pommel visible. Long narrow brilliant cyan energy blade with broad WHITE HOT CORE and clean controlled teal glow, blade occupies top 75% of sword length, handle bottom 25%. Cool chunky charcoal and silver handle with black grip ribs, silver emitter collar, small teal luminous accents. Bold clean dark outlines on the handle, polished cel-shaded mobile gaming illustration, no photorealism. Main axis centered on canvas, no perspective tilt. Exactly one sword, no person, no hand, no environment, no letters or logos, 10% transparent padding around all sides.",
+  "source_filename": "exec-cb1d89d1-4a35-4b01-b191-f9bdd7ecfc76.png",
+  "source_sha256": "2c5121bc008ecc600f9841ada6510a0ae9c2259ff2ddecf8ac5cd2be68bcaf41",
+  "png_sha256": "978cff0d4a0148879c15b99ad95b43b1d14c4a72a718aa8e6ae64717ef3f90d9",
+  "tip": [
+    256.0,
+    32.5
+  ],
+  "emitter": [
+    256.0,
+    515.0
+  ],
+  "pommel": [
+    256.0,
+    742.5
+  ],
+  "blade_width": 26.0,
+  "hilt_width": 70.0
+}

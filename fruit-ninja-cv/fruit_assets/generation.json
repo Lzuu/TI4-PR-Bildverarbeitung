@@ -11,16 +11,16 @@
   "body_radius": 120,
   "parts": {
     "apple": {
-      "prompt": "Use case: product-mockup. Asset: photorealistic arcade game PNG sprite, exactly one isolated object, genuinely transparent RGBA background. Front view, centered, whole object visible with 10% transparent padding, soft studio key light upper left and gentle rim light, saturated natural colors, detailed real material, clean readable silhouette at 60 pixels. No ground, no cast shadow outside object, no backdrop, no lettering, no watermark. One ripe round red apple, fine red skin pores and natural red-yellow streaks, short brown stem, one small fresh green leaf.",
-      "source_filename": "exec-06b43367-33dd-40a5-b829-105aca3cc6a9.png",
-      "source_sha256": "29f01ac69d344853d496f60d6cd0bedb35ab856a0a789306af30de01804f176a",
-      "png_sha256": "b8af2ae758f65425d426ea3bfcb24976345a3233296ca44b942cd3aff6f6e39d",
+      "prompt": "Asset: exactly one isolated comic arcade game sprite, genuinely transparent RGBA background. Style: bold clean dark outlines, rounded exaggerated shapes, simple cel-shaded color blocks, one large graphic shine highlight, saturated cheerful colors, polished mobile-game art. Clearly illustrated, NOT a photograph, NO pores, NO fine realistic skin textures, no gritty detail. Consistent soft light from upper left. Whole object centered with 12% empty margin, front view, readable at 50px, no ground shadow, no scene, no text, no watermark, no face. Subject: one chunky bright red apple with simple warm-red shaded lobes, short brown stem and one small thick green leaf.",
+      "source_filename": "exec-e5f87290-c2a0-4bfa-b466-b26e8d4af716.png",
+      "source_sha256": "12913213af84b8b6bb24b66fc310dcee8652c0f491459345f45a362bb6e0b70c",
+      "png_sha256": "e93af192746b5115741ee1307f1c3ab523989e82634665c02cd5bd7d841b7c35",
       "source_body_center": [
-        637.0,
-        673.0
+        612.5,
+        694.5
       ],
-      "source_body_radius": 424.0,
-      "scale": 0.2830188679245283,
+      "source_body_radius": 469.5,
+      "scale": 0.25559105431309903,
       "canvas": [
         320,
         320
@@ -32,16 +32,16 @@
       "body_radius": 120
     },
     "orange": {
-      "prompt": "Use case: product-mockup. Asset: photorealistic arcade game PNG sprite, exactly one isolated object, genuinely transparent RGBA background. Front view, centered, whole object visible with 10% transparent padding, soft studio key light upper left and gentle rim light, saturated natural colors, detailed real material, clean readable silhouette at 60 pixels. No ground, no cast shadow outside object, no backdrop, no lettering, no watermark. One whole round ripe orange with realistic dimpled orange peel and tiny green stem scar. No leaves, no slices.",
-      "source_filename": "exec-988cdae7-d92f-4d73-b1be-a8e108d86baa.png",
-      "source_sha256": "ac4157be864518b3bc70924b3369fedc837c2b72d4361c70062204e07be6bf42",
-      "png_sha256": "1c965710e43e0d06e9e4488ba7432441e6016c0a04f699a7dc6ad443fea0ff2f",
+      "prompt": "Asset: exactly one isolated comic arcade game sprite, genuinely transparent RGBA background. Style: bold clean dark outlines, rounded exaggerated shapes, simple cel-shaded color blocks, one large graphic shine highlight, saturated cheerful colors, polished mobile-game art. Clearly illustrated, NOT a photograph, NO pores, NO fine realistic skin textures, no gritty detail. Consistent soft light from upper left. Whole object centered with 12% empty margin, front view, readable at 50px, no ground shadow, no scene, no text, no watermark, no face. Subject: one round bright orange fruit, a few simple large stylized peel dots and a tiny green stem scar, no leaf.",
+      "source_filename": "exec-4fa22f84-0872-4f49-bde4-d3a6a6c66061.png",
+      "source_sha256": "d7ed1da351f32f4448bb2234665e3b3bf811d68bdaf979ba36d6115ba03f156e",
+      "png_sha256": "0c16663ec1251f5c398670bfd4cd7369b063e1f3fb594ba3b85ef2f8436fdd47",
       "source_body_center": [
-        653.5,
-        616.0
+        642.0,
+        636.5
       ],
-      "source_body_radius": 477.0,
-      "scale": 0.25157232704402516,
+      "source_body_radius": 467.5,
+      "scale": 0.25668449197860965,
       "canvas": [
         320,
         320
@@ -53,16 +53,16 @@
       "body_radius": 120
     },
     "lime": {
-      "prompt": "Use case: product-mockup. Asset: photorealistic arcade game PNG sprite, exactly one isolated object, genuinely transparent RGBA background. Front view, centered, whole object visible with 10% transparent padding, soft studio key light upper left and gentle rim light, saturated natural colors, detailed real material, clean readable silhouette at 60 pixels. No ground, no cast shadow outside object, no backdrop, no lettering, no watermark. One whole round fresh green lime, rich green realistic pores and subtle natural unevenness. No leaves, no slices.",
-      "source_filename": "exec-a3435b58-ba4b-41e7-8ff2-26c2d6ae70ea.png",
-      "source_sha256": "39cb32d3664460de17b5295839d8003f577a5ff8ac3520cf32a9b17078ef82c8",
-      "png_sha256": "70732dc5083d19f4f0617510ac0c0750aa23a2232576adc4305ad5d023ee65d2",
+      "prompt": "Asset: exactly one isolated comic arcade game sprite, genuinely transparent RGBA background. Style: bold clean dark outlines, rounded exaggerated shapes, simple cel-shaded color blocks, one large graphic shine highlight, saturated cheerful colors, polished mobile-game art. Clearly illustrated, NOT a photograph, NO pores, NO fine realistic skin textures, no gritty detail. Consistent soft light from upper left. Whole object centered with 12% empty margin, front view, readable at 50px, no ground shadow, no scene, no text, no watermark, no face. Subject: one round vivid lime-green lime with simple dark green shading, two or three graphic peel marks, no leaf.",
+      "source_filename": "exec-6df3cf64-0012-46a7-9874-bbba7a3169af.png",
+      "source_sha256": "8c6a91273b11c1f37f6ce6fb097c4b9d7e93b5054b9734b1d0ff52c76e6157c9",
+      "png_sha256": "31bbdcf76db2811504c5ce520498a965ddad8150d0940cdd56a8cfa12acc12dd",
       "source_body_center": [
-        649.0,
-        628.0
+        615.5,
+        648.5
       ],
-      "source_body_radius": 431.5,
-      "scale": 0.27809965237543455,
+      "source_body_radius": 509.5,
+      "scale": 0.23552502453385674,
       "canvas": [
         320,
         320
@@ -74,16 +74,16 @@
       "body_radius": 120
     },
     "blueberry": {
-      "prompt": "Use case: product-mockup. Asset: photorealistic arcade game PNG sprite, exactly one isolated object, genuinely transparent RGBA background. Front view, centered, whole object visible with 10% transparent padding, soft studio key light upper left and gentle rim light, saturated natural colors, detailed real material, clean readable silhouette at 60 pixels. No ground, no cast shadow outside object, no backdrop, no lettering, no watermark. One single plump round blueberry, indigo blue skin, realistic powdery bloom, visible small star-shaped calyx on upper front. No cluster, no leaves.",
-      "source_filename": "exec-0dfd3c87-1618-4616-9151-768b744ff025.png",
-      "source_sha256": "95faac19212410282c288090c86dbe45fa8bd242fb39f5fb9a6d6a6dbabbe43c",
-      "png_sha256": "26a2db9454b8895e239fec05bb3a869e8aa14be04e7be43eaff29f22e7321977",
+      "prompt": "Asset: exactly one isolated comic arcade game sprite, genuinely transparent RGBA background. Style: bold clean dark outlines, rounded exaggerated shapes, simple cel-shaded color blocks, one large graphic shine highlight, saturated cheerful colors, polished mobile-game art. Clearly illustrated, NOT a photograph, NO pores, NO fine realistic skin textures, no gritty detail. Consistent soft light from upper left. Whole object centered with 12% empty margin, front view, readable at 50px, no ground shadow, no scene, no text, no watermark, no face. Subject: one plump round indigo-blue blueberry, simplified blue cel-shading and one small star-shaped calyx visible at upper front, no leaves.",
+      "source_filename": "exec-bb5f7c75-d22c-411d-a2a9-f9905c4a2534.png",
+      "source_sha256": "6b72eae2328f64cd4ef0c8a4b9d65556821039e7e1774a85057069e3d2f59a42",
+      "png_sha256": "830a667a5cebf5058ccd80146ea5a6ce8e507eaf652d798f71e4bb597c27f5fe",
       "source_body_center": [
-        655.5,
-        609.0
+        622.5,
+        714.5
       ],
-      "source_body_radius": 463.5,
-      "scale": 0.2588996763754045,
+      "source_body_radius": 457.0,
+      "scale": 0.26258205689277897,
       "canvas": [
         320,
         320
@@ -95,16 +95,16 @@
       "body_radius": 120
     },
     "lemon": {
-      "prompt": "Use case: product-mockup. Asset: photorealistic arcade game PNG sprite, exactly one isolated object, genuinely transparent RGBA background. Front view, centered, whole object visible with 10% transparent padding, soft studio key light upper left and gentle rim light, saturated natural colors, detailed real material, clean readable silhouette at 60 pixels. No ground, no cast shadow outside object, no backdrop, no lettering, no watermark. One whole ripe yellow lemon, roundish oval shape with modest pointed ends, realistic yellow textured zest. No leaves, no slices.",
-      "source_filename": "exec-2dc62ba9-919d-4cfb-ad5a-d0e79c202879.png",
-      "source_sha256": "0ab73efd06a3480763eafd70a584dad68e38271e6bbd976cb53c26c38a94b5c2",
-      "png_sha256": "0ff7104aa4ad726341b41c8842c488db16a1f5b77bf8b9933937855255d626b5",
+      "prompt": "Asset: exactly one isolated comic arcade game sprite, genuinely transparent RGBA background. Style: bold clean dark outlines, rounded exaggerated shapes, simple cel-shaded color blocks, one large graphic shine highlight, saturated cheerful colors, polished mobile-game art. Clearly illustrated, NOT a photograph, NO pores, NO fine realistic skin textures, no gritty detail. Consistent soft light from upper left. Whole object centered with 12% empty margin, front view, readable at 50px, no ground shadow, no scene, no text, no watermark, no face. Subject: one chunky bright yellow oval lemon, two short rounded points, gold-yellow cel-shading and a bold white highlight, no leaf.",
+      "source_filename": "exec-5b54d5c8-c933-48cb-b246-111948a8ae6a.png",
+      "source_sha256": "6c5719d3941252f4d145306e8903fa64586506d34cc40ba4e5d8200fbbe4f385",
+      "png_sha256": "b3a9c453a3bd8f732bbd18b07eb7e333fe6391af1049e402f893bcb24c5f30e2",
       "source_body_center": [
         757.0,
-        507.0
+        522.0
       ],
-      "source_body_radius": 523.5,
-      "scale": 0.22922636103151864,
+      "source_body_radius": 527.5,
+      "scale": 0.22748815165876776,
       "canvas": [
         320,
         320
@@ -136,5 +136,6 @@
       ],
       "body_radius": 120
     }
-  }
+  },
+  "style": "Comic arcade: bold outlines, exaggerated forms, cel shading"
 }
