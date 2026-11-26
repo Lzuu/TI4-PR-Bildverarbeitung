@@ -2,6 +2,7 @@
 import time
 import config
 import pose_tracking
+from frame_pace import FramePace
 import yolo_seg
 
 
@@ -16,6 +17,7 @@ class AsyncSegmenter:
         self._seen = self._loaded_generation = None
         self.mask_age = 0.
         self.last_inference_seconds = None
+        self.pace = FramePace()
 
     def _infer(self, frame, generation):
         if self._loaded_generation != generation:
@@ -39,6 +41,15 @@ class AsyncSegmenter:
     def segment(self, frame, source=None, captured_at=None):
         now = time.monotonic()
         captured_at = now if captured_at is None else captured_at
+        # The age limit follows a low frame rate, and so does the inference cadence: at 3 frames
+        # per second inferring every third frame (0.9 s) would leave most frames without a mask
+        # (#88). Within the budget at most half of it may pass between two inferences.
+        self.pace.tick(now)
+        budget = self.pace.budget(config.ASYNC_MAX_MASK_AGE, config.AGE_BUDGET_FRAMES,
+                                  config.AGE_BUDGET_CAP)
+        every = max(1, config.YOLO_EVERY_N)
+        if self.pace.interval:
+            every = max(1, min(every, int(0.5 * budget / self.pace.interval)))
         generation = self._generation
         key = (source, frame.shape, generation)
         self.worker.activate('yolo', key)
@@ -50,12 +61,12 @@ class AsyncSegmenter:
             if result.sequence != self._seen:
                 self.last_inference_seconds = result.seconds
                 self._seen = result.sequence
-        due = self._count % max(1, config.YOLO_EVERY_N) == 0 or result is None
+        due = self._count % every == 0 or result is None
         self._count += 1
         self.worker.submit('yolo', key, frame, lambda image: self._infer(image, generation), captured_at, due=due)
         if self.failed:
             self.state = self.FAILED
-        if result is None or self.mask_age > config.ASYNC_MAX_MASK_AGE:
+        if result is None or self.mask_age > budget:
             return None
         return result.value
 

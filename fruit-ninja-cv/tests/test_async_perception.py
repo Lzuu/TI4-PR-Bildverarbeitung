@@ -140,3 +140,69 @@ def test_async_real_loop_reports_mask_and_pose_age_and_inference_cost(monkeypatc
             assert any(name in line for line in lines),name
     finally:
         for w in workers:w.close();w._thread.join(3)
+
+
+# -- #88: the YOLO mask must not disappear every other frame at a low frame rate -----------
+class _FakeWorker:
+    """What the segmenter needs from the worker; a submit is answered one frame later."""
+
+    def __init__(self, mask_shape):
+        self.mask = np.full(mask_shape, 255, np.uint8)
+        self.captured = None                   # capture time of the newest finished inference
+        self.pending = None
+        self.dues = []
+        self._sequence = 0
+
+    def activate(self, kind, key):
+        pass
+
+    def failed(self, kind):
+        return False
+
+    def poll(self, kind, key):
+        if self.pending is not None:           # the inference finished before this frame
+            self.captured, self.pending = self.pending, None
+            self._sequence += 1
+        if self.captured is None:
+            return None
+        return Result(self.mask, None, self.captured, .05, self._sequence)
+
+    def submit(self, kind, key, frame, infer, captured_at, due=True):
+        self.dues.append(due)
+        if due:
+            self.pending = captured_at
+
+
+def _mask_availability(monkeypatch, interval, frames):
+    clock = [10.]
+    monkeypatch.setattr(a.time, 'monotonic', lambda: clock[0])
+    worker = _FakeWorker((20, 20))
+    seg = a.AsyncSegmenter(worker)
+    seg.state = seg.READY
+    frame = np.zeros((20, 20, 3), np.uint8)
+    got = []
+    for _ in range(frames):
+        got.append(seg.segment(frame, source=0) is not None)
+        clock[0] += interval
+    return got, worker.dues
+
+
+def test_mask_is_there_in_every_frame_at_three_frames_per_second(monkeypatch):
+    # inference every third frame (0.9 s) with a 0.3 s age limit left two of three frames
+    # without any mask: no space background, no suit -- the "flicker"
+    got, dues = _mask_availability(monkeypatch, .35, 20)
+    assert all(got[6:]), got
+    assert all(dues[6:])                         # every frame is a new inference now
+
+
+def test_cadence_is_unchanged_at_a_normal_frame_rate(monkeypatch):
+    got, dues = _mask_availability(monkeypatch, 1 / 30, 36)
+    assert all(got[6:])
+    assert dues[12:] == [i % 3 == 0 for i in range(12, 36)]  # every third frame, as before
+
+
+def test_cadence_speeds_up_gradually_when_the_game_slows_down(monkeypatch):
+    _, fast = _mask_availability(monkeypatch, 1 / 30, 30)
+    _, medium = _mask_availability(monkeypatch, .1, 30)
+    _, slow = _mask_availability(monkeypatch, .35, 30)
+    assert sum(fast) < sum(medium) <= sum(slow)

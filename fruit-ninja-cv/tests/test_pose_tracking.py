@@ -120,3 +120,77 @@ def test_tiny_blob_is_not_a_player():
     mask=np.zeros((200,160),np.uint8);mask[10:14,10:14]=255
     assert find_player(mask) is None
     assert find_player(np.zeros_like(mask)) is None
+
+
+# -- #88: the suit must not flicker when the game runs at a low frame rate -----------------
+from inference_worker import Result
+
+_RNG = np.random.default_rng(88)
+TEXTURE = _RNG.integers(0, 255, (200, 160, 3), dtype=np.uint8)   # LK needs texture to track
+FULL_MASK = np.full((200, 160), 255, np.uint8)
+
+
+class _PollingInfer:
+    """Async-style source: the result of frame N is polled at frame N+1."""
+
+    def __init__(self):
+        self.result = None
+
+    def reset(self):
+        pass
+
+    def poll(self, *args):
+        return self.result
+
+
+def _slow_async_run(interval, frames=14):
+    infer = _PollingInfer()
+    tracker = PoseTracker(infer, max_age=.2)
+    poses = []
+    for i in range(frames):
+        now = 10.0 + interval * i
+        infer.result = (Result(sample_pose(), TEXTURE, now - interval, .04, i)
+                        if i else None)                      # computed on the previous frame
+        poses.append(tracker.update(TEXTURE, FULL_MASK, now=now, source=0))
+    return poses
+
+
+def test_steadily_slow_frames_keep_the_pose_through_the_async_path():
+    # 3 frames per second: a result is always one frame (0.3 s) old when it arrives. With
+    # the fixed 0.2 s budget the suit never got a pose and fell back to the helmet only.
+    poses = _slow_async_run(0.3)
+    assert all(pose is not None for pose in poses[5:]), [p is not None for p in poses]
+    assert poses[-1].confidence[11] >= .5
+
+
+def test_the_pose_is_not_kept_longer_than_the_capped_budget():
+    # five seconds per frame: results are far too old, a pose must not be shown from them
+    assert all(pose is None for pose in _slow_async_run(5.0, frames=12))
+
+
+def test_a_failed_inference_does_not_drop_the_pose_at_a_low_frame_rate():
+    answers = iter([sample_pose() if i % 2 == 0 else None for i in range(20)])
+    tracker = PoseTracker(lambda f, m, p: next(answers), interval=0, max_age=.2)
+    poses = [tracker.update(TEXTURE, FULL_MASK, now=10.0 + .3 * i, source=0) for i in range(14)]
+    assert all(pose is not None for pose in poses[5:]), [p is not None for p in poses]
+
+
+def test_a_failed_inference_still_expires_the_pose_at_a_normal_frame_rate():
+    answers = iter([sample_pose()] * 16 + [None] * 20)
+    tracker = PoseTracker(lambda f, m, p: next(answers), interval=0, max_age=.2)
+    seen = []
+    for i in range(30):
+        now = 10.0 + i / 30
+        seen.append(tracker.update(TEXTURE, FULL_MASK, now=now, source=0) is not None)
+    assert all(seen[:16])                                    # verified results
+    assert seen[16 + 3]                                      # 0.1 s after the last one: kept
+    assert not seen[16 + 8]                                  # 0.27 s after: gone (budget 0.2 s)
+
+
+def test_a_new_player_is_not_shown_with_the_old_pose_after_a_source_change():
+    answers = iter([sample_pose()] * 30)
+    tracker = PoseTracker(lambda f, m, p: next(answers), interval=0, max_age=.2)
+    for i in range(10):
+        tracker.update(TEXTURE, FULL_MASK, now=10.0 + .3 * i, source=0)
+    tracker.update(TEXTURE, np.zeros_like(FULL_MASK), now=13.0, source=0)   # body lost
+    assert tracker.current is None

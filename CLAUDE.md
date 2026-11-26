@@ -46,6 +46,7 @@ Alle Befehle laufen in `fruit-ninja-cv/`.
 | `background.py` | Spielermaske (Greenscreen, Referenzbild), Weltraum-Compositing | `test_background.py` |
 | `yolo_seg.py` | Personenmaske per YOLO, lädt erst bei Bedarf | `test_yolo_seg.py` |
 | `pose_tracking.py` | BlazePose-Gelenke, optischer Fluss | `test_pose_tracking.py`, `test_pose_models.py` |
+| `frame_pace.py` | typischer Bildabstand (Median); Altersgrenzen für Pose und YOLO-Maske wachsen bei niedriger Bildrate mit | `test_frame_pace.py` |
 | `suit.py`, `suit_rig.py` | Raumanzug: Stoff, Sprites, Helm | `test_suit.py`, `test_suit_rig.py` |
 | `lightsaber.py` | Lichtschwert am Stift, Griff am Handschuh | `test_lightsaber.py` |
 | `face_id.py`, `enroll.py` | Spieler per Gesicht erkennen und einlernen, Namen prüfen | `test_face_id.py` |

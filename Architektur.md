@@ -709,6 +709,40 @@ Kamera ─► main (Loop, States, Input)
     halten ≤ 3 ein. Bewusst so gelassen, weil der Fehler nicht sichtbar ist.
   - Die alten Vorschaubilder in `docs/suit-previews` (Porträt) stammten von einem älteren
     Stand. Neu erzeugt, alter und neuer Renderer liefern dort heute dasselbe Bild.
+- **Der Anzug flackert bei niedriger Bildrate (Fehler #88, `frame_pace.py`).**
+  Symptom: Raumanzug „flackert wie wild“, der Oberkörper wird nicht richtig erkannt. Das Log
+  des Laufs zeigte 3,5 FPS im Greenscreen-Modus (Stufe `suit` rund 180 ms). Reproduziert durch
+  die echte Schleife mit echten Kamerabildern, den echten Modellen und den Standard-Einstellungen
+  (`ASYNC_INFERENCE = True`):
+
+  | Modus | Bilder mit Maske | Pose im Anzug | Wechsel Pose an/aus | nach dem Fix: Pose / Wechsel |
+  |---|---:|---:|---:|---:|
+  | Greenscreen, asynchron | 100 % | 0 % | 0 | 100 % / 0 |
+  | Greenscreen, synchron | 100 % | 94 % | 8 | 100 % / 0 |
+  | YOLO, asynchron | 55 % | 17–45 % | 14–65 | 99 % / 2 (Masken 97 %) |
+  | YOLO, synchron | 96 % | 92 % | 12–14 | 100 % / 0 |
+
+  - **Ursache.** Die Altersgrenzen für Modell-Ergebnisse (`POSE_MAX_AGE` 0,2 s, `ASYNC_MAX_MASK_AGE`
+    0,3 s) sind für etwa 30 FPS gedacht. Bei 3 FPS ist das Ergebnis des vorigen Bildes beim Eintreffen
+    schon 0,3 s alt und wird verworfen: Der Anzug bekam nie eine Pose und fiel auf die grobe Ersatzdarstellung
+    zurück. Bei YOLO kam dazu der Takt: Nur jedes dritte Bild wurde berechnet (alle 0,9 s), die Maske war
+    für zwei von drei Bildern zu alt, diese Bilder hatten weder Weltraum noch Anzug. Auch ein einzelner
+    fehlgeschlagener Pose-Durchlauf ließ die Pose im synchronen Pfad für ein Bild verschwinden.
+  - **Lösung.** `FramePace` merkt sich den Median der letzten 8 Bildabstände (erst nach 4 Bildern).
+    Der Altersbudget ist `AGE_BUDGET_FRAMES` (3) typische Bilder lang, nie unter dem Basiswert, nie über
+    `AGE_BUDGET_CAP` (1 s), sodass ein wirklich altes Ergebnis weiter verworfen wird. Median statt Mittelwert:
+    Ein einzelner langer Frame (ein Aussetzer) ändert ihn nicht, ein dauerhaft langsames Spiel schon; der
+    vorhandene Vertrag „ein fehlgeschlagener Durchlauf lässt die Pose nach `max_age` verfallen“ bleibt bei
+    normaler Bildrate unverändert (getestet). Die optische Fluss-Verfolgung trägt die Pose über die Lücke.
+    Der YOLO-Takt wird so verkürzt, dass höchstens die Hälfte des Budgets zwischen zwei Berechnungen
+    vergeht (bei 30 FPS weiter jedes dritte Bild, bei 3 FPS jedes Bild); der Worker verwirft Zwischenstände
+    (latest-only), es entsteht kein Rückstau.
+  - **Nicht gelöst, bewusst getrennt.** Die niedrige Bildrate selbst (die Stufe `suit` braucht auf diesem
+    Laptop rund 180 ms) ist ein Performance-Thema (#58 bis #62). Und im Greenscreen-Modus zählt alles
+    Nicht-Grüne als Spieler: Hängt der grüne Hintergrund nur auf einem Teil des Bildes, ist die Maske
+    Person plus Wand (hier 73 % des Bildes). Dafür ist der YOLO-Modus gedacht. Eine automatische Warnung
+    ließ sich nicht sauber abgrenzen (eine große Person vor vollständigem Greenscreen deckt ebenfalls
+    viel Fläche ab).
 - **PERF-11 (#58): Feather nur im Rechteck der Maske.** `composite_space(..., feather>0)`
   kopiert den Weltraum per `copyTo` dorthin, wo die Maske 0 ist. `distanceTransform`,
   Gewicht und `blendLinear` laufen nur im Rechteck der Maske plus 1 px Rand, denn außerhalb
