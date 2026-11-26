@@ -15,7 +15,7 @@ def test_artwork_parts_map_to_the_actual_weapon_pose(points):
     parts=saber_art.load_parts()
     assert parts is saber_art.load_parts()
     saber=lightsaber.Saber(*points)
-    for name,start,end in [('blade',saber.tip,saber.hilt_top),('hilt',saber.hilt_top,saber.hilt_bottom)]:
+    for name,start,end in [('hilt',saber.hilt_top,saber.hilt_bottom)]:
         sprite,anchors,width=parts[name]
         matrix=saber_art.part_matrix(anchors,start,end,width,24)
         assert np.allclose(cv2.transform(anchors[None],matrix)[0],(start,end),atol=1e-4)

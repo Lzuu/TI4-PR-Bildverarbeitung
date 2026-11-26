@@ -1095,7 +1095,7 @@ class GameLoop:
         self.motion.add(f.point, f.now)           # f.now: time right after the frame was read
         game.update(self.blade, f.dt, self.motion)    # seconds, not frames (#42, PERF-01)
         game.draw(f.frame)
-        self.blade.draw(f.frame, self.pen_color.display if config.SABER_ENABLED else None)
+        self.blade.draw(f.frame, config.SABER_COLOR if config.SABER_ENABLED else None)
         game.draw_hud(f.frame)
         game.draw_combo(f.frame)
         game.draw_feedback(f.frame)
@@ -1170,10 +1170,22 @@ class GameLoop:
                                                               config.SUIT_FACE_DETECT_WIDTH)
             f.face_checked = True
         with self.stats.stage("saber"):
-            skin = (lambda: lightsaber.skin_mask(f.clean)) if f.point is not None else None
-            lightsaber.draw_saber(f.frame, self.saber.update(f.point, skin, f.face_box,
-                                                             hands=f.saber_hands),
-                                  self.pen_color.display)
+            cached_skin=[]
+            def skin():
+                if not cached_skin:cached_skin.append(lightsaber.skin_mask(f.clean))
+                return cached_skin[0]
+            source=(self.cap.index,self.mode_session,self.bg_mode,f.frame.shape,self.pen_color.name)
+            weapon=self.saber.update(f.point,skin if f.point is not None else None,f.face_box,
+                                     hands=f.saber_hands,now=f.now,source=source)
+            occlusion=None
+            if f.saber_hands and weapon is not None:
+                occlusion=lightsaber.glove_occlusion(
+                    self.suit_renderer.last_parts,self.saber.hand_side,
+                    self.suit_renderer.assets.get('glove'),f.frame.shape,weapon)
+            if occlusion is None and cached_skin:
+                occlusion=(0,0,cached_skin[0])
+            lightsaber.draw_saber(f.frame,weapon,config.SABER_COLOR,
+                                  occlusion=occlusion,opacity=self.saber.visibility)
 
     def _show(self, f):
         """Show the picture and return the pressed key (the stage timer closes the frame)."""

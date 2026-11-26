@@ -24,14 +24,14 @@ def _drawn(frame=None, color=(255, 0, 0)):
 def test_blade_is_a_thick_bright_beam():
     frame, s = _drawn()
     y = (s.tip[1] + s.hilt_top[1]) // 2
-    assert frame[y, 300 - 5:300 + 6].min() > 200          # white-hot core at least 11 px wide
+    assert frame[y, 300 - 3:300 + 4].min() > 200          # narrower integrated white-hot core
 
 
 def test_blade_glows_in_the_saber_colour_around_the_core():
     frame, s = _drawn()
     y = (s.tip[1] + s.hilt_top[1]) // 2
-    glow = frame[y, 300 + 16]                              # beside the core
-    assert glow[0] > 80 and glow[0] > glow[2] + 40         # blue glow (BGR)
+    glow = frame[y, 300 + 12]                              # restrained halo beside the core
+    assert glow[0] > 30 and glow[0] > glow[2] + 30         # blue glow (BGR)
     assert (frame[480, 20] == 0).all()                     # far away untouched
 
 
@@ -166,14 +166,15 @@ def test_a_lasting_change_is_taken_over():
     assert _angle_deg(s) > 50
 
 
-def test_without_a_hand_it_swings_back_slowly_not_at_once():
+def test_without_a_hand_it_does_not_rotate_by_itself():
     t = _tracker(smoothing=0.0, keep_frames=0)
     t.update(POINT, skin_with(((380, 290), 30)))                   # ~30 deg
     s = t.update(POINT, np.zeros((500, 600), np.uint8))            # hand gone
-    assert 5 < _angle_deg(s) < 30                                  # on its way back, no jump
+    assert 5 < _angle_deg(s) < 30                                  # held without a jump
+    held = _angle_deg(s)
     for _ in range(40):
         s = t.update(POINT, np.zeros((500, 600), np.uint8))
-    assert abs(_angle_deg(s)) < 2                                  # vertical in the end
+    assert abs(_angle_deg(s)-held) < 1                             # stable instead of drifting
 
 
 def test_no_pen_no_saber():
@@ -240,12 +241,14 @@ def test_hilt_sits_on_the_glove_from_the_first_frame():
     assert abs(math.dist(s.hilt_top, s.hilt_bottom) - 50) < 2      # hilt length unchanged
 
 
-def test_hilt_follows_a_turning_hand_in_the_same_frame():
+def test_hilt_rejects_one_bad_point_then_follows_a_lasting_turn():
     t = _tracker(confirm_frames=4)
     t.update(POINT, None, hands={"r": (300, 300)})                 # straight down
     turned = (300 + 130, 150 + 75)                                 # ~60 deg, one frame later
     s = t.update(POINT, None, hands={"r": turned})
-    assert math.dist(_hilt_centre(s), turned) <= 1                 # no 4-frame confirmation
+    assert math.dist(_hilt_centre(s),(300,300)) <= 1
+    for _ in range(3):s=t.update(POINT,None,hands={'r':turned})
+    assert math.dist(_hilt_centre(s),turned) <= 6                 # accepted after short confirmation
 
 
 def test_skin_is_not_computed_while_a_glove_holds_the_saber():
@@ -258,7 +261,9 @@ def test_skin_is_not_computed_while_a_glove_holds_the_saber():
     t = _tracker()
     t.update(POINT, skin, hands={"r": GRIP})
     assert calls == []                                             # the expensive mask is skipped
-    t.update(POINT, skin, hands={})                                # no glove: fall back to skin
+    t.update(POINT, skin, hands={})                                # short pose loss: grace period
+    assert calls == []                                             # short gaps retain relative grip
+    t.update(POINT,skin,hands={},now=.3)
     assert calls == [1]
 
 
@@ -285,6 +290,8 @@ def test_a_clearly_closer_second_hand_takes_over(monkeypatch):
     t.update(POINT, None, hands={"r": GRIP})                       # ~153 px
     close = (300 - 60, 150 + 60)                                   # ~85 px < 0.7 * 153
     s = t.update(POINT, None, hands={"r": GRIP, "l": close})
+    assert math.dist(_hilt_centre(s),GRIP) <= 1                   # transient crossings do not switch
+    for _ in range(5):s=t.update(POINT,None,hands={'r':GRIP,'l':close})
     assert math.dist(_hilt_centre(s), close) <= 1
 
 
@@ -328,6 +335,8 @@ def test_hand_source_is_logged_once_per_lasting_change_not_per_frame(caplog):
 # -- CR-14 (#66): the blade never collapses when the glove is lost -------------
 def test_blade_keeps_the_minimum_length_when_the_glove_is_lost():
     t = _tracker(min_blade=80, max_blade=200)
-    t.update(POINT, None, hands={"r": (300, 170)})                 # palm 20 px below the tip
+    before=t.update(POINT, None, hands={"r": (300, 170)})          # palm 20 px below the tip
     s = t.update(POINT, np.zeros((500, 600), np.uint8), hands={})  # glove gone, no skin either
+    assert s==before                                             # brief gap must not grow a new blade
+    s=t.update(POINT,np.zeros((500,600),np.uint8),hands={},now=.3)
     assert math.dist(s.tip, s.hilt_top) >= 80

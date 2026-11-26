@@ -1,0 +1,14 @@
+{
+  "camera": false,
+  "models": false,
+  "display": false,
+  "opencv_threads": 4,
+  "static_tip_jitter_input_px": 4.855,
+  "static_tip_jitter_output_px": 1.463,
+  "static_grip_jitter_before_px": 4.855,
+  "static_grip_jitter_after_px": 0.795,
+  "tracker_median_ms": 0.067,
+  "draw_median_ms": 0.594,
+  "draw_p95_ms": 0.817,
+  "note": "Synthetic replay only. Jitter metric = sum of per-axis standard deviations during rest. No live FPS claim."
+}

@@ -24,9 +24,10 @@ Entwickelt **inkrementell-iterativ** und **test-case-basiert**.
 - 🍊 **Comic-Fruchtgrafiken:** lokale PNGs mit kräftigen Konturen für Apfel, Orange,
   Limette, Blaubeere und Zitrone sowie die bewährte Spielbombe; auch die Schnittanimation
   verwendet die neuen Grafiken. Keine zusätzlichen Downloads nötig.
-- **Laserschwert-Grafik:** generierte cyanfarbene Energieklinge und dunkler
-  Metallgriff mit leuchtenden Akzenten, an Spitze/Emitter/Griff der bestehenden
-  Waffenpose ausgerichtet. Steuerung und Trefferlogik bleiben gleich. Fehlt die
+- **Laserschwert:** einheitliche cyanfarbene Energiebeleuchtung und generierter
+  Metallgriff mit leuchtenden Akzenten, zeitlich stabilisiert an der Hand.
+  Aktuelle Finger-/Handschuhpixel verdecken einen Teil des Griffs. Steuerung und
+  Trefferlogik bleiben gleich. Fehlt die
   Grafik, greift die bisherige Darstellung. Vorschau ohne Kamera:
   `python tools/preview_comic_art.py` (Bilder unter `docs/comic-art-84/`).
 - 🎯 **Farb-Tracking** mit festen Bereichen (keine Kalibrierung nötig).
@@ -126,15 +127,33 @@ frei und zieht ihm den Anzug an. Das Modell (`yolov8n-seg.onnx`, ~13 MB) lädt d
 beim ersten Start nach `models/`; fehlt es, fällt der Modus auf „Aus" zurück.
 
 ## Lichtschwert
-Am Stift erscheint ein **Lichtschwert**. Die Spitze der Klinge ist die Stiftspitze – der
-Punkt, der die Früchte schneidet (`PEN_POINT = "tip"`). Mit Raumanzug sitzt der Griff in
-jedem Frame in der Handfläche des Handschuhs, den der Anzug aus der Körperpose zeichnet;
-es zählt die Hand am Stift (#46). Ohne Anzug wird die Hand über die Hautfarbe erkannt:
-Dann pendelt sich die Länge in den ersten Sekunden so ein, dass der Griff auf der Hand
-sitzt, das Schwert ist ruhig geglättet und höchstens 75° geneigt, und ohne erkannte Hand
-schwenkt es langsam in die Senkrechte. Abschalten: `SABER_ENABLED = False`;
-Einstellungen: `SABER_LENGTH`, `SABER_HILT_LENGTH`, `SABER_HAND_RADIUS`,
-`SABER_GLOVE_GRIP`, `SABER_HAND_SWITCH` in `config.py`.
+Am Stift erscheint ein **Lichtschwert**. Die Erkennungsfarbe des Stifts und die
+Waffenfarbe sind getrennt: Klinge und Spur bleiben cyan (`SABER_COLOR`), auch wenn
+Pink getrackt wird. Ein kompakter, kontinuierlicher Lichtsaum ersetzt den breiten
+pinken Saum und den gestreckten Bildhintergrund der früheren Klinge.
+
+Mit Raumanzug sitzt der Griff an der Handfläche des aktuellen Handschuhs. Kleine
+Messfehler werden geglättet, einzelne große Ausreißer kurz geprüft und eine andere
+Hand erst nach 100 ms deutlich besserer Zuordnung gewählt. Kurze Pose-Lücken
+halten die relative Griffpose maximal 150 ms, ohne sofort zur Hautsuche zu wechseln.
+Ohne Pose wird weiterhin die Hautfarbe ausgewertet; ohne Hand dreht die Waffe
+nicht mehr selbständig in die Senkrechte. Bei fast zur Kamera zeigendem Stift
+bleibt die letzte zuverlässige Achse erhalten. Verschwindet der Stift, verblasst
+nur die Darstellung über maximal 120 ms. Dabei wird kein alter Punkt zum Schneiden
+benutzt; nach Kamera-/Modus-/Farbwechsel ist diese Historie verworfen.
+
+Die sichtbare Spitze wird gegen Zittern innerhalb von höchstens 3 Pixeln × SCALE
+(plus Pixelrundung) beruhigt. Schnelle Bewegungen werden direkt übernommen.
+Treffer und Challenges verwenden weiterhin ausschließlich die aktuellen,
+ungefilterten Stiftmessungen. Die Handüberdeckung ist eine konservative visuelle
+Annäherung aus der aktuellen Handschuh- oder Hautmaske, keine Finger-Pose-Erkennung.
+Abschalten: `SABER_ENABLED = False`; Einstellungen in `config.py`:
+`SABER_COLOR`, `SABER_MARKER_HOLD`, `SABER_GRIP_HOLD`,
+`SABER_HAND_SWITCH_SECONDS` sowie die bisherigen Größen-/Handsuchparameter.
+
+Reproduzierbarer Vergleich und Bewegungsprobe ohne Webcam:
+`python tools/preview_saber_stability.py`; Ergebnisse und Grenzen unter
+`docs/stable-saber-89/`.
 
 ## Installation & Start
 ```bash
@@ -227,7 +246,7 @@ pytest
 | `tests/test_cameras.py` | Kamerasuche, Auswahl/Fallback, Wechsel, Speichern, Menü-Layout (ohne echte Kamera) |
 | `tests/test_highscore.py` | Top-3 je Schwierigkeit, Ranking, Spielername, alte Dateien, defekte Datei |
 | `tests/test_face_id.py` | Gesichtsdetektion, Wiedererkennung auf anderem Foto, Gast, Scan im Kreis, Einlernen, Startablauf |
-| `tests/test_lightsaber.py` | Feste Länge, Spitze am Stift, Richtung zur Hand, Handsuche (Gesicht ignoriert), kein Springen bei Ausreißern, sanfte Rückkehr, dicker Strahl, Griff auf dem Handschuh ab dem ersten Frame, Handwahl mit Hysterese, Hautmaske nur bei Bedarf |
+| `tests/test_lightsaber.py`, `tests/test_saber_stability.py` | Konstante Grifflänge, visuelle Glättung, ungefilterte Trefferpunkte, Ausreißerprüfung, zeitbegrenzte Ausfälle, Quellenwechsel, Handwahl mit Hysterese, aktuelle Handüberdeckung und konsistente Lichtfarbe |
 | `tests/test_suit.py` | Spieler-Box/Schwerpunkt, Ganzkörper-Region (Kopf/Hände dabei, Stift frei), Stoff hell/rund, Helm (Schale/Visier) + animierter Glanz, Brustpanel mit blinkenden LEDs, Glättung |
 | `tests/test_keyboard.py` | Bildschirmtastatur: Layout, Großschreibung, Löschen, Leerzeichen, Länge, echte Tastatur |
 

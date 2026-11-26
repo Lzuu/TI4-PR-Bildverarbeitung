@@ -59,6 +59,26 @@ Kamera ─► main (Loop, States, Input)
 5. `Game.draw` + `Blade.draw` + HUD zeichnen ins Frame; `main` zeigt es an.
 
 ## Architekturentscheidungen (ADR-Kurzform)
+- **Integriertes, stabiles Laserschwert (#89).** Die Ursache des pinken Saums war
+  die Kombination aus cyanfarbener Bildklinge und zusätzlichem Halo/Trail in
+  Erkennungsfarbe. Waffe und Spur nutzen jetzt ein eigenes `SABER_COLOR`. Die
+  gestreckte Bitmap-Energie mit breitem Hintergrund entfällt; ein analytischer
+  Halo und scharfer Kern folgen der Klingenachse. Der generierte Griff bleibt
+  lokal gecacht, mit bereinigter Material-Alpha-Kontur. Aktuelle Handschuh-Alpha
+  beziehungsweise die bereits benötigte Hautmaske liefern eine begrenzte,
+  abgerundete Fingerüberdeckung und einen Kontaktschatten. Keine alten Handmasken
+  oder erfundenen Hintergrundpixel; keine zusätzliche Netz-Inferenz.
+  `SaberTracker` nutzt Aufnahme-/UI-Zeit und Quellkennung, dämpft kleines Zittern
+  mit begrenztem Positionsfehler, prüft große einzelne Griffausreißer und hält
+  die gewählte Hand mit zeitlicher Hysterese. Schnelle kohärente Bewegungen
+  passieren direkt. Kurze Pose-Lücken behalten nur die relative Waffenform
+  (150 ms); Marker-Lücken verblassen rein visuell (120 ms). Treffer-/Challenge-
+  Bahnen erhalten unverändert echte aktuelle Messungen und werden bei Verlust
+  weiterhin unterbrochen. Die Hautsuche springt nicht nach einem einzigen
+  fehlenden Handschuh-Frame an. Ein fehlender Handanker erzeugt keine automatische
+  Drehung mehr. Die bisherigen Tests mit sofortigem Handsprung/Handwechsel und
+  Rückkehr in die Senkrechte wurden an dieses beabsichtigte Verhalten angepasst.
+  Grenzen, Vorher/Nachher, Replay und Messungen: `docs/stable-saber-89/`.
 - **Comic-Grafiken und Laserschwert (#84, 26.11.2026).** Die fünf Frucht-PNGs
   wurden mit dem eingebauten Bildgenerator durch Comic-Sprites mit Konturen und
   Cel-Shading ersetzt. Körperanker, Größen-Cache und Schnittdarstellung bleiben

@@ -291,9 +291,9 @@ def _record_saber(monkeypatch):
     sabers, skins = [], []
     draw, skin_mask = lightsaber.draw_saber, lightsaber.skin_mask
 
-    def recording_draw(frame, saber, color):
+    def recording_draw(frame, saber, color, **kwargs):
         sabers.append(saber)
-        return draw(frame, saber, color)
+        return draw(frame, saber, color, **kwargs)
 
     def recording_skin(frame):
         skins.append(1)
@@ -348,7 +348,7 @@ def test_a_glove_from_the_previous_frame_is_not_reused(monkeypatch, tmp_path):
              BG_MODE="greenscreen", SUIT_ENABLED=True)
     first, _second = [s for s in sabers if s is not None]
     assert _hilt_offset(first, GLOVE) <= 1.5                 # frame 1: on the drawn glove
-    assert skins == [1]                                      # frame 2: old glove ignored
+    assert skins == []                                       # brief gap holds only relative weapon pose
 
 
 def test_a_glove_from_an_earlier_frame_is_never_used(monkeypatch, tmp_path):

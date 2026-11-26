@@ -1,4 +1,8 @@
-"""Cached laser-sword artwork: blade and grip fit independent tracked segments."""
+"""Material-only grip from the generated sword; energy is rendered in lightsaber.
+
+The original PNG is kept intact. Its baked energy halo is deliberately not used:
+it becomes a coloured rectangle when stretched to a short tracked blade.
+"""
 from functools import lru_cache
 import json
 import logging
@@ -20,19 +24,16 @@ def load_parts():
         if image is None or image.ndim!=3 or image.shape[2]!=4:
             raise ValueError('Missing RGBA laser sword')
         result={}
-        for name in ('blade','hilt'):
+        for name in ('hilt',):
             part=image.copy()
             seam=int(meta['emitter'][1])
-            if name=='blade':
-                part[seam:,:,3]=0
-                # Keep generated cyan spill bounded around the tracked blade;
-                # the procedural halo below remains responsive to pen colour.
-                distance=np.abs(np.arange(image.shape[1])-meta['tip'][0])
-                support=np.clip((1.5-distance/meta['blade_width'])/.75,0,1)
-                part[:,:,3]=np.rint(part[:,:,3]*support[None,:]).astype(np.uint8)
-            else:part[:seam,:,3]=0
-            anchors=np.float32([meta['tip'],meta['emitter']] if name=='blade' else
-                               [meta['emitter'],meta['pommel']])
+            part[:seam,:,3]=0
+            # Keep material edges, removing the low-alpha ambient wash.
+            alpha=np.clip((part[:,:,3].astype(np.float32)-64)/191,0,1)
+            distance=np.abs(np.arange(image.shape[1])-meta['emitter'][0])
+            support=np.clip((.8-distance/meta['hilt_width'])/.15,0,1)
+            part[:,:,3]=np.rint(alpha*support[None,:]*255).astype(np.uint8)
+            anchors=np.float32([meta['emitter'],meta['pommel']])
             result[name]=(Sprite.prepare(part),anchors,float(meta[name+'_width']))
         return result
     except (OSError,ValueError,KeyError,TypeError):
@@ -48,8 +49,7 @@ def draw(frame,saber,scale):
     parts=load_parts()
     if parts is None:
         return False
-    for name,start,end,width in [('blade',saber.tip,saber.hilt_top,24),
-                                 ('hilt',saber.hilt_top,saber.hilt_bottom,26)]:
+    for name,start,end,width in [('hilt',saber.hilt_top,saber.hilt_bottom,20)]:
         sprite,anchors,source_width=parts[name]
         matrix=part_matrix(anchors,start,end,source_width,max(3,width*scale))
         alpha_over(frame,sprite,matrix)
