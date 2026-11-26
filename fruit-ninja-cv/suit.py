@@ -70,7 +70,7 @@ def paint_fabric(frame, region):
 # Top-level
 # --------------------------------------------------------------------------- #
 def dress(frame, mask, face=None, keep=None, phase=0.0, *,
-          original=None, pose=None, renderer=None, source=None, player=None):
+          original=None, pose=None, renderer=None, source=None, player=None, stats=None):
     """Render an EVA rig, preserving ``original`` camera pixels for face and pen.
 
     The game passes one persistent renderer and current measured pose. Older
@@ -80,4 +80,4 @@ def dress(frame, mask, face=None, keep=None, phase=0.0, *,
     renderer = SuitRenderer() if renderer is None else renderer
     original = frame.copy() if original is None else original
     return renderer.render(frame, original, mask, pose=pose, face=face, keep=keep,
-                           now=phase, source=source, player=player)
+                           now=phase, source=source, player=player, stats=stats)

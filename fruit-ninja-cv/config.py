@@ -74,7 +74,6 @@ ASYNC_MAX_MASK_AGE = 0.30       # Capture-time budget includes native forward la
 POSE_CONFIDENCE = 0.5            # Whole-person pose confidence
 POSE_INTERVAL = 0.10             # Seconds between pose inferences; LK follows interim movement
 POSE_MAX_AGE = 0.20              # Maximum extrapolation after last verified pose (seconds)
-SUIT_DIAGNOSTICS = False         # Aggregate timings once every 5 s (no per-frame logging)
 
 # Background mode "yolo": cut the player out with a YOLOv8-seg person mask
 # (ONNX via cv2.dnn, no torch) so no green screen is needed. See yolo_seg.py.
