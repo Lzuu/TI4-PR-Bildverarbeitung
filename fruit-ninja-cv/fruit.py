@@ -1,10 +1,9 @@
-"""Fruit (and bomb) entities: projectile physics + procedural drawing.
+"""Fruit (and bomb) entities: projectile physics + local sprite drawing.
 
 Fruits are thrown up from below the bottom edge with an upward velocity, arc
 under gravity and fall back down (like someone tossing them from below). They
-are drawn procedurally (filled circle + highlight + stem) so the game runs with
-zero external assets. When sliced, a fruit splits into two half-discs that fly
-apart perpendicular to the blade direction.
+use packaged transparent artwork. When sliced, the actual sprite splits along
+the blade and flies apart. Procedural drawing remains a missing-asset fallback.
 """
 
 import math
@@ -14,6 +13,7 @@ import cv2
 
 import config
 from difficulty import DEFAULT
+import fruit_sprites
 
 
 class Fruit:
@@ -76,6 +76,11 @@ class Fruit:
 
     # -- drawing ------------------------------------------------------------
     def draw(self, frame):
+        if fruit_sprites.draw(frame,'bomb' if self.is_bomb else self.name,
+                              self.center,self.radius,
+                              cut_angle=self.cut_angle if self.sliced else None,
+                              spread=self.slice_time*90*config.SCALE):
+            return
         if self.sliced:
             self._draw_halves(frame)
         elif self.is_bomb:
