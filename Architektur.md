@@ -709,6 +709,17 @@ Kamera ─► main (Loop, States, Input)
     halten ≤ 3 ein. Bewusst so gelassen, weil der Fehler nicht sichtbar ist.
   - Die alten Vorschaubilder in `docs/suit-previews` (Porträt) stammten von einem älteren
     Stand. Neu erzeugt, alter und neuer Renderer liefern dort heute dasselbe Bild.
+- **PERF-11 (#58): Feather nur im Rechteck der Maske.** `composite_space(..., feather>0)`
+  kopiert den Weltraum per `copyTo` dorthin, wo die Maske 0 ist. `distanceTransform`,
+  Gewicht und `blendLinear` laufen nur im Rechteck der Maske plus 1 px Rand, denn außerhalb
+  ist das Gewicht ohnehin 0. Das Bild ist bitgenau dasselbe (Test gegen die alte
+  Vollbildversion, auch bei weichen Maskenkanten, Löchern, mehreren Flecken und am
+  Bildrand). Szene `down` 960×720 auf dem M3: 2,0 → 0,7 ms, bei 1470×956: 4,1 → 1,5 ms;
+  mit seitlich ausgestreckten Armen ist das Rechteck groß (1,9 → 1,1 ms).
+  Den Vorschlag aus dem Issue, den Feather wegzulassen, wenn der Anzug darübermalt, habe
+  ich nicht umgesetzt: Dann müsste der Hintergrund wissen, was der Anzug später zeichnet,
+  und im Fall „Pose ohne Gesicht“ würde sich das Bild ändern. Die bitgenaue Variante spart
+  etwas weniger, ändert aber kein Verhalten.
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.

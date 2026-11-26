@@ -5,6 +5,7 @@ camera images.
 """
 
 import cv2
+import pytest
 import numpy as np
 
 from background import (foreground_mask, composite_space, load_space,
@@ -182,3 +183,37 @@ def test_greenscreen_half_scale_stays_close_to_full_scale():
     assert (full ^ half).sum() < 0.002 * full.size          # < 0.2 % of the pixels differ
 
 
+
+
+# -- PERF-11 (#58): feather only in the person's rectangle, same picture -------
+def _full_frame_feather(frame, mask, space, feather):
+    """The former whole-frame version, kept as the test oracle."""
+    distance = cv2.distanceTransform(mask, cv2.DIST_L2, 3)
+    weight = np.minimum(distance / max(float(feather), .1), 1).astype(np.float32)
+    return cv2.blendLinear(frame, space, weight, 1 - weight)
+
+
+def _soft_person(shape, center):
+    mask = np.zeros(shape, np.uint8)
+    cv2.ellipse(mask, center, (60, 110), 15, 0, 360, 255, -1, cv2.LINE_AA)   # soft edge
+    cv2.circle(mask, center, 12, 0, -1)                                       # hole
+    cv2.circle(mask, (20, 20), 6, 255, -1)                                    # second blob
+    return mask
+
+
+@pytest.mark.parametrize('center', [(160, 150), (30, 150), (300, 230)])  # middle, left/bottom edge
+@pytest.mark.parametrize('feather', [1.5, 4.])
+def test_feather_in_the_person_rectangle_equals_the_whole_frame_feather(center, feather):
+    rng = np.random.default_rng(1)
+    frame = rng.integers(0, 256, (240, 320, 3), dtype=np.uint8)
+    space = rng.integers(0, 256, frame.shape, dtype=np.uint8)
+    mask = _soft_person(frame.shape[:2], center)
+    expected = _full_frame_feather(frame, mask, space, feather)
+    assert np.array_equal(composite_space(frame.copy(), mask, space, feather=feather), expected)
+
+
+def test_feather_without_a_person_shows_only_space():
+    frame = np.full((40, 60, 3), 90, np.uint8)
+    space = np.full_like(frame, 7)
+    out = composite_space(frame, np.zeros((40, 60), np.uint8), space, feather=1.5)
+    assert np.array_equal(out, space)
