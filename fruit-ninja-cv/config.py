@@ -13,8 +13,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # ---------------------------------------------------------------------------
 # Camera / window
 # ---------------------------------------------------------------------------
-CAMERA_INDEX = 1          # 1 = MacBook FaceTime HD. (0 = iPhone Continuity on this Mac.)
-                          # Default only -- the camera chosen in the menu wins (SETTINGS_FILE).
+CAMERA_INDEX = 1          # Default only -- the camera chosen in the menu wins (SETTINGS_FILE).
+                          # Mac: 1 = FaceTime HD (0 = iPhone Continuity). Windows laptop: the
+                          # ELP USB camera is index 2 (MSMF backend, see cameras.py).
 CAMERA_MAX_INDEX = 5      # Camera indices 0..4 are searched for the camera selection
 SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")   # Local settings (chosen camera), not in git
 # WIDTH/HEIGHT are the render canvas size. They default to 960x540 but are set to

@@ -49,7 +49,8 @@ Alle Befehle laufen in `fruit-ninja-cv/`.
 | `model_download.py` | Download der ONNX-Modelle mit Timeout und Hashprüfung (face, yolo, pose) | `test_model_download.py` |
 | `cameras.py` | Kameras suchen, öffnen, wechseln; `settings.json` | `test_cameras.py` |
 | `perf.py` | Stufenzeiten pro Frame (Taste `p`) | `test_perf.py` |
-| `sound.py`, `logging_config.py` | Töne (nur macOS), Logging | keine |
+| `sound.py` | Töne synthetisieren und abspielen (Windows: `winsound`, macOS: `afplay`) | `test_sound.py` |
+| `logging_config.py` | Logging | keine |
 
 ## Ablauf eines Frames in `_run_game_loop`
 
