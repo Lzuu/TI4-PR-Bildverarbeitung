@@ -14,6 +14,8 @@ import time
 import cv2
 import numpy as np
 
+from pose_tracking import find_player
+
 logger = logging.getLogger(__name__)
 ASSET_DIR = Path(__file__).resolve().parent / "suit_assets"
 
@@ -21,15 +23,24 @@ ASSET_DIR = Path(__file__).resolve().parent / "suit_assets"
 @dataclass
 class Sprite:
     image: np.ndarray
-    premultiplied: np.ndarray
+    premultiplied: np.ndarray  # uint8 BGRA, colour already multiplied by alpha
     bounds: tuple
     opening: np.ndarray = None
+    glass_edge: np.ndarray = None  # helmet only: rim reflection in sprite pixels
+    glass_x: np.ndarray = None  # helmet only: normalised x of each sprite column
 
     @classmethod
     def prepare(cls, image):
-        alpha = image[:, :, 3:4].astype(np.float32) / 255.0
-        rgba = np.concatenate((image[:, :, :3].astype(np.float32) * alpha, alpha), axis=2)
-        return cls(image, rgba, cv2.boundingRect(image[:, :, 3]))
+        # uint8 lets alpha_over run in cv2.multiply/cv2.add instead of float NumPy;
+        # rounding once here costs at most one grey level.
+        alpha = image[:, :, 3]
+        color = cv2.multiply(image[:, :, :3], cv2.merge([alpha] * 3), scale=1 / 255)
+        return cls(image, cv2.merge([*cv2.split(color), alpha]), cv2.boundingRect(alpha))
+
+
+def _premultiplied_float(image):
+    alpha = image[:, :, 3:4].astype(np.float32) / 255.0
+    return np.concatenate((image[:, :, :3].astype(np.float32) * alpha, alpha), axis=2)
 
 
 def _fit_sleeve_artwork(image, anchors, proximal, distal):
@@ -58,7 +69,7 @@ def _fit_sleeve_artwork(image, anchors, proximal, distal):
         scale = min(3.5, target / (columns[-1] - columns[0] + 1))
         source_x[y] = (xx[y] - w * 0.5) / scale + (columns[0] + columns[-1]) * 0.5
     # Premultiplied resampling keeps the refitted alpha border free of dark edges.
-    premult = Sprite.prepare(image).premultiplied
+    premult = _premultiplied_float(image)
     fitted = cv2.remap(premult, source_x, yy, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
     alpha = fitted[:, :, 3:4]
     color = np.divide(
@@ -106,6 +117,17 @@ def load_assets():
                 (y + bh / 2) / image.shape[0],
             ]
             meta[name]["opening_axes"] = [bw / 2 / image.shape[1], bh / 2 / image.shape[0]]
+            # Glass field in sprite coordinates: the helmet matrix maps the opening
+            # ellipse onto the face, so warping this field equals evaluating it per
+            # frame in camera pixels (no mgrid/exp per frame).
+            h, w = image.shape[:2]
+            center = np.asarray(meta[name]["opening_center"]) * (w, h)
+            axes = np.asarray(meta[name]["opening_axes"]) * (w, h)
+            nx = ((np.arange(w) - center[0]) / axes[0]).astype(np.float32)
+            ny = ((np.arange(h) - center[1]) / axes[1]).astype(np.float32)
+            edge = np.clip((nx[None, :] ** 2 + ny[:, None] ** 2 - 0.45) / 0.55, 0, 1)
+            assets[name].glass_edge = (0.018 * edge).astype(np.float32)
+            assets[name].glass_x = nx
     return assets, meta
 
 
@@ -162,28 +184,71 @@ def alpha_over(frame, sprite, matrix, mask=None):
     if result is None:
         return frame
     x0, y0, x1, y1, warped = result
-    alpha = warped[:, :, 3:4]
-    color = warped[:, :, :3]
     if mask is not None:
-        factor = mask[y0:y1, x0:x1, None].astype(np.float32) / 255.0
-        alpha = alpha * factor
-        color = color * factor
+        warped = cv2.multiply(warped, cv2.merge([mask[y0:y1, x0:x1]] * 4), scale=1 / 255)
     roi = frame[y0:y1, x0:x1]
-    roi[:] = np.clip(color + roi * (1 - alpha), 0, 255).astype(np.uint8)
+    keep = cv2.merge([255 - warped[:, :, 3]] * 3)
+    roi[:] = cv2.add(warped[:, :, :3], cv2.multiply(roi, keep, scale=1 / 255))
     return frame
 
 
-def _component(mask):
+PLAYER_PAD = 50  # > largest sleeve padding (48) and the fabric blur margin (16)
+
+
+def _player_rect(bbox, shape):
+    """Player box plus a background ring; even origin keeps paint_fabric's half grid."""
+    x, y, w, h = bbox
+    x0, y0 = max(x - PLAYER_PAD, 0) & ~1, max(y - PLAYER_PAD, 0) & ~1
+    return x0, y0, min(x + w + PLAYER_PAD, shape[1]), min(y + h + PLAYER_PAD, shape[0])
+
+
+def _soft_inner_clip(player, bbox):
+    """Mask only inward to soften edges without painting the background."""
+    x0, y0, x1, y1 = _player_rect(bbox, player.shape)
+    clip = np.zeros_like(player)
+    distance = cv2.distanceTransform(player[y0:y1, x0:x1], cv2.DIST_L2, 3)
+    clip[y0:y1, x0:x1] = (np.minimum(distance / 1.4, 1) * 255).astype(np.uint8)
+    return clip
+
+
+def clip_masks(player, bbox, width):
+    """Torso and sleeve clip masks: player plus outward padding, never into holes.
+
+    Computed only in the player rectangle: its ring is pure background, so every
+    path to the outside and every nearest player pixel lies inside it.
+    """
+    margin = max(2, min(18, round(width * 0.055)))
+    # Only measured sleeve sprites get extra room for EVA padding.
+    arm_margin = max(2, min(48, round(width * 0.16)))
+    x0, y0, x1, y1 = _player_rect(bbox, player.shape)
+    body = player[y0:y1, x0:x1]
+    background = cv2.compare(body, 0, cv2.CMP_EQ)
+    # One linear-time distance map for both padding radii, rather than
+    # a large morphology kernel per sleeve on every moving frame.
+    outside_distance = cv2.distanceTransform(background, cv2.DIST_L2, 3)
+    # Flood exterior background from an explicit padded border; enclosed
+    # background holes stay free.
+    exterior = cv2.copyMakeBorder(background, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=255)
+    cv2.floodFill(exterior, None, (0, 0), 128)
+    outer = cv2.compare(exterior[1:-1, 1:-1], 128, cv2.CMP_EQ)
+    inside = cv2.compare(body, 0, cv2.CMP_GT)
+    masks = []
+    for limit in (margin, arm_margin):
+        near = cv2.compare(outside_distance, limit, cv2.CMP_LE)
+        full = np.zeros_like(player)
+        full[y0:y1, x0:x1] = cv2.bitwise_or(inside, cv2.bitwise_and(outer, near))
+        masks.append(full)
+    return tuple(masks)
+
+
+def _component(mask, player=None):
     """Largest player, preserving real holes (no filling between crossed arms)."""
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
-        return None, None
-    contour = max(contours, key=cv2.contourArea)
-    if cv2.contourArea(contour) < mask.size * 0.01:
+    player = find_player(mask) if player is None else player
+    if player is None:
         return None, None
     selection = np.zeros_like(mask)
-    cv2.drawContours(selection, [contour], -1, 255, -1)
-    return cv2.bitwise_and(mask, selection), cv2.boundingRect(contour)
+    cv2.drawContours(selection, [player.contour], -1, 255, -1)
+    return cv2.bitwise_and(mask, selection), player.box
 
 
 def face_from_pose(pose):
@@ -381,11 +446,15 @@ class SuitRenderer:
         linear = rotation @ np.diag((sx, sy))
         target = np.array((fx + fw / 2, fy + fh * 0.5))
         matrix = np.column_stack((linear, target - linear @ center)).astype(np.float32)
-        # Paint camera pixels into a bounded aperture BEFORE shell and glass.
-        aperture = sprite.opening
-        warped = _warp_roi(aperture, matrix, frame.shape)
+        # Glass is near-clear centrally; reflections stay at the lateral edge.
+        glint = np.exp(-(((sprite.glass_x + 0.77 + 0.025 * np.sin(phase * 0.35)) / 0.065) ** 2))
+        glass = sprite.glass_edge + (glint[None, :] * 0.07).astype(np.float32)
+        # Opening and glass field share one warp. Paint camera pixels into the
+        # bounded aperture BEFORE shell and glass.
+        warped = _warp_roi(cv2.merge([sprite.opening, glass]), matrix, frame.shape)
         if warped is not None:
-            x0, y0, x1, y1, coverage = warped
+            x0, y0, x1, y1, fields = warped
+            coverage, glass = fields[:, :, 0], fields[:, :, 1]
             roi, raw = frame[y0:y1, x0:x1], original[y0:y1, x0:x1]
             coverage = np.clip(coverage, 0, 1)
             support = person_mask[y0:y1, x0:x1].astype(np.float32) / 255
@@ -410,13 +479,7 @@ class SuitRenderer:
             )
         alpha_over(frame, sprite, matrix)
         if warped is not None:
-            # Glass is near-clear centrally; reflections stay at the lateral edge.
-            yy, xx = np.mgrid[y0:y1, x0:x1]
-            coords = np.stack((xx - target[0], yy - target[1]), axis=-1) @ rotation
-            nx, ny = coords[:, :, 0] / max(fw * 0.66, 1), coords[:, :, 1] / max(fh * 0.48, 1)
-            edge = np.clip((nx * nx + ny * ny - 0.45) / 0.55, 0, 1)
-            glint = np.exp(-(((nx + 0.77 + 0.025 * np.sin(phase * 0.35)) / 0.065) ** 2)) * 0.07
-            strength = (0.018 * edge + glint) * coverage
+            strength = glass * coverage
             tint = np.array((220, 225, 230), np.float32)
             roi[:] = np.clip(
                 roi * (1 - strength[:, :, None]) + tint * strength[:, :, None], 0, 255
@@ -444,14 +507,18 @@ class SuitRenderer:
         fitted[3] = center + hip / length * target / 2
         return fitted
 
-    def render(self, frame, original, mask, pose=None, face=None, keep=None, now=None, source=None):
+    def render(
+        self, frame, original, mask, pose=None, face=None, keep=None, now=None, source=None,
+        player=None,
+    ):
+        """``player`` is the frame's find_player(mask) result, if the caller has it."""
         now = time.monotonic() if now is None else now
         if np.shares_memory(frame, original):
             original = original.copy()
         if source != self._source or frame.shape != self._shape:
             self.reset()
         self._source, self._shape = source, frame.shape
-        player, bbox = _component(mask)
+        player, bbox = _component(mask, player)
         self.last_parts = []
         if bbox is None:
             self.reset()
@@ -465,16 +532,14 @@ class SuitRenderer:
             if keep is not None:
                 cv2.copyTo(original, keep, frame)
             return frame
-        # Mask only inward to soften edges without painting the background.
-        distance = cv2.distanceTransform(player, cv2.DIST_L2, 3)
-        clip = np.minimum(distance / 1.4, 1) * 255
-        clip = clip.astype(np.uint8)
-        region = player.copy()
+        # Fabric works only in the player rectangle; outside it the region is empty.
+        rx0, ry0, rx1, ry1 = _player_rect(bbox, frame.shape)
+        region = player[ry0:ry1, rx0:rx1].copy()
         if face_box is not None:
             x, y, w, h = face_box
             cv2.ellipse(
                 region,
-                (round(x + w / 2), round(y + h * 0.45)),
+                (round(x + w / 2) - rx0, round(y + h * 0.45) - ry0),
                 (max(1, round(w * 0.7)), max(1, round(h * 0.75))),
                 0,
                 0,
@@ -486,15 +551,16 @@ class SuitRenderer:
             # A body pose alone is not permission to recolour an unlocated face.
             # Measured arm sprites can still render above this conservative line.
             shoulder_y = int(min(pose.points[11, 1], pose.points[12, 1]))
-            region[: max(0, shoulder_y)] = 0
+            region[: max(0, shoulder_y - ry0)] = 0
         if keep is not None:
-            region[keep > 0] = 0
+            region[keep[ry0:ry1, rx0:rx1] > 0] = 0
         # Base fabric fills small joints between the articulated pieces, never the face.
         import suit
 
-        base = frame.copy()
+        target = frame[ry0:ry1, rx0:rx1]
+        base = target.copy()
         suit.paint_fabric(base, region)
-        cv2.copyTo(base, region, frame)
+        cv2.copyTo(base, region, target)
         width = 0
         if pose is not None and pose.segment(11, 12) is not None:
             width = self.body_scale(pose, player)
@@ -570,27 +636,11 @@ class SuitRenderer:
                 source_quad[[0, 1, 3, 2]].astype(np.float32), quad[[0, 1, 3, 2]]
             )
             commands.append((10, dict(name="torso", asset="torso", matrix=matrix, endpoints=quad)))
-        arm_clip = clip
         if width >= 8:
-            margin = max(2, min(18, round(width * 0.055)))
-            # One linear-time distance map for both padding radii, rather than
-            # a large morphology kernel per sleeve on every moving frame.
-            outside_distance = cv2.distanceTransform((player == 0).astype(np.uint8), cv2.DIST_L2, 3)
-            padded = outside_distance <= margin
-            # Flood exterior background from an explicit padded image border.
-            exterior = cv2.copyMakeBorder(
-                (player == 0).astype(np.uint8), 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=1
-            )
-            cv2.floodFill(exterior, None, (0, 0), 2)
-            allowed = (player > 0) | ((exterior[1:-1, 1:-1] == 2) & (padded > 0))
-            clip = allowed.astype(np.uint8) * 255
-            # Only measured sleeve sprites get extra room for EVA padding.
-            # Keep enclosed background holes free and never retain old arm masks.
-            arm_margin = max(2, min(48, round(width * 0.16)))
-            arm_padded = outside_distance <= arm_margin
-            arm_clip = ((player > 0) | ((exterior[1:-1, 1:-1] == 2) & (arm_padded > 0))).astype(
-                np.uint8
-            ) * 255
+            # Masks come from the current player only; never retain old arm masks.
+            clip, arm_clip = clip_masks(player, bbox, width)
+        else:
+            clip = arm_clip = _soft_inner_clip(player, bbox)
         # Keep upper-arm/torso below the helmet, wrists/gloves can occlude it.
         for layer, part in sorted(commands, key=lambda item: item[0]):
             if layer >= 40:

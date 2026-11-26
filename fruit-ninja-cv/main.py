@@ -821,8 +821,10 @@ class GameLoop:
         now_s = time.monotonic()
         source = (self.cap.index, self.mode_session)
         with self.stats.stage("pose"):
+            # contour searched once; pose and suit reuse it (#57)
+            body = pose_tracking.find_player(mask)
             body_pose = self.pose_tracker.update(f.clean, mask, now=now_s, source=source,
-                                                 captured_at=f.now)
+                                                 captured_at=f.now, player=body)
             if self.pose_tracker._last_verified is not None:
                 self.stats.maximum("pose_age_ms",
                                    max(0.0, now_s - self.pose_tracker._last_verified) * 1000.0)
@@ -832,7 +834,7 @@ class GameLoop:
         with self.stats.stage("suit"):
             f.frame = suit.dress(f.frame, mask, f.face_box, f.pen_mask, now_s,
                                  original=f.clean, pose=body_pose,
-                                 renderer=self.suit_renderer, source=source)
+                                 renderer=self.suit_renderer, source=source, player=body)
         # the saber hilt attaches to these gloves (pose socket, no extra inference)
         f.saber_hands = lightsaber.glove_grips(self.suit_renderer.last_parts)
 

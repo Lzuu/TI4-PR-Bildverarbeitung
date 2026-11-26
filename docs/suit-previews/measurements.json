@@ -1,9 +1,9 @@
 {
   "environment": {
-    "python": "3.13.15",
-    "opencv": "4.13.0",
+    "python": "3.12.0",
+    "opencv": "4.14.0",
     "numpy": "2.5.4",
-    "opencv_threads": 16
+    "opencv_threads": 8
   },
   "camera": false,
   "display": false,
@@ -22,44 +22,44 @@
     {
       "stage": "articulated_render_960x720",
       "iterations": 40,
-      "median_ms": 36.91,
-      "p95_ms": 39.508,
-      "mean_ms": 36.995
+      "median_ms": 6.667,
+      "p95_ms": 7.386,
+      "mean_ms": 6.738
     },
     {
       "stage": "marker_960x720",
       "iterations": 40,
-      "median_ms": 0.763,
-      "p95_ms": 1.227,
-      "mean_ms": 0.87
+      "median_ms": 0.415,
+      "p95_ms": 0.507,
+      "mean_ms": 0.424
     },
     {
       "stage": "blazepose_256_on_public_portrait",
       "iterations": 40,
-      "median_ms": 14.391,
-      "p95_ms": 36.567,
-      "mean_ms": 18.28
+      "median_ms": 7.635,
+      "p95_ms": 16.034,
+      "mean_ms": 9.289
     },
     {
       "stage": "yolo_320_on_public_portrait",
       "iterations": 40,
-      "median_ms": 27.789,
-      "p95_ms": 29.995,
-      "mean_ms": 27.94
+      "median_ms": 12.44,
+      "p95_ms": 13.285,
+      "mean_ms": 12.519
     },
     {
       "stage": "yunet_320_on_public_portrait",
       "iterations": 40,
-      "median_ms": 5.373,
-      "p95_ms": 6.143,
-      "mean_ms": 5.437
+      "median_ms": 3.389,
+      "p95_ms": 4.113,
+      "mean_ms": 3.455
     },
     {
       "stage": "all_models_and_render_public_portrait_each_frame",
       "iterations": 40,
-      "median_ms": 78.424,
-      "p95_ms": 100.056,
-      "mean_ms": 80.622
+      "median_ms": 31.039,
+      "p95_ms": 39.713,
+      "mean_ms": 32.486
     }
   ],
   "limitations": "Headless warm measurements; synthetic poses validate rendering, not pose-model accuracy. No live FPS or input-to-display latency measured."

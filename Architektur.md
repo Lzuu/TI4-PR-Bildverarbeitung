@@ -601,6 +601,38 @@ Kamera ─► main (Loop, States, Input)
     selbst einbindet, ohne Einfluss auf das Spiel (eigener Ordner, Tests ohne Kamera). Wer das nicht
     will, kann den Ordner samt `tests/test_doomscroll.py` ohne Folgen für das Spiel löschen.
   - **Kommentar zu `CAMERA_INDEX`** nennt jetzt beide Rechner (Mac und Windows-Laptop mit ELP-Kamera).
+- **PERF-10 (#57): Anzug-Renderer in uint8 und im Spielerrechteck.** Das Bild bleibt gleich
+  (höchstens 3 Graustufen Abweichung; Referenzbilder `tests/data/suit_ref_*.png`, mit dem
+  alten Renderer erzeugt). Bei `scene('side')`, 960×720, auf dem M3: 14,1 → 7,6 ms
+  im Median.
+  - `Sprite.premultiplied` ist jetzt **uint8**-BGRA. `alpha_over` rechnet mit `cv2.multiply`/
+    `cv2.add` statt float32 in NumPy. Rundung einmal beim Laden, dadurch höchstens 1 bis 2
+    Graustufen Fehler.
+  - `clip_masks`: Die Masken für `clip`/`arm_clip` (Abstandskarte, `floodFill` für den
+    Außenbereich) werden nur im Rechteck des Spielers plus `PLAYER_PAD` (50 px) berechnet,
+    mit `cv2.compare`/`bitwise_*` statt boolescher Arrays. Das Ergebnis ist identisch: Der
+    Rand um das Rechteck ist reiner Hintergrund. Jeder Weg nach außen und jeder nächste
+    Spielerpixel liegt daher im Rechteck (Test gegen die alte Vollbildversion). Stoff
+    (`region`, `base`) arbeitet im selben Rechteck. Die linke obere Ecke ist gerade, damit
+    das halbe Raster von `paint_fabric` gleich bleibt. Die Abstandskarte für weiche Kanten
+    wird nur noch gerechnet, wenn sie gebraucht wird (keine Schulterbreite).
+  - Helmglas: `nx`, `ny` sind in Sprite-Koordinaten unabhängig vom Gesicht, weil die
+    Helmmatrix die Öffnungsellipse auf das Gesicht abbildet. Das Randfeld entsteht deshalb
+    einmal in `load_assets`. Der Glanz hängt nur von `nx` ab und ist pro Frame eine Zeile.
+    Öffnung und Glasfeld werden in einem `warpAffine` verzerrt.
+  - `pose_tracking.find_player` sucht die Spielerkontur einmal pro Frame. `PoseTracker`,
+    `PoseEstimator`, `PersonDetector` und `SuitRenderer.render` nehmen sie als `player=`
+    entgegen und suchen nur selbst, wenn keine übergeben wird. Die `infer`-Funktion des
+    Trackers bekommt sie als dritten Parameter.
+  - Der Zeittest (≤ 18 ms) trägt die Markierung `perf` und läuft nur auf Abruf
+    (`python -m pytest -m perf`). `pytest.ini` wählt ihn sonst ab, weil ein Zeitbudget
+    unter Last und auf geteilten CI-Runnern zufällig scheitert.
+  - Restabweichung: Wo mehrere Sprites übereinanderliegen, summieren sich die Rundungen der
+    uint8-Schritte. In einem Abgleich mit 192 synthetischen Fällen weicht in 8 Fällen je
+    1 Pixel um 4 Graustufen ab, alles andere um höchstens 3. Die Szenen aus dem Issue
+    halten ≤ 3 ein. Bewusst so gelassen, weil der Fehler nicht sichtbar ist.
+  - Die alten Vorschaubilder in `docs/suit-previews` (Porträt) stammten von einem älteren
+    Stand. Neu erzeugt, alter und neuer Renderer liefern dort heute dasselbe Bild.
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.

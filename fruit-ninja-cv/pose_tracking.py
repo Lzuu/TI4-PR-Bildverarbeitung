@@ -111,7 +111,7 @@ class PersonDetector:
         self.net = net
         self.anchors = detector_anchors()
 
-    def __call__(self, frame, mask):
+    def __call__(self, frame, mask, player=None):
         h, w = frame.shape[:2]
         scale = 224 / max(h, w)
         nw, nh = int(w * scale), int(h * scale)
@@ -128,9 +128,10 @@ class PersonDetector:
         if not len(candidates):
             return None
         # Select a detection whose estimated body circle overlaps our active mask.
-        bbox = player_box(mask)
-        if bbox is None:
+        player = find_player(mask) if player is None else player
+        if player is None:
             return None
+        bbox = player.box
         center = np.asarray(bbox[:2]) + np.asarray(bbox[2:]) / 2
         best = None
         quality = -np.inf
@@ -157,14 +158,23 @@ def decode_landmarks(raw, matrix):
     return Pose(points, np.minimum(scores[:, 0], scores[:, 1]))
 
 
-def player_box(mask):
+@dataclass(frozen=True)
+class Player:
+    """Outer contour and bounding box of the largest blob in the person mask."""
+
+    contour: np.ndarray
+    box: tuple
+
+
+def find_player(mask):
+    """Search the player's contour once per frame; pose and suit reuse it."""
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         return None
     contour = max(contours, key=cv2.contourArea)
     if cv2.contourArea(contour) < 0.01 * mask.size:
         return None
-    return cv2.boundingRect(contour)
+    return Player(contour, cv2.boundingRect(contour))
 
 
 class PoseEstimator:
@@ -179,15 +189,16 @@ class PoseEstimator:
         self._calls = 0
         self._last_box = None
 
-    def __call__(self, frame, mask):
-        bbox = player_box(mask)
-        if bbox is None or self.failed:
+    def __call__(self, frame, mask, player=None):
+        player = find_player(mask) if player is None else player
+        if player is None or self.failed:
             self.reset()
             return None
+        bbox = player.box
         try:
             if self.detector is not None:
                 if self._roi is None:
-                    detected = self.detector(frame, mask)
+                    detected = self.detector(frame, mask, player)
                     if detected is not None:
                         self._roi = detected
                 if self._roi is None:
@@ -306,12 +317,13 @@ class PoseTracker:
         self.current.points[ids[good], :2] = moved.reshape(-1, 2)[good]
         self.current.confidence[ids[~good]] = 0
 
-    def update(self, frame, mask, now=None, source=None, captured_at=None):
+    def update(self, frame, mask, now=None, source=None, captured_at=None, player=None):
         now = time.monotonic() if now is None else now
-        box = player_box(mask)
-        if box is None:
+        player = find_player(mask) if player is None else player
+        if player is None:
             self.reset()
             return None
+        box = player.box
         changed = source != self._source or (
             self._gray is not None and self._gray.shape != mask.shape
         )
@@ -338,7 +350,7 @@ class PoseTracker:
             self._flow(gray)
         else:
             self._last_inference = now
-            measured = self.infer(frame, mask) if self.infer is not None else None
+            measured = self.infer(frame, mask, player) if self.infer is not None else None
             if measured is not None:
                 self.stabilize(measured, now)
                 self._last_verified = now

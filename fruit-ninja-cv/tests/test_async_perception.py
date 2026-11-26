@@ -102,7 +102,7 @@ def test_detector_only_runs_on_acquisition_and_after_pose_loss():
             raw[34,:2]=(128,30)
             return [raw.reshape(1,-1),np.array([self.confidence])]
     calls=[]
-    def detector(frame,mask):calls.append(1);return np.float32([40,40]),np.float32([40,5])
+    def detector(frame,mask,player):calls.append(1);return np.float32([40,40]),np.float32([40,5])
     net=Net();estimator=p.PoseEstimator(net,detector)
     frame=np.zeros((80,80,3),np.uint8);mask=np.full((80,80),255,np.uint8)
     for _ in range(8):assert estimator(frame,mask) is not None
