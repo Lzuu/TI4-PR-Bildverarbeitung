@@ -1,0 +1,36 @@
+{
+  "opencv": "4.13.0",
+  "opencv_threads": 4,
+  "image_size": [
+    600,
+    480
+  ],
+  "camera": false,
+  "render": false,
+  "display": false,
+  "note": "Warm static portrait; timed segment + pose/update on UI only. No live FPS claim.",
+  "results": [
+    {
+      "mode": "sync",
+      "frames": 100,
+      "median_ui_ms": 2.146,
+      "p95_ui_ms": 115.453,
+      "max_ui_ms": 119.903,
+      "frames_with_mask": 100,
+      "frames_with_pose": 90,
+      "max_mask_age_ms": 153.736,
+      "detector_calls": 11
+    },
+    {
+      "mode": "async",
+      "frames": 100,
+      "median_ui_ms": 2.053,
+      "p95_ui_ms": 2.787,
+      "max_ui_ms": 3.639,
+      "frames_with_mask": 100,
+      "frames_with_pose": 78,
+      "max_mask_age_ms": 258.57,
+      "detector_calls": 10
+    }
+  ]
+}
