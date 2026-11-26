@@ -133,7 +133,7 @@ def open_camera():
     logger.info("Found cameras %s in %.1f s", sorted(previews), time.time() - t0)
     saved = cameras.load_camera_index(config.SETTINGS_FILE)
     first = cameras.choose_index(saved, config.CAMERA_INDEX, list(previews))
-    camera = cameras.Camera()
+    camera = cameras.Camera(threaded=config.CAMERA_THREAD)
     if not camera.open_first(cameras.candidate_order(first, config.CAMERA_INDEX)):
         logger.error("Could not open any camera (tried indices 0-%d)",
                      config.CAMERA_MAX_INDEX - 1)
