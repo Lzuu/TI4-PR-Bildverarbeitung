@@ -49,13 +49,14 @@ Alle Befehle laufen in `fruit-ninja-cv/`.
 | `model_download.py` | Download der ONNX-Modelle mit Timeout und Hashprüfung (face, yolo, pose) | `test_model_download.py` |
 | `cameras.py` | Kameras suchen, öffnen, wechseln; `settings.json` | `test_cameras.py` |
 | `perf.py` | Stufenzeiten pro Frame (Taste `p`) | `test_perf.py` |
-| `sound.py`, `logging_config.py` | Töne (nur macOS), Logging | keine |
+| `sound.py` | Töne synthetisieren und abspielen (Windows: `winsound`, macOS: `afplay`) | `test_sound.py` |
+| `logging_config.py` | Logging | keine |
 
 ## Ablauf eines Frames in `GameLoop.run`
 
 Kamera lesen → zuschneiden, skalieren, spiegeln → Stift suchen (`tracker.track`) → Gesicht (nur bei Bedarf) → Spielermaske je nach Hintergrundmodus → Compositing → Pose → Anzug → Zustand (`STATE_FACE_SCAN`, `STATE_NAME_ENTRY`, `STATE_MENU`, `STATE_DIFFICULTY`, `STATE_PLAY`, `STATE_GAME_OVER`) → Lichtschwert → Anzeige → Tasten.
 
-`GameLoop` (in `main.py`) hält den Zustand zwischen den Frames als Attribute (`self.state`, `self.game`, `self.pen_color` ...); die Daten eines Frames stehen in einem `Frame`-Objekt (`f.frame`, `f.clean`, `f.point`, `f.face_box` ...). Die Schritte heißen `_next_frame`, `_find_pen_and_face`, `_cut_out_player` (mit `_player_mask`, `_dress_player`), `_run_screen`, `_draw_status_text`, `_draw_saber`, `_show`, `_handle_key`. Jeder Zustand ist eine Methode `_<zustand>_screen` (Zuordnung in `GameLoop.SCREENS`), zum Beispiel `_menu_screen` oder `_play_screen`. Layout (`*_target`, `*_button`) und Zeichnen (`draw_*`) stehen als eigene Funktionen darüber. `_run_game_loop(...)` ist nur noch eine dünne Hülle, die Tests aufrufen.
+`GameLoop` (in `main.py`) hält den Zustand zwischen den Frames als Attribute (`self.state`, `self.game`, `self.pen_color` ...); die Daten eines Frames stehen in einem `Frame`-Objekt (`f.frame`, `f.clean`, `f.point`, `f.face_box` ...). Die Schritte heißen `_next_frame`, `_find_pen_and_face`, `_cut_out_player` (mit `_player_mask`, `_dress_player`), `_run_screen`, `_draw_status_text`, `_draw_saber`, `_show`, `_handle_key`. Jeder Zustand ist eine Methode `_<zustand>_screen` (Zuordnung in `GameLoop.SCREENS`), zum Beispiel `_menu_screen` oder `_play_screen`. Layout (`*_target`, `*_button`) und Zeichnen (`draw_*`) stehen als eigene Funktionen darüber. `_run_game_loop(...)` ist nur noch eine dünne Hülle (startet bei `ASYNC_INFERENCE` den Inferenz-Worker und lässt `GameLoop` laufen), die Tests aufrufen.
 
 ## Tests schreiben
 

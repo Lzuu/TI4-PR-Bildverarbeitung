@@ -44,7 +44,7 @@ Kamera ─► main (Loop, States, Input)
 | `model_download.py` | Geprüfter Modell-Download (Timeout, Hash vor dem Installieren) für Gesicht, YOLO und Pose |
 | `keyboard.py` | Bildschirmtastatur (Dwell pro Taste) für den Namen neuer Spieler |
 | `enroll.py` | Spieler einlernen: speichert ausgerichtete Gesichtsausschnitte nach `faces/<Name>/` |
-| `sound.py` | Soundeffekte (synthetisiert, non-blocking via afplay) |
+| `sound.py` | Soundeffekte (synthetisiert, non-blocking: `winsound` unter Windows, `afplay` auf macOS) |
 | `utils.py` | Wiederverwendbare Helfer: Linie-Kreis-Abstand, Text mit Schatten, Bilddateien mit Umlaut im Pfad |
 | `logging_config.py` | Zentrales Logging (rotierendes Logfile + Konsole) |
 
@@ -59,6 +59,34 @@ Kamera ─► main (Loop, States, Input)
 5. `Game.draw` + `Blade.draw` + HUD zeichnen ins Frame; `main` zeigt es an.
 
 ## Architekturentscheidungen (ADR-Kurzform)
+- **Asynchrone Inferenz (#56).** YOLO und Pose teilen sich einen einzigen
+  Hintergrund-Worker mit höchstens einem wartenden Auftrag je Typ. Neue Bilder
+  ersetzen wartende Bilder; es gibt keine FIFO-Bildschlange. Nur der Worker
+  verwendet die Netze zur Inferenz. Ergebnisse tragen Quellkennung, Bildform,
+  Generation und Aufnahmezeit; Quellenwechsel und Reset verwerfen alte Resultate
+  einschließlich noch laufender Aufträge. Ergebnisalter zählt ab Aufnahme, nicht
+  ab Fertigstellung. Der Hauptthread wartet weder auf Modellladen noch Inferenz.
+  Optischer Fluss überträgt eine neue Pose vom tatsächlich ausgewerteten Bild
+  auf das aktuelle Bild; seine Ergebnisse verlängern das Inferenzalter nicht.
+  Ein Worker serialisiert die beiden Netze statt gleichzeitiger Inferenzspitzen.
+  OpenCV wird vor Workerstart prozessweit auf eine konfigurierbare Threadzahl
+  begrenzt. Shutdown stoppt neue Aufträge ohne unbeschränkt auf native Inferenz
+  zu warten. Die bisherige Entscheidung gegen asynchrone Inferenz ist damit
+  durch expliziten Netzbesitz und Bild-/Quellenidentität ersetzt.
+- **Lokale Frucht-Sprites statt einfacher Kreise (#77, 26.11.2026).** Fünf
+  realistische Fruchtsorten und eine stilisierte 3D-Spielbombe wurden einmalig mit
+  dem integrierten Bildgenerator erzeugt. Transparente PNGs liegen versioniert in
+  `fruit-ninja-cv/fruit_assets/`; Prompts, Prüfsummen und Körperanker stehen in
+  `generation.json`. `fruit_sprites.py` lädt sechs Originale einmalig und hält
+  höchstens 128 skalierte Varianten vor. Größenänderung erfolgt mit vormultipliziertem
+  Alpha gegen dunkle Ränder, Compositing nur im sichtbaren Bildausschnitt. Körper
+  bleiben am bisherigen Kollisionskreis verankert, Stiele und Lunte sind Dekoration.
+  Die Schnittlinie teilt die echte Textur in komplementäre Hälften, die senkrecht
+  zum Schnitt auseinanderfliegen. Eigene Fruchtfleisch-Schnittflächen sind nicht
+  simuliert. Physik, Trefferlogik und Punkte bleiben unverändert. Fehlende Assets
+  werden einmal geloggt und durch die vorhandene prozedurale Darstellung ersetzt.
+  Tests und `tools/preview_fruits.py` prüfen Alpha, Bildränder, Schnittrichtungen,
+  Größen-Cache und Fallback. Vorschauen/Messwerte: `docs/fruit-previews/`.
 - **Klassische Bildverarbeitung statt ML.** Farb-Segmentierung (HSV) + Konturen
   statt MediaPipe o. Ä. → passt zur Kursintention, transparente Pipeline, kein
   Modell-Overhead.
@@ -149,7 +177,8 @@ Kamera ─► main (Loop, States, Input)
   so unabhängig testbar (defekte/fehlende Datei → leere Liste).
 - **Sound entkoppelt & non-blocking.** `Game` ruft nur `sounds.play(name)`; in Tests
   wird ein `NullSound` injiziert. WAVs werden synthetisiert (keine Asset-Dateien),
-  Wiedergabe via `afplay` ohne die Game-Loop zu blockieren.
+  Wiedergabe ohne die Game-Loop zu blockieren: `winsound` unter Windows, `afplay` auf macOS
+  (siehe CR-24, #74).
 - **Logging statt Prints.** Rotierendes Logfile unter `logs/`; unbehandelte Fehler
   werden mit Traceback geloggt → nachvollziehbares Debugging nach einem Problem.
 - **Test-case-basiert.** Die gesamte Logik (Geometrie, Tracking, Physik, Spiel) ist
@@ -425,8 +454,9 @@ Kamera ─► main (Loop, States, Input)
     zu alte Maske wird früher aufgefrischt, aber nur, wenn eine Inferenz selbst günstig
     ist (höchstens das halbe Budget). Sonst würde bei langsamer Hardware jede Inferenz
     die Frames weiter verlangsamen (Rückkopplung, im Messlauf aufgetreten). Eine
-    asynchrone Inferenz ist bewusst nicht gebaut: Dafür müssten Thread-Besitz und
-    Frame-Identität erst festgelegt werden, und ohne belegten Bedarf kommt sie nicht.
+    asynchrone Inferenz war damals bewusst nicht gebaut. **Durch #56 ersetzt:**
+    Netzbesitz, Quellen-/Bildidentität und Ergebnisalter sind jetzt im Worker
+    festgelegt; siehe die aktuelle ADR zur asynchronen Inferenz oben.
   - **PERF-04 Verarbeitungsskala.** `TRACK_SCALE = 0.5` und `GREEN_SCALE = 0.5`. Der Tracker
     skaliert Morphologie- und Weichzeichner-Kernel und die Flächenschwelle mit
     (ein fester 5×5-Kernel löschte Stifte unter 8 px komplett); Punkt und `last_mask`
@@ -547,6 +577,30 @@ Kamera ─► main (Loop, States, Input)
     Tests tauschen Namen wie `main.draw_text` oder `main.suit` aus, ein Umzug würde sie
     verfehlen. Layout- und Zeichenfunktionen in `main.py` auszulagern wäre ein eigener, späterer
     Schritt.
+- **Ungenutzten Code entfernen (CR-22, #72).** Entfernt wurden `MarkerTracker.set_colors`,
+  `FaceIdentifier.identify` (die Tests prüfen jetzt `scan`, die einzige Stelle, die die
+  Skalierung der Gesichtsbox absichert), `Blade.speed`, `lightsaber.saber_at` (die
+  Zeichentests bauen die gerade Klinge selbst), `last_ms` in `SuitRenderer` und
+  `PoseEstimator` (wurde nirgends gelesen; Zeiten je Stufe misst `perf.FrameStats`) und der
+  unerreichbare Zweig `person_mask is None` in `SuitRenderer._helmet`. Verhalten und
+  Testabdeckung des genutzten Codes sind unverändert.
+- **Kleinere Punkte (CR-24, #74).**
+  - **Ton unter Windows.** `SoundPlayer` nutzt dort `winsound.PlaySound` mit `SND_ASYNC` (Standardbibliothek,
+    keine neue Abhängigkeit), auf macOS weiter `afplay`, sonst bleibt es stumm. `SND_ASYNC` kann nur
+    einen Ton gleichzeitig: Ein neuer Effekt schneidet den vorigen ab, das ist bei kurzen Effekten
+    gewollt einfach statt eines Mischers. Backend, Plattform und Attrappen werden hineingereicht, die
+    Tests spielen nie echten Ton. Am Windows-Laptop geprüft: `play()` kehrt nach wenigen Millisekunden zurück.
+  - **Töne nur erzeugen, wenn sie fehlen.** `ensure_sounds` schreibt vorhandene Dateien nicht neu
+    (vorher bei jedem Start). Eine leere oder abgeschnittene Datei zählt als fehlend, geschrieben wird
+    über eine Temp-Datei, so bleibt nach einem Abbruch keine kaputte Datei liegen. Einen Ton ändern:
+    Datei in `assets/sounds/` löschen oder `ensure_sounds(force=True)`.
+  - **Formatierung.** `suit_rig.py` und `pose_tracking.py` sind mit `black` (100 Zeichen Zeilenlänge)
+    an den Stil der übrigen Module angeglichen. Der Syntaxbaum beider Dateien ist vor und nach
+    der Formatierung identisch (geprüft), es ändert sich kein Verhalten.
+  - **`tools/doomscroll/` bleibt im Repo.** Es ist ein ausdrücklich gewünschtes Werkzeug, das jede Person
+    selbst einbindet, ohne Einfluss auf das Spiel (eigener Ordner, Tests ohne Kamera). Wer das nicht
+    will, kann den Ordner samt `tests/test_doomscroll.py` ohne Folgen für das Spiel löschen.
+  - **Kommentar zu `CAMERA_INDEX`** nennt jetzt beide Rechner (Mac und Windows-Laptop mit ELP-Kamera).
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.
@@ -592,7 +646,7 @@ Geprüft am Code des Stands 93621a2, nicht an einer Live-Vorführung.
 | 2 Position der Stiftspitze | erfüllt | `MarkerTracker._tip`, `PEN_POINT = "tip"` |
 | 2 Zuverlässig bei wechselndem Licht und unruhigem Hintergrund | teilweise | feste Farbbereiche, nur mit synthetischen Bildern getestet; stiftfarbene Gegenstände stören (#71) |
 | 3 Position über mehrere Bilder verfolgen | erfüllt | `blade.py` (Spur der letzten Punkte) |
-| 3 Bewegungsbahn, Richtung, Geschwindigkeit | teilweise | Bahn und Richtung werden genutzt; `Blade.speed` existiert, wird vom Spiel aber nicht verwendet |
+| 3 Bewegungsbahn, Richtung, Geschwindigkeit | teilweise | Bahn und Richtung werden genutzt; die Geschwindigkeit wird vom klassischen Spiel nicht ausgewertet (`Blade.speed` wurde als ungenutzt entfernt, #72) |
 | 3 Messrauschen glätten, Aussetzer überbrücken | fehlt | Die Stiftposition wird ungeglättet übernommen; bei einem Aussetzer endet die Spur sofort (bewusst seit CR-01, damit kein Schnitt aus alter Position entsteht) |
 | 4 Schnelle Wischbewegung als Schnitt erkennen | fehlt | Jede Berührung schneidet, es gibt keine Mindestgeschwindigkeit |
 | 4 Langsame oder ruhende Bewegung nicht werten | fehlt | Ein ruhender Stift auf einer Frucht schneidet (`Game._handle_slicing`) |
@@ -612,7 +666,7 @@ Geprüft am Code des Stands 93621a2, nicht an einer Live-Vorführung.
 
 Offen sind damit vor allem **Netzwerk (6)**, **Schnittgeste (4)** und **Glättung/
 Überbrückung im Tracking (3)**; dafür gibt es noch keine Issues. Außerhalb der
-Aufgabenstellung: Ton läuft nur unter macOS (`afplay`, #74).
+Aufgabenstellung: Ton läuft unter Windows (`winsound`) und macOS (`afplay`).
 
 ## Bewusste Nicht-Ziele
 - Kein ML für die Stifterkennung (klassische Bildverarbeitung). Ausnahme:
@@ -671,3 +725,16 @@ und wechselnde Beleuchtung benötigen weiterhin eine Live-Abnahme.
 
 
 Integration: main / faa6023 mit den Performance-Änderungen aus PR #45 wurde übernommen. Lazy-YOLO-Laden, zeitbasierte Spielbewegung, halbaufgelöstes Tracking und die Performance-Anzeige bleiben erhalten. Die zwischenzeitliche Integration auf demselben Branch (3e240c6) bleibt erhalten: Pose-Rig und gemeinsame Performance-Diagnose verwenden weiterhin das unveränderte Kamerabild und eine Gesichtserkennung je Frame. Die gemeinsame Testsuite besteht aus 353 erfolgreichen Tests.
+
+
+### Feinabstimmung: Arme 10 Prozent kleiner
+
+Auf Rückmeldung wurden Oberarm- und Unterarmbreite sowie Handschuhbreite/-länge
+gegenüber der vorigen Armkorrektur gemeinsam um 10 Prozent reduziert. Aktuelle
+Breiten relativ zur Körpergrößenbasis: Oberarm 0,504, Unterarm 0,486, Handschuh
+0,495. Anatomische Segmentlängen und Gelenkpositionen folgen weiterhin direkt
+der Pose. Angeglichene Bundprofile, Schulteranschlüsse, breitenabhängige
+Gelenküberlappung und Bewegungsverhalten bleiben erhalten. Rumpf und Helm sind
+unverändert. Nach Übernahme des aktuellen main bestehen 371 Tests; 17 plattformabhängige
+Shell-Tests sind unter Windows übersprungen. Vorschauen und Headless-Messungen wurden
+erneuert. Die Größenänderung benötigt weiterhin eine Live-Webcam-Abnahme.

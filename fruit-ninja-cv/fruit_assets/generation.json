@@ -1,0 +1,140 @@
+{
+  "generator": "built-in image_gen",
+  "canvas": [
+    320,
+    320
+  ],
+  "body_center": [
+    160,
+    184
+  ],
+  "body_radius": 120,
+  "parts": {
+    "apple": {
+      "prompt": "Use case: product-mockup. Asset: photorealistic arcade game PNG sprite, exactly one isolated object, genuinely transparent RGBA background. Front view, centered, whole object visible with 10% transparent padding, soft studio key light upper left and gentle rim light, saturated natural colors, detailed real material, clean readable silhouette at 60 pixels. No ground, no cast shadow outside object, no backdrop, no lettering, no watermark. One ripe round red apple, fine red skin pores and natural red-yellow streaks, short brown stem, one small fresh green leaf.",
+      "source_filename": "exec-06b43367-33dd-40a5-b829-105aca3cc6a9.png",
+      "source_sha256": "29f01ac69d344853d496f60d6cd0bedb35ab856a0a789306af30de01804f176a",
+      "png_sha256": "b8af2ae758f65425d426ea3bfcb24976345a3233296ca44b942cd3aff6f6e39d",
+      "source_body_center": [
+        637.0,
+        673.0
+      ],
+      "source_body_radius": 424.0,
+      "scale": 0.2830188679245283,
+      "canvas": [
+        320,
+        320
+      ],
+      "body_center": [
+        160,
+        184
+      ],
+      "body_radius": 120
+    },
+    "orange": {
+      "prompt": "Use case: product-mockup. Asset: photorealistic arcade game PNG sprite, exactly one isolated object, genuinely transparent RGBA background. Front view, centered, whole object visible with 10% transparent padding, soft studio key light upper left and gentle rim light, saturated natural colors, detailed real material, clean readable silhouette at 60 pixels. No ground, no cast shadow outside object, no backdrop, no lettering, no watermark. One whole round ripe orange with realistic dimpled orange peel and tiny green stem scar. No leaves, no slices.",
+      "source_filename": "exec-988cdae7-d92f-4d73-b1be-a8e108d86baa.png",
+      "source_sha256": "ac4157be864518b3bc70924b3369fedc837c2b72d4361c70062204e07be6bf42",
+      "png_sha256": "1c965710e43e0d06e9e4488ba7432441e6016c0a04f699a7dc6ad443fea0ff2f",
+      "source_body_center": [
+        653.5,
+        616.0
+      ],
+      "source_body_radius": 477.0,
+      "scale": 0.25157232704402516,
+      "canvas": [
+        320,
+        320
+      ],
+      "body_center": [
+        160,
+        184
+      ],
+      "body_radius": 120
+    },
+    "lime": {
+      "prompt": "Use case: product-mockup. Asset: photorealistic arcade game PNG sprite, exactly one isolated object, genuinely transparent RGBA background. Front view, centered, whole object visible with 10% transparent padding, soft studio key light upper left and gentle rim light, saturated natural colors, detailed real material, clean readable silhouette at 60 pixels. No ground, no cast shadow outside object, no backdrop, no lettering, no watermark. One whole round fresh green lime, rich green realistic pores and subtle natural unevenness. No leaves, no slices.",
+      "source_filename": "exec-a3435b58-ba4b-41e7-8ff2-26c2d6ae70ea.png",
+      "source_sha256": "39cb32d3664460de17b5295839d8003f577a5ff8ac3520cf32a9b17078ef82c8",
+      "png_sha256": "70732dc5083d19f4f0617510ac0c0750aa23a2232576adc4305ad5d023ee65d2",
+      "source_body_center": [
+        649.0,
+        628.0
+      ],
+      "source_body_radius": 431.5,
+      "scale": 0.27809965237543455,
+      "canvas": [
+        320,
+        320
+      ],
+      "body_center": [
+        160,
+        184
+      ],
+      "body_radius": 120
+    },
+    "blueberry": {
+      "prompt": "Use case: product-mockup. Asset: photorealistic arcade game PNG sprite, exactly one isolated object, genuinely transparent RGBA background. Front view, centered, whole object visible with 10% transparent padding, soft studio key light upper left and gentle rim light, saturated natural colors, detailed real material, clean readable silhouette at 60 pixels. No ground, no cast shadow outside object, no backdrop, no lettering, no watermark. One single plump round blueberry, indigo blue skin, realistic powdery bloom, visible small star-shaped calyx on upper front. No cluster, no leaves.",
+      "source_filename": "exec-0dfd3c87-1618-4616-9151-768b744ff025.png",
+      "source_sha256": "95faac19212410282c288090c86dbe45fa8bd242fb39f5fb9a6d6a6dbabbe43c",
+      "png_sha256": "26a2db9454b8895e239fec05bb3a869e8aa14be04e7be43eaff29f22e7321977",
+      "source_body_center": [
+        655.5,
+        609.0
+      ],
+      "source_body_radius": 463.5,
+      "scale": 0.2588996763754045,
+      "canvas": [
+        320,
+        320
+      ],
+      "body_center": [
+        160,
+        184
+      ],
+      "body_radius": 120
+    },
+    "lemon": {
+      "prompt": "Use case: product-mockup. Asset: photorealistic arcade game PNG sprite, exactly one isolated object, genuinely transparent RGBA background. Front view, centered, whole object visible with 10% transparent padding, soft studio key light upper left and gentle rim light, saturated natural colors, detailed real material, clean readable silhouette at 60 pixels. No ground, no cast shadow outside object, no backdrop, no lettering, no watermark. One whole ripe yellow lemon, roundish oval shape with modest pointed ends, realistic yellow textured zest. No leaves, no slices.",
+      "source_filename": "exec-2dc62ba9-919d-4cfb-ad5a-d0e79c202879.png",
+      "source_sha256": "0ab73efd06a3480763eafd70a584dad68e38271e6bbd976cb53c26c38a94b5c2",
+      "png_sha256": "0ff7104aa4ad726341b41c8842c488db16a1f5b77bf8b9933937855255d626b5",
+      "source_body_center": [
+        757.0,
+        507.0
+      ],
+      "source_body_radius": 523.5,
+      "scale": 0.22922636103151864,
+      "canvas": [
+        320,
+        320
+      ],
+      "body_center": [
+        160,
+        184
+      ],
+      "body_radius": 120
+    },
+    "bomb": {
+      "prompt": "Create a transparent PNG game sprite for a lighthearted Fruit Ninja style webcam game. Exactly one clearly fictional cartoon bomb power-down icon: a smooth round charcoal black ball, a short exaggerated curly cartoon wick and a small orange star-shaped spark. Polished 3D animated movie / toy aesthetic with soft upper-left studio highlights, rich readable shading and clear rim light. Purely an imaginary game symbol, no real mechanisms, no technical details. Front view, centered, whole object fits with 12% empty margin. Genuinely transparent background, no ground, no scene, no text, no watermark.",
+      "source_filename": "exec-da785537-dfe0-401b-aa99-39d53f603e98.png",
+      "source_sha256": "33456da5450677f6d273a8482f81de3f14a1e6c277d76a2b77b72080bca0aa46",
+      "png_sha256": "5926edb44fd6f5536e31b3b36526c1bf4c14dd3050db191393c3c0e0d39b9fc7",
+      "source_body_center": [
+        606.5,
+        791.0
+      ],
+      "source_body_radius": 356.0,
+      "scale": 0.33707865168539325,
+      "canvas": [
+        400,
+        400
+      ],
+      "body_center": [
+        200,
+        260
+      ],
+      "body_radius": 120
+    }
+  }
+}

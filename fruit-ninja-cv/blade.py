@@ -42,14 +42,6 @@ class Blade:
             return None
         return self._live[-2], self._live[-1]
 
-    def speed(self):
-        """Pixel distance covered in the last step (0 if not enough points)."""
-        seg = self.segment()
-        if seg is None:
-            return 0.0
-        (ax, ay), (bx, by) = seg
-        return math.hypot(bx - ax, by - ay)
-
     def angle(self):
         """Direction of the last movement step in radians."""
         seg = self.segment()

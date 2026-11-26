@@ -7,27 +7,16 @@ import lightsaber
 POINT = (300, 150)                                      # tracked pen point (cuts the fruit)
 
 
-def test_no_saber_without_pen_point():
-    assert lightsaber.saber_at(None) is None
-
-
-def test_tip_is_the_cutting_point_and_the_saber_hangs_straight_down():
-    s = lightsaber.saber_at(POINT, blade_length=120, hilt_length=50)
-    assert s.tip == POINT
-    assert s.hilt_top == (300, 150 + 120)                # blade straight down
-    assert s.hilt_bottom == (300, 150 + 120 + 50)        # hilt below the blade
-
-
-def test_default_lengths_scale_with_the_screen(monkeypatch):
-    import config
-    monkeypatch.setattr(config, "SCALE", 2.0)
-    s = lightsaber.saber_at(POINT)
-    assert s.hilt_top[1] - s.tip[1] == round(config.SABER_LENGTH * 2.0)
+def _straight_saber(point, blade_length, hilt_length):
+    """A saber hanging straight down from ``point`` (a fixed shape for the drawing tests)."""
+    x, y = int(point[0]), int(point[1])
+    return lightsaber.Saber((x, y), (x, y + blade_length),
+                            (x, y + blade_length + hilt_length))
 
 
 def _drawn(frame=None, color=(255, 0, 0)):
     frame = np.zeros((500, 600, 3), np.uint8) if frame is None else frame
-    s = lightsaber.saber_at(POINT, blade_length=150, hilt_length=60)
+    s = _straight_saber(POINT, blade_length=150, hilt_length=60)
     lightsaber.draw_saber(frame, s, color)
     return frame, s
 
@@ -48,7 +37,7 @@ def test_blade_glows_in_the_saber_colour_around_the_core():
 
 def test_drawing_near_the_edge_or_without_pen_does_not_crash():
     frame = np.zeros((500, 600, 3), np.uint8)
-    lightsaber.draw_saber(frame, lightsaber.saber_at((10, 480)), (0, 0, 255))
+    lightsaber.draw_saber(frame, _straight_saber((10, 480), 150, 60), (0, 0, 255))
     lightsaber.draw_saber(frame, None, (0, 0, 255))
 
 

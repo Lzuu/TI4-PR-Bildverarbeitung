@@ -34,6 +34,9 @@ import background
 import suit
 import lightsaber
 import yolo_seg
+from contextlib import nullcontext
+from inference_worker import LatestWorker
+from async_perception import AsyncSegmenter, AsyncPoseInfer
 import pose_tracking
 from suit_rig import SuitRenderer
 from marker_tracker import MarkerTracker
@@ -595,8 +598,9 @@ class GameLoop:
         STATE_GAME_OVER: "_game_over_screen",
     }
 
-    def __init__(self, cap, sounds, previews=None, identifier=None):
+    def __init__(self, cap, sounds, previews=None, identifier=None, worker=None):
         self.cap = cap
+        self.worker = worker                 # latest-only inference worker, or None
         self.sounds = sounds
         self.identifier = identifier
         self.tracker = MarkerTracker(point_mode=config.PEN_POINT)   # tip = lightsaber tip, cuts
@@ -637,7 +641,8 @@ class GameLoop:
         # (then step out during the countdown) to grab a clean empty background.
         self.space_img = background.load_space((config.WIDTH, config.HEIGHT))
         self.suit_renderer = SuitRenderer() if config.SUIT_ENABLED else None
-        self.pose_tracker = pose_tracking.create_tracker() if config.SUIT_ENABLED else None
+        self.pose_tracker = ((pose_tracking.PoseTracker(AsyncPoseInfer(worker)) if worker else
+                              pose_tracking.create_tracker()) if config.SUIT_ENABLED else None)
         self.saber = lightsaber.SaberTracker()
         self.reference = None
         self.reference_camera = None     # camera the reference was taken with
@@ -646,10 +651,10 @@ class GameLoop:
         if self.bg_mode not in background.MODES:
             self.bg_mode = config.BG_MODE
         logger.info("Background mode: %s", self.bg_mode)
-        # YOLO body segmenter for the "yolo" mode: loaded in the background the first
-        # time the mode is used, not at start (#42, PERF-07). Until it is ready, or
-        # if it is unavailable, the mode falls back like "off".
-        self.yolo = yolo_seg.LazySegmenter() if config.YOLO_ENABLED else None
+        # YOLO loads on first use. In async mode the worker owns both loading and
+        # inference; until a fresh result is ready the camera view stays usable.
+        self.yolo = ((AsyncSegmenter(worker) if worker else yolo_seg.LazySegmenter())
+                     if config.YOLO_ENABLED else None)
         self.mode_session = 0            # +1 on every background mode change (YOLO cache source)
 
         self.last_frame_t = time.monotonic()
@@ -786,11 +791,15 @@ class GameLoop:
             mask = background.greenscreen_mask(f.clean, scale=config.GREEN_SCALE)
         elif self.bg_mode == background.MODE_YOLO and self.yolo is not None:
             self.yolo.request()                       # first use: start loading
-            segmenter = self.yolo.get()
+            segmenter = self.yolo if self.worker else self.yolo.get()
             if segmenter is not None:
                 # person mask, no green screen needed; the cache is bound to the
                 # current camera and mode session (#41, CR-10)
-                mask = segmenter.segment(f.clean, source=(self.cap.index, self.mode_session))
+                if self.worker:
+                    mask = segmenter.segment(f.clean, source=(self.cap.index, self.mode_session),
+                                             captured_at=f.now)
+                else:
+                    mask = segmenter.segment(f.clean, source=(self.cap.index, self.mode_session))
                 if segmenter.last_inference_seconds is not None:
                     self.stats.add("yolo_infer", segmenter.last_inference_seconds)
                 self.stats.maximum("mask_age_ms", segmenter.mask_age * 1000.0)
@@ -812,7 +821,14 @@ class GameLoop:
         now_s = time.monotonic()
         source = (self.cap.index, self.mode_session)
         with self.stats.stage("pose"):
-            body_pose = self.pose_tracker.update(f.clean, mask, now=now_s, source=source)
+            body_pose = self.pose_tracker.update(f.clean, mask, now=now_s, source=source,
+                                                 captured_at=f.now)
+            if self.pose_tracker._last_verified is not None:
+                self.stats.maximum("pose_age_ms",
+                                   max(0.0, now_s - self.pose_tracker._last_verified) * 1000.0)
+            cost = getattr(self.pose_tracker.infer, "last_inference_seconds", None)
+            if cost is not None:
+                self.stats.add("pose_infer", cost)
         with self.stats.stage("suit"):
             f.frame = suit.dress(f.frame, mask, f.face_box, f.pen_mask, now_s,
                                  original=f.clean, pose=body_pose,
@@ -1144,7 +1160,14 @@ class GameLoop:
 
 
 def _run_game_loop(cap, sounds, previews=None, identifier=None):
-    GameLoop(cap, sounds, previews, identifier).run()
+    if config.ASYNC_INFERENCE:
+        cv2.setNumThreads(max(1, config.INFERENCE_CV_THREADS))
+    with LatestWorker() if config.ASYNC_INFERENCE else nullcontext() as worker:
+        return _game_loop(cap, sounds, previews, identifier, worker)
+
+
+def _game_loop(cap, sounds, previews=None, identifier=None, worker=None):
+    GameLoop(cap, sounds, previews, identifier, worker).run()
 
 
 if __name__ == "__main__":

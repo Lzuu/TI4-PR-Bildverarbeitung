@@ -13,8 +13,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # ---------------------------------------------------------------------------
 # Camera / window
 # ---------------------------------------------------------------------------
-CAMERA_INDEX = 1          # 1 = MacBook FaceTime HD. (0 = iPhone Continuity on this Mac.)
-                          # Default only -- the camera chosen in the menu wins (SETTINGS_FILE).
+CAMERA_INDEX = 1          # Default only -- the camera chosen in the menu wins (SETTINGS_FILE).
+                          # Mac: 1 = FaceTime HD (0 = iPhone Continuity). Windows laptop: the
+                          # ELP USB camera is index 2 (MSMF backend, see cameras.py).
 CAMERA_MAX_INDEX = 5      # Camera indices 0..4 are searched for the camera selection
 SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")   # Local settings (chosen camera), not in git
 # WIDTH/HEIGHT are the render canvas size. They default to 960x540 but are set to
@@ -67,6 +68,9 @@ GREEN_SCALE = 0.5                # Greenscreen on a scaled frame: 12.5 -> 4.3 ms
 SUIT_ENABLED = True              # Dress the cut-out player in a space suit (suit.py)
 SUIT_FACE_DETECT_WIDTH = 320     # Face detection for placing the suit runs at this width
 POSE_ENABLED = True             # OpenCV Zoo BlazePose ONNX, no extra Python dependency
+ASYNC_INFERENCE = True          # Single latest-only worker; False for comparison runs
+INFERENCE_CV_THREADS = 4        # Process-wide cap, set before worker startup (#56)
+ASYNC_MAX_MASK_AGE = 0.30       # Capture-time budget includes native forward latency
 POSE_CONFIDENCE = 0.5            # Whole-person pose confidence
 POSE_INTERVAL = 0.10             # Seconds between pose inferences; LK follows interim movement
 POSE_MAX_AGE = 0.20              # Maximum extrapolation after last verified pose (seconds)
