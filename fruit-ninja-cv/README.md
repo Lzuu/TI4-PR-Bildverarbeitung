@@ -201,7 +201,7 @@ Stiftfarben in `colors.py`; schwierigkeitsabhängiges **Tempo** in `difficulty.p
 | `face_id.py` | Spielererkennung (YuNet + SFace), Scan im Kreis, Einlernen |
 | `keyboard.py` | Bildschirmtastatur für die Namenseingabe per Stift |
 | `enroll.py` | Spieler einlernen (`faces/<Name>/`) |
-| `sound.py` | Soundeffekte (synthetisiert, afplay) |
+| `sound.py` | Soundeffekte (synthetisiert; Windows: `winsound`, macOS: `afplay`) |
 | `logging_config.py` | Logfiles (rotierend, `logs/`) |
 | `utils.py` | Geometrie (Linie-Kreis) + Text-HUD |
 | `tests/` | pytest-Suite |

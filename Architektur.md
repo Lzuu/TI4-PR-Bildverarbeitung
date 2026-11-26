@@ -44,7 +44,7 @@ Kamera ─► main (Loop, States, Input)
 | `model_download.py` | Geprüfter Modell-Download (Timeout, Hash vor dem Installieren) für Gesicht, YOLO und Pose |
 | `keyboard.py` | Bildschirmtastatur (Dwell pro Taste) für den Namen neuer Spieler |
 | `enroll.py` | Spieler einlernen: speichert ausgerichtete Gesichtsausschnitte nach `faces/<Name>/` |
-| `sound.py` | Soundeffekte (synthetisiert, non-blocking via afplay) |
+| `sound.py` | Soundeffekte (synthetisiert, non-blocking: `winsound` unter Windows, `afplay` auf macOS) |
 | `utils.py` | Wiederverwendbare Helfer: Linie-Kreis-Abstand, Text mit Schatten, Bilddateien mit Umlaut im Pfad |
 | `logging_config.py` | Zentrales Logging (rotierendes Logfile + Konsole) |
 
@@ -149,7 +149,8 @@ Kamera ─► main (Loop, States, Input)
   so unabhängig testbar (defekte/fehlende Datei → leere Liste).
 - **Sound entkoppelt & non-blocking.** `Game` ruft nur `sounds.play(name)`; in Tests
   wird ein `NullSound` injiziert. WAVs werden synthetisiert (keine Asset-Dateien),
-  Wiedergabe via `afplay` ohne die Game-Loop zu blockieren.
+  Wiedergabe ohne die Game-Loop zu blockieren: `winsound` unter Windows, `afplay` auf macOS
+  (siehe CR-24, #74).
 - **Logging statt Prints.** Rotierendes Logfile unter `logs/`; unbehandelte Fehler
   werden mit Traceback geloggt → nachvollziehbares Debugging nach einem Problem.
 - **Test-case-basiert.** Die gesamte Logik (Geometrie, Tracking, Physik, Spiel) ist
@@ -532,6 +533,23 @@ Kamera ─► main (Loop, States, Input)
   `PoseEstimator` (wurde nirgends gelesen; Zeiten je Stufe misst `perf.FrameStats`) und der
   unerreichbare Zweig `person_mask is None` in `SuitRenderer._helmet`. Verhalten und
   Testabdeckung des genutzten Codes sind unverändert.
+- **Kleinere Punkte (CR-24, #74).**
+  - **Ton unter Windows.** `SoundPlayer` nutzt dort `winsound.PlaySound` mit `SND_ASYNC` (Standardbibliothek,
+    keine neue Abhängigkeit), auf macOS weiter `afplay`, sonst bleibt es stumm. `SND_ASYNC` kann nur
+    einen Ton gleichzeitig: Ein neuer Effekt schneidet den vorigen ab, das ist bei kurzen Effekten
+    gewollt einfach statt eines Mischers. Backend, Plattform und Attrappen werden hineingereicht, die
+    Tests spielen nie echten Ton. Am Windows-Laptop geprüft: `play()` kehrt nach wenigen Millisekunden zurück.
+  - **Töne nur erzeugen, wenn sie fehlen.** `ensure_sounds` schreibt vorhandene Dateien nicht neu
+    (vorher bei jedem Start). Eine leere oder abgeschnittene Datei zählt als fehlend, geschrieben wird
+    über eine Temp-Datei, so bleibt nach einem Abbruch keine kaputte Datei liegen. Einen Ton ändern:
+    Datei in `assets/sounds/` löschen oder `ensure_sounds(force=True)`.
+  - **Formatierung.** `suit_rig.py` und `pose_tracking.py` sind mit `black` (100 Zeichen Zeilenlänge)
+    an den Stil der übrigen Module angeglichen. Der Syntaxbaum beider Dateien ist vor und nach
+    der Formatierung identisch (geprüft), es ändert sich kein Verhalten.
+  - **`tools/doomscroll/` bleibt im Repo.** Es ist ein ausdrücklich gewünschtes Werkzeug, das jede Person
+    selbst einbindet, ohne Einfluss auf das Spiel (eigener Ordner, Tests ohne Kamera). Wer das nicht
+    will, kann den Ordner samt `tests/test_doomscroll.py` ohne Folgen für das Spiel löschen.
+  - **Kommentar zu `CAMERA_INDEX`** nennt jetzt beide Rechner (Mac und Windows-Laptop mit ELP-Kamera).
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.
@@ -597,7 +615,7 @@ Geprüft am Code des Stands 93621a2, nicht an einer Live-Vorführung.
 
 Offen sind damit vor allem **Netzwerk (6)**, **Schnittgeste (4)** und **Glättung/
 Überbrückung im Tracking (3)**; dafür gibt es noch keine Issues. Außerhalb der
-Aufgabenstellung: Ton läuft nur unter macOS (`afplay`, #74).
+Aufgabenstellung: Ton läuft unter Windows (`winsound`) und macOS (`afplay`).
 
 ## Bewusste Nicht-Ziele
 - Kein ML für die Stifterkennung (klassische Bildverarbeitung). Ausnahme:
