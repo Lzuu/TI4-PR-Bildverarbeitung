@@ -70,10 +70,13 @@ SUIT_FACE_DETECT_WIDTH = 320     # Face detection for placing the suit runs at t
 POSE_ENABLED = True             # OpenCV Zoo BlazePose ONNX, no extra Python dependency
 ASYNC_INFERENCE = True          # Single latest-only worker; False for comparison runs
 INFERENCE_CV_THREADS = 4        # Process-wide cap, set before worker startup (#56)
-ASYNC_MAX_MASK_AGE = 0.30       # Capture-time budget includes native forward latency
+ASYNC_MAX_MASK_AGE = 0.30       # Capture-time budget includes native forward latency (grows with a slow frame rate, #88)
 POSE_CONFIDENCE = 0.5            # Whole-person pose confidence
 POSE_INTERVAL = 0.10             # Seconds between pose inferences; LK follows interim movement
 POSE_MAX_AGE = 0.20              # Maximum extrapolation after last verified pose (seconds)
+AGE_BUDGET_FRAMES = 3            # At a low frame rate the age limits above/below grow to this many
+                                 # frames ...
+AGE_BUDGET_CAP = 1.0             # ... but never beyond this many seconds (#88, frame_pace.py)
 SUIT_DIAGNOSTICS = False         # Aggregate timings once every 5 s (no per-frame logging)
 
 # Background mode "yolo": cut the player out with a YOLOv8-seg person mask

@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 
 import config
+from frame_pace import FramePace
 import model_download
 
 logger = logging.getLogger(__name__)
@@ -265,6 +266,7 @@ class PoseTracker:
         self.infer = infer
         self.interval = config.POSE_INTERVAL if interval is None else interval
         self.max_age = config.POSE_MAX_AGE if max_age is None else max_age
+        self.pace = FramePace()          # survives resets: it describes the game, not the player
         self.reset()
 
     def reset(self):
@@ -319,6 +321,10 @@ class PoseTracker:
 
     def update(self, frame, mask, now=None, source=None, captured_at=None, player=None):
         now = time.monotonic() if now is None else now
+        # At a low frame rate a result is always older than max_age when it arrives; the
+        # budget grows with the typical frame interval instead of dropping every pose (#88)
+        self.pace.tick(now)
+        budget = self.pace.budget(self.max_age, config.AGE_BUDGET_FRAMES, config.AGE_BUDGET_CAP)
         player = find_player(mask) if player is None else player
         if player is None:
             self.reset()
@@ -340,7 +346,7 @@ class PoseTracker:
             if (
                 result is not None
                 and result.value is not None
-                and now - result.captured_at <= self.max_age
+                and now - result.captured_at <= budget
             ):
                 self.current = result.value.copy()
                 self._last_verified = result.captured_at
@@ -355,7 +361,7 @@ class PoseTracker:
                 self.stabilize(measured, now)
                 self._last_verified = now
         self._gray = gray
-        if self._last_verified is None or now - self._last_verified > self.max_age:
+        if self._last_verified is None or now - self._last_verified > budget:
             self.current = None
         return None if self.current is None else self.current.copy()
 
