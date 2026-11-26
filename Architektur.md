@@ -555,6 +555,28 @@ Kamera ─► main (Loop, States, Input)
   (ein Skript mit CRLF läuft auf dem Mac nicht). Die macOS-Version ist headless nur
   zum Teil testbar (Browsererkennung, Zuordnung, Zeilenenden); Öffnen und Schließen
   sind noch nicht auf einem echten Mac geprüft.
+- **Spielschleife als Klasse (CR-23, #73).** Die rund 480 Zeilen lange Funktion
+  `_run_game_loop` mit über 30 lokalen Variablen ist jetzt die Klasse `GameLoop` in `main.py`.
+  Der Zustand zwischen den Frames liegt in Attributen, die Daten eines Frames in einem
+  `Frame`-Objekt (`frame`, `clean`, `point`, `face_box` ...). `run()` ruft je Frame die
+  Schritte `_next_frame`, `_find_pen_and_face`, `_cut_out_player`, `_run_screen`,
+  `_draw_status_text`, `_draw_saber`, `_show` und `_handle_key` auf; jeder der sechs Zustände ist
+  eine eigene Methode `_<zustand>_screen` (Zuordnung `GameLoop.SCREENS`, ein Test sichert ab,
+  dass jeder `STATE_*` einen Bildschirm hat). Die längste Methode hat rund 35 Zeilen.
+  - **Reine Umstrukturierung.** Reihenfolge der Schritte, Zeitmessung je Stufe und alle
+    Verzweigungen blieben gleich. `_run_game_loop(...)` bleibt als dünne Hülle, damit die
+    Integrationstests (`test_main_loop.py`, `test_perf_loop.py`) unverändert laufen.
+  - **Prüfung über die Tests hinaus.** Ein deterministischer Durchlauf der echten Schleife (feste
+    Uhr, feste Zufallszahlen, Skript-Kamera, die Stiftbewegung folgt dem Log des Spiels) führt durch
+    alle sechs Bildschirme: Gesichtsscan zweimal, Namenseingabe mit abgelehntem Namen,
+    Einlernen, Menü-Klicks (Stiftfarbe, Hintergrundmodus), Start, Schwierigkeit, Spiel, zweimal
+    Game Over, Neustart, Startmenü, Spielerwechsel, Quit; dazu Greenscreen-Compositing und eine
+    Phase ohne Kamera. Alte und neue Schleife zeigen in 1688 Bildern (je 550 bis 576 pro
+    Szenario) und allen Log-Meldungen **Byte für Byte dasselbe**.
+  - **Bewusst nicht gemacht:** Die Klasse bleibt in `main.py`, statt in eigene Module zu wandern.
+    Tests tauschen Namen wie `main.draw_text` oder `main.suit` aus, ein Umzug würde sie
+    verfehlen. Layout- und Zeichenfunktionen in `main.py` auszulagern wäre ein eigener, späterer
+    Schritt.
 - **Ungenutzten Code entfernen (CR-22, #72).** Entfernt wurden `MarkerTracker.set_colors`,
   `FaceIdentifier.identify` (die Tests prüfen jetzt `scan`, die einzige Stelle, die die
   Skalierung der Gesichtsbox absichert), `Blade.speed`, `lightsaber.saber_at` (die

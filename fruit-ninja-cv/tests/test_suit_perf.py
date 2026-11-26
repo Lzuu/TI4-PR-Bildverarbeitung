@@ -28,7 +28,13 @@ def test_render_matches_the_picture_before_the_rewrite(kind):
     x, y = REFERENCE[kind]
     h, w = expected.shape[:2]
     crop = out[y:y+h, x:x+w].astype(int)
-    assert np.abs(crop - expected).max() <= 3
+    diff = np.abs(crop - expected)
+    # The references were rendered on another machine (a Mac). OpenCV rounds a few
+    # pixels differently per platform: on Windows even the OLD renderer is 4 grey levels
+    # off in places, while old and new renderer agree within 3 on the same machine.
+    # Measured on Windows: 20 of 1.25 million pixels are 4 off, none more.
+    assert diff.max() <= 4
+    assert (diff > 3).mean() < 1e-4
     # outside the crop the old renderer left the camera picture unchanged
     outside = np.ones(mask.shape, bool)
     outside[y:y+h, x:x+w] = False
