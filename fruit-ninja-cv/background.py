@@ -206,9 +206,20 @@ def composite_space(frame, mask, space_img, feather=0.):
     """
     if feather > 0:
         # Inward feathering avoids expanding a person into the background.
-        distance=cv2.distanceTransform(mask,cv2.DIST_L2,3)
-        weight=np.minimum(distance/max(float(feather),.1),1).astype(np.float32)
-        frame[:]=cv2.blendLinear(frame,space_img,weight,1-weight)
+        # Outside the mask's rectangle the weight is 0, so a masked copy is
+        # enough there; distance and blend run only in the rectangle plus a
+        # 1 px zero ring (PERF-11, #58). Same picture as a whole-frame blend.
+        feather = max(float(feather), .1)
+        cv2.copyTo(space_img, cv2.compare(mask, 0, cv2.CMP_EQ), frame)
+        x, y, w, h = cv2.boundingRect(mask)
+        if w == 0:
+            return frame
+        x0, y0 = max(x - 1, 0), max(y - 1, 0)
+        x1, y1 = min(x + w + 1, mask.shape[1]), min(y + h + 1, mask.shape[0])
+        distance = cv2.distanceTransform(mask[y0:y1, x0:x1], cv2.DIST_L2, 3)
+        weight = np.minimum(distance / feather, 1).astype(np.float32)
+        roi = frame[y0:y1, x0:x1]
+        roi[:] = cv2.blendLinear(roi, space_img[y0:y1, x0:x1], weight, 1 - weight)
     else:
         cv2.copyTo(space_img, cv2.bitwise_not(mask), frame)
     return frame
