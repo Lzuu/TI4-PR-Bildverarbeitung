@@ -22,11 +22,44 @@ import logging
 import os
 import time
 from collections import defaultdict
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 logger = logging.getLogger(__name__)
 
 CSV_FIELDS = ["time", "frames", "fps", "stage", "count", "median_ms", "p95_ms", "max_ms"]
+SUIT_STAGES = ('suit_masks', 'suit_fabric', 'suit_rig', 'suit_sprites',
+               'suit_helmet', 'suit_restore')
+
+
+class StageAccumulator:
+    """Sum disjoint passes locally, then publish one sample per stage/frame.
+
+    A missing sink is a clock-free path for preview/standalone render callers.
+    The sink is only used by the owning game thread; no global timing state.
+    """
+    def __init__(self, stats, clock=time.perf_counter):
+        self.stats = stats
+        self.clock = clock
+        self.seconds = defaultdict(float)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        if self.stats is not None:
+            for name, seconds in self.seconds.items():
+                self.stats.add(name, seconds)
+
+    def stage(self, name):
+        return nullcontext() if self.stats is None else self._measure(name)
+
+    @contextmanager
+    def _measure(self, name):
+        start = self.clock()
+        try:
+            yield
+        finally:
+            self.seconds[name] += self.clock() - start
 
 
 def percentile(values, q):
@@ -149,8 +182,15 @@ class FrameStats:
             return []
         lines = [f"{s['fps']:.1f} FPS  Frame {s['frame_ms']['median']:.0f}/"
                  f"{s['frame_ms']['p95']:.0f} ms (Median/P95)"]
-        for k, v in sorted(s["stages"].items(), key=lambda kv: -kv[1]["median"]):
-            lines.append(f"{k}: {v['median']:.1f}/{v['p95']:.1f} ms"
+        # Keep the suit group together and within the 12-line HUD, even when
+        # many inference/other stages are more expensive than its substeps.
+        priority = [name for name in ('suit',) + SUIT_STAGES if name in s['stages']]
+        others = sorted((k for k in s['stages'] if k not in priority),
+                        key=lambda k: -s['stages'][k]['median'])
+        for k in priority + others:
+            v = s['stages'][k]
+            prefix = '  ' if k in SUIT_STAGES else ''
+            lines.append(f"{prefix}{k}: {v['median']:.1f}/{v['p95']:.1f} ms"
                          + (f"  n={v['count']}" if v["count"] != s["frames"] else ""))
         for k, v in sorted(s["counters"].items()):
             lines.append(f"{k}: {v}")

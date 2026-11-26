@@ -59,6 +59,22 @@ Kamera ─► main (Loop, States, Input)
 5. `Game.draw` + `Blade.draw` + HUD zeichnen ins Frame; `main` zeigt es an.
 
 ## Architekturentscheidungen (ADR-Kurzform)
+- **Anzug-Unterstufen in der gemeinsamen Performance-Diagnose (#62).**
+  `GameLoop` reicht seinen `FrameStats` über `suit.dress` optional an den Renderer
+  weiter. `StageAccumulator` sammelt die disjunkten Abschnitte Masken, Stoff,
+  Rig/Transformationen, Sprites, Helm und Originalpixel-Wiederherstellung lokal
+  pro Aufruf. Wiederholte Pässe werden vor `FrameStats.add` summiert: ein Sample
+  pro ausgeführter Unterstufe/Frame statt separater Medianwerte für Vorder- und
+  Hintergrund-Sprites. Die äußere Stufe `suit` bleibt die inklusive Gesamtzeit;
+  Unterstufen dürfen nicht zusätzlich zu ihr addiert werden. Bei fehlender
+  Geometrie werden nur tatsächlich ausgeführte Abschnitte erfasst. Die HUD-Zeilen
+  gruppieren Anzug und Unterstufen vorn, damit die auf zwölf Zeilen begrenzte
+  Anzeige sie nicht abschneidet. Log und CSV nutzen unverändert `FrameStats`.
+  Ohne übergebenen Empfänger erfolgen keine zusätzlichen Timer-Lesezugriffe.
+  Der wirkungslose CLI-Schalter samt Konstante ist entfernt. `last_ms` war bereits
+  durch #72 entfernt und wird nicht wieder eingeführt. Rendering und Reihenfolge
+  der Operationen bleiben unverändert; Bildvergleich und AST-Vergleich bestätigen
+  dies. Headless-Messung und Dokumentation: `docs/suit-timings-62/`.
 - **Comic-Grafiken und Laserschwert (#84, 26.11.2026).** Die fünf Frucht-PNGs
   wurden mit dem eingebauten Bildgenerator durch Comic-Sprites mit Konturen und
   Cel-Shading ersetzt. Körperanker, Größen-Cache und Schnittdarstellung bleiben
@@ -727,6 +743,17 @@ Kamera ─► main (Loop, States, Input)
     Person plus Wand (hier 73 % des Bildes). Dafür ist der YOLO-Modus gedacht. Eine automatische Warnung
     ließ sich nicht sauber abgrenzen (eine große Person vor vollständigem Greenscreen deckt ebenfalls
     viel Fläche ab).
+- **PERF-11 (#58): Feather nur im Rechteck der Maske.** `composite_space(..., feather>0)`
+  kopiert den Weltraum per `copyTo` dorthin, wo die Maske 0 ist. `distanceTransform`,
+  Gewicht und `blendLinear` laufen nur im Rechteck der Maske plus 1 px Rand, denn außerhalb
+  ist das Gewicht ohnehin 0. Das Bild ist bitgenau dasselbe (Test gegen die alte
+  Vollbildversion, auch bei weichen Maskenkanten, Löchern, mehreren Flecken und am
+  Bildrand). Szene `down` 960×720 auf dem M3: 2,0 → 0,7 ms, bei 1470×956: 4,1 → 1,5 ms;
+  mit seitlich ausgestreckten Armen ist das Rechteck groß (1,9 → 1,1 ms).
+  Den Vorschlag aus dem Issue, den Feather wegzulassen, wenn der Anzug darübermalt, habe
+  ich nicht umgesetzt: Dann müsste der Hintergrund wissen, was der Anzug später zeichnet,
+  und im Fall „Pose ohne Gesicht“ würde sich das Bild ändern. Die bitgenaue Variante spart
+  etwas weniger, ändert aber kein Verhalten.
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.

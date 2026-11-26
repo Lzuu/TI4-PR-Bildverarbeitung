@@ -77,7 +77,6 @@ POSE_MAX_AGE = 0.20              # Maximum extrapolation after last verified pos
 AGE_BUDGET_FRAMES = 3            # At a low frame rate the age limits above/below grow to this many
                                  # frames ...
 AGE_BUDGET_CAP = 1.0             # ... but never beyond this many seconds (#88, frame_pace.py)
-SUIT_DIAGNOSTICS = False         # Aggregate timings once every 5 s (no per-frame logging)
 
 # Background mode "yolo": cut the player out with a YOLOv8-seg person mask
 # (ONNX via cv2.dnn, no torch) so no green screen is needed. See yolo_seg.py.

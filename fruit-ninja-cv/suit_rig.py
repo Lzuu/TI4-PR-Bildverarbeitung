@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 
 from pose_tracking import find_player
+from perf import StageAccumulator
 
 logger = logging.getLogger(__name__)
 ASSET_DIR = Path(__file__).resolve().parent / "suit_assets"
@@ -509,7 +510,15 @@ class SuitRenderer:
 
     def render(
         self, frame, original, mask, pose=None, face=None, keep=None, now=None, source=None,
-        player=None,
+        player=None, stats=None,
+    ):
+        with StageAccumulator(stats) as timings:
+            return self._render(frame, original, mask, pose, face, keep, now, source,
+                                player, timings)
+
+    def _render(
+        self, frame, original, mask, pose=None, face=None, keep=None, now=None, source=None,
+        player=None, timings=None,
     ):
         """``player`` is the frame's find_player(mask) result, if the caller has it."""
         now = time.monotonic() if now is None else now
@@ -518,152 +527,163 @@ class SuitRenderer:
         if source != self._source or frame.shape != self._shape:
             self.reset()
         self._source, self._shape = source, frame.shape
-        player, bbox = _component(mask, player)
+        with timings.stage("suit_masks"):
+            player, bbox = _component(mask, player)
         self.last_parts = []
         if bbox is None:
             self.reset()
             return frame
-        head = self._head(face, pose, now)
-        face_box = head[0] if head is not None else None
+        with timings.stage("suit_rig"):
+            head = self._head(face, pose, now)
+            face_box = head[0] if head is not None else None
         if pose is None and head is None:
             # No measured geometry: show the real person, never white out a face
             # or leave a guessed helmet/limb at the old position.
-            cv2.copyTo(original, player, frame)
-            if keep is not None:
-                cv2.copyTo(original, keep, frame)
+            with timings.stage("suit_restore"):
+                cv2.copyTo(original, player, frame)
+                if keep is not None:
+                    cv2.copyTo(original, keep, frame)
             return frame
-        # Fabric works only in the player rectangle; outside it the region is empty.
-        rx0, ry0, rx1, ry1 = _player_rect(bbox, frame.shape)
-        region = player[ry0:ry1, rx0:rx1].copy()
-        if face_box is not None:
-            x, y, w, h = face_box
-            cv2.ellipse(
-                region,
-                (round(x + w / 2) - rx0, round(y + h * 0.45) - ry0),
-                (max(1, round(w * 0.7)), max(1, round(h * 0.75))),
-                0,
-                0,
-                360,
-                0,
-                -1,
-            )
-        elif pose is not None and all(pose.valid(i) for i in (11, 12)):
-            # A body pose alone is not permission to recolour an unlocated face.
-            # Measured arm sprites can still render above this conservative line.
-            shoulder_y = int(min(pose.points[11, 1], pose.points[12, 1]))
-            region[: max(0, shoulder_y - ry0)] = 0
-        if keep is not None:
-            region[keep[ry0:ry1, rx0:rx1] > 0] = 0
+        with timings.stage("suit_masks"):
+            # Fabric works only in the player rectangle; outside it the region is empty.
+            rx0, ry0, rx1, ry1 = _player_rect(bbox, frame.shape)
+            region = player[ry0:ry1, rx0:rx1].copy()
+            if face_box is not None:
+                x, y, w, h = face_box
+                cv2.ellipse(
+                    region,
+                    (round(x + w / 2) - rx0, round(y + h * 0.45) - ry0),
+                    (max(1, round(w * 0.7)), max(1, round(h * 0.75))),
+                    0,
+                    0,
+                    360,
+                    0,
+                    -1,
+                )
+            elif pose is not None and all(pose.valid(i) for i in (11, 12)):
+                # A body pose alone is not permission to recolour an unlocated face.
+                # Measured arm sprites can still render above this conservative line.
+                shoulder_y = int(min(pose.points[11, 1], pose.points[12, 1]))
+                region[: max(0, shoulder_y - ry0)] = 0
+            if keep is not None:
+                region[keep[ry0:ry1, rx0:rx1] > 0] = 0
         # Base fabric fills small joints between the articulated pieces, never the face.
         import suit
 
-        target = frame[ry0:ry1, rx0:rx1]
-        base = target.copy()
-        suit.paint_fabric(base, region)
-        cv2.copyTo(base, region, target)
-        width = 0
-        if pose is not None and pose.segment(11, 12) is not None:
-            width = self.body_scale(pose, player)
-        commands = []
-        quad = self._torso(pose, bbox, face_box)
-        if quad is not None and pose is not None:
-            quad = self._fit_waist(quad, player)
-            span = quad[1] - quad[0]
-            length = float(np.linalg.norm(span))
-            if length > 2 and width >= 8:
-                center = (quad[0] + quad[1]) / 2
-                half = span / length * max(length, width * 1.1) / 2
-                quad[0], quad[1] = center - half, center + half
-        if width >= 8:
-            for side, indices in [
-                ("l", (11, 13, 15, 19, 23, 25, 27, 31)),
-                ("r", (12, 14, 16, 20, 24, 26, 28, 32)),
-            ]:
-                sh, el, wr, fi, hip, knee, ankle, toe = indices
-                for asset, a, b, factor, layer in [
-                    ("thigh", hip, knee, 0.53, 0),
-                    ("shin", knee, ankle, 0.48, 1),
-                    ("upper_arm", sh, el, 0.504, 8),
-                    ("forearm", el, wr, 0.486, 40),
+        with timings.stage("suit_fabric"):
+            target = frame[ry0:ry1, rx0:rx1]
+            base = target.copy()
+            suit.paint_fabric(base, region)
+            cv2.copyTo(base, region, target)
+        with timings.stage("suit_rig"):
+            width = 0
+            if pose is not None and pose.segment(11, 12) is not None:
+                width = self.body_scale(pose, player)
+            commands = []
+            quad = self._torso(pose, bbox, face_box)
+            if quad is not None and pose is not None:
+                quad = self._fit_waist(quad, player)
+                span = quad[1] - quad[0]
+                length = float(np.linalg.norm(span))
+                if length > 2 and width >= 8:
+                    center = (quad[0] + quad[1]) / 2
+                    half = span / length * max(length, width * 1.1) / 2
+                    quad[0], quad[1] = center - half, center + half
+            if width >= 8:
+                for side, indices in [
+                    ("l", (11, 13, 15, 19, 23, 25, 27, 31)),
+                    ("r", (12, 14, 16, 20, 24, 26, 28, 32)),
                 ]:
-                    part = self._limb(
-                        asset, asset + "_" + side, a, b, width * factor, pose, player, quad
-                    )
-                    if part is not None:
-                        # Far arms go behind the torso; near forearms cross in front.
-                        if "arm" in asset and np.mean(pose.points[[a, b], 2]) > width * 0.12:
-                            layer = 5
-                        commands.append((layer, part))
-                hand = pose.segment(wr, fi)
-                if hand is None and pose.segment(el, wr) is not None:
-                    a, b = pose.segment(el, wr)
-                    direction = (b - a) / max(np.linalg.norm(b - a), 1)
-                    hand = np.array((b, b + direction * width * 0.27))
-                if hand is not None:
-                    direction = hand[1] - hand[0]
-                    length = float(np.linalg.norm(direction))
-                    if length < width * 0.12 and pose.segment(el, wr) is not None:
-                        a, b = pose.segment(el, wr)
-                        direction = b - a
-                        length = float(np.linalg.norm(direction))
-                    direction = direction / max(length, 1)
-                    wrist = hand[0].copy()
-                    hand = np.array(
-                        (
-                            wrist - direction * width * 0.072,
-                            wrist
-                            + direction
-                            * max(
-                                width * 0.36,
-                                min(np.linalg.norm(hand[1] - wrist) * 0.9, width * 0.558),
-                            ),
+                    sh, el, wr, fi, hip, knee, ankle, toe = indices
+                    for asset, a, b, factor, layer in [
+                        ("thigh", hip, knee, 0.53, 0),
+                        ("shin", knee, ankle, 0.48, 1),
+                        ("upper_arm", sh, el, 0.504, 8),
+                        ("forearm", el, wr, 0.486, 40),
+                    ]:
+                        part = self._limb(
+                            asset, asset + "_" + side, a, b, width * factor, pose, player, quad
                         )
-                    )
-                    commands.append((45, self._part("glove", "glove_" + side, hand, width * 0.495)))
-                foot = pose.segment(ankle, toe)
-                if foot is not None:
-                    if np.linalg.norm(foot[1] - foot[0]) < width * 0.17:
-                        foot[1] = foot[0] + (0, width * 0.25)
-                    commands.append((2, self._part("boot", "boot_" + side, foot, width * 0.50)))
-        if quad is not None:
-            sprite = self.assets["torso"]
-            source_quad = np.asarray(self.meta["torso"]["quad"], np.float32) * (
-                sprite.image.shape[1],
-                sprite.image.shape[0],
-            )
-            # getPerspectiveTransform wants perimeter order, not two rows.
-            matrix = cv2.getPerspectiveTransform(
-                source_quad[[0, 1, 3, 2]].astype(np.float32), quad[[0, 1, 3, 2]]
-            )
-            commands.append((10, dict(name="torso", asset="torso", matrix=matrix, endpoints=quad)))
-        if width >= 8:
-            # Masks come from the current player only; never retain old arm masks.
-            clip, arm_clip = clip_masks(player, bbox, width)
-        else:
-            clip = arm_clip = _soft_inner_clip(player, bbox)
+                        if part is not None:
+                            # Far arms go behind the torso; near forearms cross in front.
+                            if "arm" in asset and np.mean(pose.points[[a, b], 2]) > width * 0.12:
+                                layer = 5
+                            commands.append((layer, part))
+                    hand = pose.segment(wr, fi)
+                    if hand is None and pose.segment(el, wr) is not None:
+                        a, b = pose.segment(el, wr)
+                        direction = (b - a) / max(np.linalg.norm(b - a), 1)
+                        hand = np.array((b, b + direction * width * 0.27))
+                    if hand is not None:
+                        direction = hand[1] - hand[0]
+                        length = float(np.linalg.norm(direction))
+                        if length < width * 0.12 and pose.segment(el, wr) is not None:
+                            a, b = pose.segment(el, wr)
+                            direction = b - a
+                            length = float(np.linalg.norm(direction))
+                        direction = direction / max(length, 1)
+                        wrist = hand[0].copy()
+                        hand = np.array(
+                            (
+                                wrist - direction * width * 0.072,
+                                wrist
+                                + direction
+                                * max(
+                                    width * 0.36,
+                                    min(np.linalg.norm(hand[1] - wrist) * 0.9, width * 0.558),
+                                ),
+                            )
+                        )
+                        commands.append((45, self._part("glove", "glove_" + side, hand, width * 0.495)))
+                    foot = pose.segment(ankle, toe)
+                    if foot is not None:
+                        if np.linalg.norm(foot[1] - foot[0]) < width * 0.17:
+                            foot[1] = foot[0] + (0, width * 0.25)
+                        commands.append((2, self._part("boot", "boot_" + side, foot, width * 0.50)))
+            if quad is not None:
+                sprite = self.assets["torso"]
+                source_quad = np.asarray(self.meta["torso"]["quad"], np.float32) * (
+                    sprite.image.shape[1],
+                    sprite.image.shape[0],
+                )
+                # getPerspectiveTransform wants perimeter order, not two rows.
+                matrix = cv2.getPerspectiveTransform(
+                    source_quad[[0, 1, 3, 2]].astype(np.float32), quad[[0, 1, 3, 2]]
+                )
+                commands.append((10, dict(name="torso", asset="torso", matrix=matrix, endpoints=quad)))
+        with timings.stage("suit_masks"):
+            if width >= 8:
+                # Masks come from the current player only; never retain old arm masks.
+                clip, arm_clip = clip_masks(player, bbox, width)
+            else:
+                clip = arm_clip = _soft_inner_clip(player, bbox)
         # Keep upper-arm/torso below the helmet, wrists/gloves can occlude it.
-        for layer, part in sorted(commands, key=lambda item: item[0]):
-            if layer >= 40:
-                continue
-            alpha_over(
-                frame,
-                self.assets[part["asset"]],
-                part["matrix"],
-                arm_clip if part["asset"] in ("upper_arm", "forearm", "glove") else clip,
-            )
-            self.last_parts.append(part)
+        with timings.stage("suit_sprites"):
+            for layer, part in sorted(commands, key=lambda item: item[0]):
+                if layer >= 40:
+                    continue
+                alpha_over(
+                    frame,
+                    self.assets[part["asset"]],
+                    part["matrix"],
+                    arm_clip if part["asset"] in ("upper_arm", "forearm", "glove") else clip,
+                )
+                self.last_parts.append(part)
         if head is not None:
-            self._helmet(frame, original, head, now, player)
-        for layer, part in sorted(commands, key=lambda item: item[0]):
-            if layer < 40:
-                continue
-            alpha_over(
-                frame,
-                self.assets[part["asset"]],
-                part["matrix"],
-                arm_clip if part["asset"] in ("upper_arm", "forearm", "glove") else clip,
-            )
-            self.last_parts.append(part)
-        if keep is not None:
-            cv2.copyTo(original, keep, frame)  # includes pen excluded by the person model
+            with timings.stage("suit_helmet"):
+                self._helmet(frame, original, head, now, player)
+        with timings.stage("suit_sprites"):
+            for layer, part in sorted(commands, key=lambda item: item[0]):
+                if layer < 40:
+                    continue
+                alpha_over(
+                    frame,
+                    self.assets[part["asset"]],
+                    part["matrix"],
+                    arm_clip if part["asset"] in ("upper_arm", "forearm", "glove") else clip,
+                )
+                self.last_parts.append(part)
+        with timings.stage("suit_restore"):
+            if keep is not None:
+                cv2.copyTo(original, keep, frame)  # includes pen excluded by the person model
         return frame

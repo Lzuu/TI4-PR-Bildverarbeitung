@@ -1,0 +1,9 @@
+{
+  "tests": "456",
+  "failures": "0",
+  "errors": "0",
+  "skipped": "17",
+  "time": "9.682",
+  "passed": 439,
+  "note": "Default suite; opt-in perf-marked budget test excluded by pytest.ini. Bash cases skipped on Windows."
+}
