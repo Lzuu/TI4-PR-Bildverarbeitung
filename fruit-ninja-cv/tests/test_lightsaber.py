@@ -1,5 +1,6 @@
 """Tests for the static lightsaber drawn at the cutting point. Headless."""
 
+import cv2
 import numpy as np
 
 import lightsaber
@@ -331,3 +332,39 @@ def test_blade_keeps_the_minimum_length_when_the_glove_is_lost():
     t.update(POINT, None, hands={"r": (300, 170)})                 # palm 20 px below the tip
     s = t.update(POINT, np.zeros((500, 600), np.uint8), hands={})  # glove gone, no skin either
     assert math.dist(s.tip, s.hilt_top) >= 80
+
+
+# -- PERF-14 (#61): a wide glow is blurred at quarter resolution --------------
+def _glow(scale):
+    """The outer glow of draw_saber at ``scale`` along a 300 px blade."""
+    frame = np.zeros((540, 960, 3), np.uint8)
+    lightsaber._add_glow(frame, (400, 100), (460, 400), (255, 80, 40), int(44 * scale), 14 * scale)
+    return frame
+
+
+def _canvas_shrink(monkeypatch, scale):
+    """How much smaller than the glow's rectangle the blurred canvas is."""
+    widths = []
+    blur = cv2.GaussianBlur
+
+    def recording(src, ksize, sigma):
+        widths.append(src.shape[1])
+        return blur(src, ksize, sigma)
+    monkeypatch.setattr(lightsaber.cv2, "GaussianBlur", recording)
+    _glow(scale)
+    roi_width = 60 + 2 * int(int(44 * scale) + 3 * 14 * scale)
+    return roi_width / widths[-1]
+
+
+def test_wide_glow_is_blurred_on_a_quarter_size_canvas(monkeypatch):
+    assert _canvas_shrink(monkeypatch, 1.53) >= 3.9      # sigma 21.4: quarter size
+    assert _canvas_shrink(monkeypatch, 1.0) < 2.1        # sigma 14: half size as before
+
+
+def test_quarter_size_glow_keeps_its_light_and_shape(monkeypatch):
+    quarter = _glow(1.53)
+    monkeypatch.setattr(lightsaber, "GLOW_QUARTER_SIGMA", float("inf"))    # half size
+    half = _glow(1.53)
+    lit = half.max(axis=2) > 0
+    assert abs(int(quarter.sum()) / int(half.sum()) - 1) < 0.03
+    assert np.abs(quarter.astype(int) - half)[lit].mean() < 1.5

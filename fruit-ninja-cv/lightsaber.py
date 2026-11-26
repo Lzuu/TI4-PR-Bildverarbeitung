@@ -286,6 +286,9 @@ class SaberTracker:
         return saber_toward(tip, direction, self.length, hilt)
 
 
+GLOW_QUARTER_SIGMA = 20.0        # from this blur on, the glow is drawn at quarter size (#61)
+
+
 def _add_glow(frame, a, b, color, thickness, sigma):
     """Add a blurred, coloured line from ``a`` to ``b`` (additive light) in place."""
     h, w = frame.shape[:2]
@@ -296,12 +299,15 @@ def _add_glow(frame, a, b, color, thickness, sigma):
     y1 = min(max(a[1], b[1]) + margin, h)
     if x0 >= x1 or y0 >= y1:
         return
-    # the glow is soft anyway: draw and blur at half resolution, then scale up
-    hw, hh = max(1, (x1 - x0) // 2), max(1, (y1 - y0) // 2)
+    # the glow is soft anyway: draw and blur at half resolution, then scale up. A wide
+    # blur (sigma >= 20, the outer glow at full-screen scale) goes to quarter size:
+    # 2.1 -> 0.4 ms, the blur on the canvas stays >= 5 px, light within 2 % (#61)
+    k = 4 if sigma >= GLOW_QUARTER_SIGMA else 2
+    hw, hh = max(1, (x1 - x0) // k), max(1, (y1 - y0) // k)
     canvas = np.zeros((hh, hw, 3), np.uint8)
-    cv2.line(canvas, ((a[0] - x0) // 2, (a[1] - y0) // 2), ((b[0] - x0) // 2, (b[1] - y0) // 2),
-             color, max(1, thickness // 2), cv2.LINE_AA)
-    canvas = cv2.GaussianBlur(canvas, (0, 0), max(0.5, sigma / 2))
+    cv2.line(canvas, ((a[0] - x0) // k, (a[1] - y0) // k), ((b[0] - x0) // k, (b[1] - y0) // k),
+             color, max(1, thickness // k), cv2.LINE_AA)
+    canvas = cv2.GaussianBlur(canvas, (0, 0), max(0.5, sigma / k))
     canvas = cv2.resize(canvas, (x1 - x0, y1 - y0), interpolation=cv2.INTER_LINEAR)
     roi = frame[y0:y1, x0:x1]
     cv2.add(roi, canvas, dst=roi)
