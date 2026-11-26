@@ -13,6 +13,8 @@ next start; if it is gone, another available one is used.
 import json
 import logging
 import sys
+import threading
+import time
 
 import cv2
 
@@ -75,6 +77,55 @@ def choose_index(saved, default, available):
 FIRST_FRAME_TRIES = 5            # reads to wait for the first picture after opening
 
 
+class LatestFrameReader:
+    """Reads ``cap`` in its own thread and keeps only the newest picture (#60, PERF-13).
+
+    ``cap.read()`` blocks for the next picture and decodes the 1080p MJPG; OpenCV
+    releases the GIL meanwhile, so the game loop keeps running. ``read()`` returns
+    the newest picture not handed out yet -- older ones are dropped, so a slow loop
+    always shows the current camera image -- or waits up to ``timeout`` for one.
+    """
+
+    def __init__(self, cap, timeout=1.0):
+        self._cap = cap
+        self._timeout = timeout
+        self._cond = threading.Condition()
+        self._latest = (False, None)
+        self._count = 0              # pictures read so far
+        self._taken = 0              # value of _count at the last read()
+        self._running = True
+        self._thread = threading.Thread(target=self._run, name="camera-reader", daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        while self._running:
+            ok, image = self._cap.read()
+            with self._cond:
+                if not self._running:
+                    return
+                self._latest = (ok, image if ok else None)
+                self._count += 1
+                self._cond.notify_all()
+            if not ok:
+                time.sleep(0.01)     # a failing camera must not spin the CPU
+
+    def read(self):
+        with self._cond:
+            if not self._cond.wait_for(lambda: self._count != self._taken, self._timeout):
+                return False, None   # no new picture in time: counts as a failed read
+            self._taken = self._count
+            return self._latest
+
+    def stop(self):
+        """End the thread; returns once ``cap`` is no longer read (then it may be released)."""
+        with self._cond:
+            self._running = False
+            self._cond.notify_all()
+        self._thread.join(timeout=2.0)
+        if self._thread.is_alive():
+            logger.warning("Camera reader did not stop within 2 s")
+
+
 class Camera:
     """The camera in use; can be switched to another index at runtime.
 
@@ -83,11 +134,22 @@ class Camera:
     ``read`` then reports failure instead of crashing (#41, CR-02).
     """
 
-    def __init__(self, opener=default_opener):
+    def __init__(self, opener=default_opener, threaded=False):
         self._opener = opener
+        self._threaded = threaded    # read in a LatestFrameReader thread (#60)
+        self._reader = None
         self.cap = None
         self.index = None
         self.last_index = None       # the camera that worked last (for reopen)
+
+    def _start_reader(self):
+        if self._threaded and self.cap is not None:
+            self._reader = LatestFrameReader(self.cap)
+
+    def _stop_reader(self):
+        if self._reader is not None:
+            self._reader.stop()      # nobody reads the capture once this returns
+            self._reader = None
 
     def _open(self, index):
         cap = self._opener(index)
@@ -117,6 +179,7 @@ class Camera:
             cap = self._open(index)
             if cap is not None:
                 self.cap, self.index, self.last_index = cap, index, index
+                self._start_reader()
                 return True
             logger.info("Camera %d not available", index)
         return False
@@ -136,6 +199,7 @@ class Camera:
         if index == self.index:
             return True
         old_cap, old_index = self.cap, self.index
+        self._stop_reader()
         if old_cap is not None:
             old_cap.release()        # some drivers do not allow two open streams
         cap = self._open(index)
@@ -146,8 +210,10 @@ class Camera:
                 logger.error("Reopening camera %s failed as well -- no camera available",
                              old_index)
                 self.index = None
+            self._start_reader()
             return False
         self.cap, self.index, self.last_index = cap, index, index
+        self._start_reader()
         logger.info("Switched camera %d -> %d", old_index, index)
         return True
 
@@ -158,9 +224,12 @@ class Camera:
     def read(self):
         if self.cap is None:
             return False, None       # no camera: the game loop counts failed reads
+        if self._reader is not None:
+            return self._reader.read()
         return self.cap.read()
 
     def release(self):
+        self._stop_reader()
         if self.cap is not None:
             self.cap.release()
 

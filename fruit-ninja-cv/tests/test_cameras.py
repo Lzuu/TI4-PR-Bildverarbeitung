@@ -289,3 +289,94 @@ def test_reopen_of_a_working_camera_changes_nothing():
     cam.open_first([0])
     old = cam.cap
     assert cam.reopen() and cam.cap is old
+
+
+# -- PERF-13 (#60): read the camera in its own thread, keep only the newest picture --
+import threading
+import time
+
+
+class StepCap(FakeCap):
+    """Delivers picture n (all pixels = n) each time the test releases one step."""
+
+    def __init__(self, ok=True):
+        super().__init__(np.zeros((2, 2, 3), np.uint8))
+        self.steps = threading.Semaphore(0)
+        self.ok = ok
+        self.reads = 0
+        self.read_after_release = False
+
+    def read(self):
+        if self.released:
+            self.read_after_release = True
+            return False, None
+        if not self.steps.acquire(timeout=2):
+            return False, None
+        self.reads += 1
+        return (True, np.full((2, 2, 3), self.reads, np.uint8)) if self.ok else (False, None)
+
+
+def _wait_for(condition, seconds=2.0):
+    end = time.monotonic() + seconds
+    while not condition():
+        assert time.monotonic() < end, "timed out"
+        time.sleep(0.002)
+
+
+def test_reader_returns_the_newest_picture_and_drops_older_ones():
+    cap = StepCap()
+    reader = cameras.LatestFrameReader(cap, timeout=1.0)
+    try:
+        for _ in range(3):
+            cap.steps.release()
+        _wait_for(lambda: cap.reads == 3)
+        ok, image = reader.read()
+        assert ok and image[0, 0, 0] == 3          # pictures 1 and 2 are skipped
+        cap.steps.release()
+        ok, image = reader.read()                  # waits for the next picture
+        assert ok and image[0, 0, 0] == 4
+    finally:
+        cap.steps.release()
+        reader.stop()
+
+
+def test_reader_never_returns_the_same_picture_twice():
+    cap = StepCap()
+    reader = cameras.LatestFrameReader(cap, timeout=0.05)
+    try:
+        cap.steps.release()
+        assert reader.read()[0]
+        assert reader.read() == (False, None)      # no new picture within the timeout
+    finally:
+        cap.steps.release()
+        reader.stop()
+
+
+def test_reader_passes_a_failed_read_on():
+    cap = StepCap(ok=False)
+    reader = cameras.LatestFrameReader(cap, timeout=1.0)
+    try:
+        cap.steps.release()
+        assert reader.read() == (False, None)
+    finally:
+        cap.steps.release()
+        reader.stop()
+
+
+def test_threaded_camera_stops_reading_before_a_switch_releases_it():
+    caps = {0: StepCap(), 1: StepCap()}
+    camera = cameras.Camera(opener=lambda index: caps[index], threaded=True)
+    for cap in caps.values():                      # the first picture when opening
+        cap.steps.release()
+    assert camera.open_first([0])
+    caps[0].steps.release()
+    assert camera.read()[0]
+    caps[0].steps.release()                        # lets a blocked read finish
+    assert camera.switch(1)
+    assert caps[0].released and not caps[0].read_after_release
+    caps[1].steps.release()
+    ok, image = camera.read()
+    assert ok and image[0, 0, 0] == 2              # picture 1 was used to open the camera
+    caps[1].steps.release()
+    camera.release()
+    assert caps[1].released and not caps[1].read_after_release

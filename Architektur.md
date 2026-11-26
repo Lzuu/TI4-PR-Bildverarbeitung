@@ -731,6 +731,16 @@ Kamera ─► main (Loop, States, Input)
   das Gesicht nie als Hand gilt. Die letzte erkannte Box wird bewusst nicht weiterverwendet:
   Sie stünde bei Kopfbewegung zwei Frames lang still, die Augenpunkte bewegen sich mit.
   Spart rund zwei Drittel der Erkennung (live 10,5 ms pro Erkennung auf dem M3).
+- **PERF-13 (#60): Kamera in eigenem Lese-Thread.** Gemessen auf dem M3: `read` 15–20 ms im
+  Median (Schwelle im Issue: 5 ms). `cameras.LatestFrameReader` ruft `cap.read()` in einem
+  eigenen Thread auf (OpenCV gibt dabei die GIL frei) und hält nur das neueste Bild. `read()`
+  gibt das neueste noch nicht abgeholte Bild zurück; ältere werden verworfen, damit ein
+  langsamer Loop immer das aktuelle Kamerabild zeigt. Gibt es noch keins, wartet es bis zu
+  1 s, dann zählt der Aufruf als Fehlversuch wie bisher. Thread-Besitz: Nur der Reader liest
+  die Capture. `Camera.switch` und `Camera.release` stoppen ihn (Join) vor `cap.release()`,
+  `open_first` und `switch` starten ihn neu. Abschaltbar über `config.CAMERA_THREAD`. Echte
+  Kamera mit 80 ms simulierter Arbeit pro Frame: `read` 20,0 → 0,1 ms im Median, 61 → 75
+  Frames in 6 s.
 
 ## Qualitätssicherung
 - **Tests:** `fruit-ninja-cv/tests/` (pytest), laufen ohne Kamera/GUI.
