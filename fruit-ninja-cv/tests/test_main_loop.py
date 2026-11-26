@@ -557,3 +557,16 @@ def test_a_pen_coloured_object_elsewhere_is_not_protected_from_the_suit(monkeypa
     keep = calls[-1]
     assert keep[300, 75] > 0                                           # the pen is protected
     assert keep[150, 300] == 0                                         # the cushion is not
+
+
+# -- CR-23 (#73): every state has a screen of its own --------------------------------
+def test_every_state_has_a_screen_method():
+    states = {v for k, v in vars(m).items() if k.startswith("STATE_")}
+    assert states == set(m.GameLoop.SCREENS)               # a new state needs a new screen
+    for name in m.GameLoop.SCREENS.values():
+        assert callable(getattr(m.GameLoop, name))
+
+
+def test_the_loop_wrapper_still_runs_the_game_loop(monkeypatch, tmp_path):
+    frames_run = run_loop(monkeypatch, tmp_path, FakeCamera([green_frame()]), 3, BG_MODE="off")
+    assert frames_run == 3

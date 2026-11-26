@@ -34,7 +34,7 @@ Alle Befehle laufen in `fruit-ninja-cv/`.
 
 | Modul | Aufgabe | Tests |
 |---|---|---|
-| `main.py` (990 Zeilen) | Einstieg, Layout- und Zeichenfunktionen, `_run_game_loop` mit allen Zuständen | `test_main_loop.py`, `test_menu.py`, `test_screen.py`, `test_perf_loop.py` |
+| `main.py` (rund 1150 Zeilen) | Einstieg, Layout- und Zeichenfunktionen, Klasse `GameLoop` (eine Methode je Bildschirm) | `test_main_loop.py`, `test_menu.py`, `test_screen.py`, `test_perf_loop.py` |
 | `config.py` | alle Konstanten | keine eigenen |
 | `game.py`, `fruit.py`, `blade.py` | Spiellogik, Wurfphysik, Klinge | `test_game.py`, `test_fruit.py`, `test_blade.py` |
 | `difficulty.py`, `colors.py`, `dwell.py`, `keyboard.py`, `highscore.py`, `heart.py` | Presets, Stiftfarben, Dwell-Auswahl, Bildschirmtastatur, Bestenliste, Herz-Sprite | gleichnamige `test_*.py` |
@@ -52,11 +52,11 @@ Alle Befehle laufen in `fruit-ninja-cv/`.
 | `sound.py` | Töne synthetisieren und abspielen (Windows: `winsound`, macOS: `afplay`) | `test_sound.py` |
 | `logging_config.py` | Logging | keine |
 
-## Ablauf eines Frames in `_run_game_loop`
+## Ablauf eines Frames in `GameLoop.run`
 
 Kamera lesen → zuschneiden, skalieren, spiegeln → Stift suchen (`tracker.track`) → Gesicht (nur bei Bedarf) → Spielermaske je nach Hintergrundmodus → Compositing → Pose → Anzug → Zustand (`STATE_FACE_SCAN`, `STATE_NAME_ENTRY`, `STATE_MENU`, `STATE_DIFFICULTY`, `STATE_PLAY`, `STATE_GAME_OVER`) → Lichtschwert → Anzeige → Tasten.
 
-Ein Zustand steht jeweils in einem Block `elif state == STATE_...`; nach dem Zustandsnamen suchen statt die Funktion ganz zu lesen. Layout (`*_target`, `*_button`) und Zeichnen (`draw_*`) stehen als eigene Funktionen darüber.
+`GameLoop` (in `main.py`) hält den Zustand zwischen den Frames als Attribute (`self.state`, `self.game`, `self.pen_color` ...); die Daten eines Frames stehen in einem `Frame`-Objekt (`f.frame`, `f.clean`, `f.point`, `f.face_box` ...). Die Schritte heißen `_next_frame`, `_find_pen_and_face`, `_cut_out_player` (mit `_player_mask`, `_dress_player`), `_run_screen`, `_draw_status_text`, `_draw_saber`, `_show`, `_handle_key`. Jeder Zustand ist eine Methode `_<zustand>_screen` (Zuordnung in `GameLoop.SCREENS`), zum Beispiel `_menu_screen` oder `_play_screen`. Layout (`*_target`, `*_button`) und Zeichnen (`draw_*`) stehen als eigene Funktionen darüber. `_run_game_loop(...)` ist nur noch eine dünne Hülle (startet bei `ASYNC_INFERENCE` den Inferenz-Worker und lässt `GameLoop` laufen), die Tests aufrufen.
 
 ## Tests schreiben
 
@@ -68,7 +68,7 @@ Ein Zustand steht jeweils in einem Block `elif state == STATE_...`; nach dem Zus
 
 ## Fallstricke
 
-- Zeichenfunktionen ändern das Bild an Ort und Stelle. `clean` ist das unveränderte Kamerabild; Erkennung läuft immer auf `clean`, nie auf `frame`.
+- Zeichenfunktionen ändern das Bild an Ort und Stelle. `f.clean` ist das unveränderte Kamerabild; Erkennung läuft immer auf `f.clean`, nie auf `f.frame`.
 - Größen in Pixeln mit `config.SCALE` multiplizieren (`_s()` in `main.py`).
 - YOLO- und Anzug-Zwischenstände gehören zu einer Quelle `(Kameraindex, mode_session)`; eine neue Quelle verwirft sie.
 - Ein Fehler in einem optionalen Feature (YOLO, Pose, Gesicht, Ton) schaltet das Feature ab und wird einmal geloggt; das Spiel läuft weiter.
