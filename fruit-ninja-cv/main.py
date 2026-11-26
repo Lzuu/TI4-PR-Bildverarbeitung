@@ -727,13 +727,17 @@ def _run_game_loop(cap, sounds, previews=None, identifier=None):
                     # the whole body becomes the suit; only the pen stays visible
                     now_s = time.monotonic()
                     with stats.stage("pose"):
+                        # contour searched once; pose and suit reuse it (#57)
+                        body = pose_tracking.find_player(mask)
                         body_pose = pose_tracker.update(clean, mask, now=now_s,
-                                                        source=(cap.index, mode_session))
+                                                        source=(cap.index, mode_session),
+                                                        player=body)
                     with stats.stage("suit"):
                         frame = suit.dress(frame, mask, face_box, pen_mask, now_s,
                                            original=clean, pose=body_pose,
                                            renderer=suit_renderer,
-                                           source=(cap.index, mode_session))
+                                           source=(cap.index, mode_session),
+                                           player=body)
                     # the saber hilt attaches to these gloves (pose socket, no extra inference)
                     saber_hands = lightsaber.glove_grips(suit_renderer.last_parts)
 
