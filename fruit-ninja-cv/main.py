@@ -834,7 +834,8 @@ class GameLoop:
         with self.stats.stage("suit"):
             f.frame = suit.dress(f.frame, mask, f.face_box, f.pen_mask, now_s,
                                  original=f.clean, pose=body_pose,
-                                 renderer=self.suit_renderer, source=source, player=body)
+                                 renderer=self.suit_renderer, source=source, player=body,
+                                 stats=self.stats)
         # the saber hilt attaches to these gloves (pose socket, no extra inference)
         f.saber_hands = lightsaber.glove_grips(self.suit_renderer.last_parts)
 
@@ -1175,8 +1176,5 @@ def _game_loop(cap, sounds, previews=None, identifier=None, worker=None):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--suit-diagnostics', action='store_true',
-                        help='Log aggregate live processing times every five seconds')
-    arguments = parser.parse_args()
-    config.SUIT_DIAGNOSTICS = config.SUIT_DIAGNOSTICS or arguments.suit_diagnostics
+    parser.parse_args()
     main()

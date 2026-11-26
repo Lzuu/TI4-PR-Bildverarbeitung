@@ -1,0 +1,48 @@
+{
+  "opencv": "4.13.0",
+  "opencv_threads": 4,
+  "frame": [
+    960,
+    720
+  ],
+  "pose": "side",
+  "iterations": 60,
+  "camera": false,
+  "display": false,
+  "models": false,
+  "render_without_sink": {
+    "median_ms": 24.215,
+    "p95_ms": 26.101
+  },
+  "render_with_sink": {
+    "median_ms": 24.257,
+    "p95_ms": 26.704
+  },
+  "stages": {
+    "suit_masks": {
+      "median_ms": 6.343,
+      "p95_ms": 7.384
+    },
+    "suit_rig": {
+      "median_ms": 1.727,
+      "p95_ms": 2.333
+    },
+    "suit_fabric": {
+      "median_ms": 3.68,
+      "p95_ms": 4.28
+    },
+    "suit_sprites": {
+      "median_ms": 6.848,
+      "p95_ms": 7.568
+    },
+    "suit_helmet": {
+      "median_ms": 4.711,
+      "p95_ms": 5.515
+    },
+    "suit_restore": {
+      "median_ms": 0.069,
+      "p95_ms": 0.095
+    }
+  },
+  "note": "Warm synthetic render only; parent suit time includes all substeps, do not add it twice."
+}

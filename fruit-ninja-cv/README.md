@@ -96,8 +96,17 @@ Vor dem ersten Start (einmalige Modellvorbereitung):
 ```bash
 python -m pip install -r requirements.txt
 python tools/prepare_suit.py --all-models
-python main.py --suit-diagnostics
+python main.py
 ```
+
+Taste `p` zeigt die bestehenden Performance-Messwerte. Der Anzug ist jetzt in
+`suit_masks`, `suit_fabric`, `suit_rig`, `suit_sprites`, `suit_helmet` und
+`suit_restore` aufgeteilt. Log und optionaler CSV-Export verwenden dieselben
+Median/P95-Werte. Mehrere Pässe einer Unterstufe werden je Frame summiert;
+`suit` bleibt die Gesamtzeit und enthält diese Unterstufen bereits. Der frühere
+wirkungslose Schalter `--suit-diagnostics` wurde entfernt. Ohne Bildschirmausgabe:
+`python tools/benchmark_suit_stages.py` erzeugt eine reproduzierbare Aufschlüsselung
+unter `docs/suit-timings-62/` (ohne Webcam oder Modelle).
 
 Im Menü `Hintergrund: YOLO` für Freistellung ohne Greenscreen wählen.
 `Normal` benötigt weiterhin mit Taste `b` eine leere Hintergrundreferenz;

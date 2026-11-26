@@ -59,6 +59,22 @@ Kamera ─► main (Loop, States, Input)
 5. `Game.draw` + `Blade.draw` + HUD zeichnen ins Frame; `main` zeigt es an.
 
 ## Architekturentscheidungen (ADR-Kurzform)
+- **Anzug-Unterstufen in der gemeinsamen Performance-Diagnose (#62).**
+  `GameLoop` reicht seinen `FrameStats` über `suit.dress` optional an den Renderer
+  weiter. `StageAccumulator` sammelt die disjunkten Abschnitte Masken, Stoff,
+  Rig/Transformationen, Sprites, Helm und Originalpixel-Wiederherstellung lokal
+  pro Aufruf. Wiederholte Pässe werden vor `FrameStats.add` summiert: ein Sample
+  pro ausgeführter Unterstufe/Frame statt separater Medianwerte für Vorder- und
+  Hintergrund-Sprites. Die äußere Stufe `suit` bleibt die inklusive Gesamtzeit;
+  Unterstufen dürfen nicht zusätzlich zu ihr addiert werden. Bei fehlender
+  Geometrie werden nur tatsächlich ausgeführte Abschnitte erfasst. Die HUD-Zeilen
+  gruppieren Anzug und Unterstufen vorn, damit die auf zwölf Zeilen begrenzte
+  Anzeige sie nicht abschneidet. Log und CSV nutzen unverändert `FrameStats`.
+  Ohne übergebenen Empfänger erfolgen keine zusätzlichen Timer-Lesezugriffe.
+  Der wirkungslose CLI-Schalter samt Konstante ist entfernt. `last_ms` war bereits
+  durch #72 entfernt und wird nicht wieder eingeführt. Rendering und Reihenfolge
+  der Operationen bleiben unverändert; Bildvergleich und AST-Vergleich bestätigen
+  dies. Headless-Messung und Dokumentation: `docs/suit-timings-62/`.
 - **Comic-Grafiken und Laserschwert (#84, 26.11.2026).** Die fünf Frucht-PNGs
   wurden mit dem eingebauten Bildgenerator durch Comic-Sprites mit Konturen und
   Cel-Shading ersetzt. Körperanker, Größen-Cache und Schnittdarstellung bleiben

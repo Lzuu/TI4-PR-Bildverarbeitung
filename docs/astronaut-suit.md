@@ -15,7 +15,7 @@ Im Ordner `fruit-ninja-cv`:
 ```powershell
 python -m pip install -r requirements.txt
 python tools/prepare_suit.py --all-models
-python main.py --suit-diagnostics
+python main.py
 ```
 
 Für eine getrennte Installation davor optional `python -m venv .venv` und unter
@@ -25,8 +25,10 @@ Im Menü `Hintergrund: YOLO` wählen, um ohne grüne Wand oder Referenz zu spiel
 Bei `Normal` wie bisher `b` drücken und für die leere Referenz aus dem Bild treten.
 Bei `Aus` ist der Anzug bewusst aus. `q` beendet das Spiel, `d` zeigt die Stiftmaske.
 
-`--suit-diagnostics` schreibt alle fünf Sekunden tatsächliche Frame-Rate und
-Median/P95 der Stufen ins bestehende Log. Kein Pro-Frame-Log und keine gespeicherten
+Taste `p` zeigt Frame-Rate und Median/P95 der Stufen. Die gemeinsame Performance-
+Diagnose schreibt Zusammenfassungen im konfigurierten Intervall ins bestehende
+Log; die Anzug-Unterstufen sind seit #62 separat sichtbar. Der frühere wirkungslose
+Schalter `--suit-diagnostics` ist entfernt. Kein Pro-Frame-Log und keine gespeicherten
 Kamerabilder. Für schwächere Rechner kann `MAX_CANVAS_HEIGHT` in config.py auf 540
 gesetzt werden; die konkrete Qualitäts-/Geschwindigkeitswahl am Zielgerät prüfen.
 
@@ -146,7 +148,8 @@ python tools/benchmark_suit_camera.py --camera 2 --seconds 15
 
 Das Werkzeug zeigt auch die Zahl der Frames mit Pose/Gesicht/Stift. Eine hohe
 Bildrate ohne tatsächlich anwesenden Spieler ist keine gültige Anzug-Abnahme.
-Das Spiel mit `--suit-diagnostics` ergänzt die echten Ausgabekosten.
+Die gemeinsame Performance-Diagnose des Spiels (Taste `p`, Log/CSV) ergänzt die
+echten Ausgabekosten; Details stehen in `docs/suit-timings-62/README.md`.
 
 Die Darstellung ist ein **2,5D-Rig mit frontalen Bildteilen**. Größere Drehungen,
 Selbstverdeckung, sehr weite Kleidung, schlechte Segmentierung und kurze
