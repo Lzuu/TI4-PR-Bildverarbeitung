@@ -157,15 +157,16 @@ class PoseEstimator:
     def __call__(self, frame, mask):
         bbox = player_box(mask)
         if bbox is None or self.failed:
+            self.reset()
             return None
         started = time.perf_counter()
         try:
             if self.detector is not None:
-                if self._roi is None or self._calls%5==0:
+                if self._roi is None:
                     detected=self.detector(frame,mask)
                     if detected is not None:self._roi=detected
                 if self._roi is None:return None
-                if self._last_box is not None and self._calls%5!=0:
+                if self._last_box is not None:
                     delta=(np.asarray(bbox[:2])+np.asarray(bbox[2:])/2
                            -np.asarray(self._last_box[:2])-np.asarray(self._last_box[2:])/2)
                     self._roi=tuple(point+delta for point in self._roi)
@@ -188,6 +189,12 @@ class PoseEstimator:
             h,w=frame.shape[:2]
             outside=(pose.points[:,0]<0)|(pose.points[:,0]>=w)|(pose.points[:,1]<0)|(pose.points[:,1]>=h)
             pose.confidence[outside]=0
+            # Zoo's auxiliary hip/scale landmarks update the oriented crop.
+            auxiliary=np.asarray(landmarks,np.float32).reshape(-1,5)
+            if self.detector is not None:
+                points=cv2.transform(auxiliary[None,33:35,:2],cv2.invertAffineTransform(matrix))[0]
+                self._roi=(tuple(points) if np.isfinite(points).all()
+                           and np.linalg.norm(points[1]-points[0])>4 else None)
             return pose
         except (cv2.error, ValueError, StopIteration):
             self.failed = True
@@ -251,7 +258,7 @@ class PoseTracker:
         self.current.points[ids[good], :2] = moved.reshape(-1, 2)[good]
         self.current.confidence[ids[~good]] = 0
 
-    def update(self, frame, mask, now=None, source=None):
+    def update(self, frame, mask, now=None, source=None, captured_at=None):
         now = time.monotonic() if now is None else now
         box = player_box(mask)
         if box is None:
@@ -266,7 +273,14 @@ class PoseTracker:
             self.reset()
         self._source, self._box = source, box
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        if self._last_inference is not None and now - self._last_inference < self.interval:
+        if hasattr(self.infer, 'poll'):
+            result = self.infer.poll(frame, mask, now, source, captured_at)
+            if result is not None and result.value is not None and now-result.captured_at <= self.max_age:
+                self.current = result.value.copy()
+                self._last_verified = result.captured_at
+                self._gray = cv2.cvtColor(result.frame, cv2.COLOR_BGR2GRAY)
+            self._flow(gray)
+        elif self._last_inference is not None and now - self._last_inference < self.interval:
             self._flow(gray)
         else:
             self._last_inference = now

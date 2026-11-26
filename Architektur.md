@@ -59,6 +59,20 @@ Kamera ─► main (Loop, States, Input)
 5. `Game.draw` + `Blade.draw` + HUD zeichnen ins Frame; `main` zeigt es an.
 
 ## Architekturentscheidungen (ADR-Kurzform)
+- **Asynchrone Inferenz (#56).** YOLO und Pose teilen sich einen einzigen
+  Hintergrund-Worker mit höchstens einem wartenden Auftrag je Typ. Neue Bilder
+  ersetzen wartende Bilder; es gibt keine FIFO-Bildschlange. Nur der Worker
+  verwendet die Netze zur Inferenz. Ergebnisse tragen Quellkennung, Bildform,
+  Generation und Aufnahmezeit; Quellenwechsel und Reset verwerfen alte Resultate
+  einschließlich noch laufender Aufträge. Ergebnisalter zählt ab Aufnahme, nicht
+  ab Fertigstellung. Der Hauptthread wartet weder auf Modellladen noch Inferenz.
+  Optischer Fluss überträgt eine neue Pose vom tatsächlich ausgewerteten Bild
+  auf das aktuelle Bild; seine Ergebnisse verlängern das Inferenzalter nicht.
+  Ein Worker serialisiert die beiden Netze statt gleichzeitiger Inferenzspitzen.
+  OpenCV wird vor Workerstart prozessweit auf eine konfigurierbare Threadzahl
+  begrenzt. Shutdown stoppt neue Aufträge ohne unbeschränkt auf native Inferenz
+  zu warten. Die bisherige Entscheidung gegen asynchrone Inferenz ist damit
+  durch expliziten Netzbesitz und Bild-/Quellenidentität ersetzt.
 - **Lokale Frucht-Sprites statt einfacher Kreise (#77, 26.11.2026).** Fünf
   realistische Fruchtsorten und eine stilisierte 3D-Spielbombe wurden einmalig mit
   dem integrierten Bildgenerator erzeugt. Transparente PNGs liegen versioniert in
@@ -439,8 +453,9 @@ Kamera ─► main (Loop, States, Input)
     zu alte Maske wird früher aufgefrischt, aber nur, wenn eine Inferenz selbst günstig
     ist (höchstens das halbe Budget). Sonst würde bei langsamer Hardware jede Inferenz
     die Frames weiter verlangsamen (Rückkopplung, im Messlauf aufgetreten). Eine
-    asynchrone Inferenz ist bewusst nicht gebaut: Dafür müssten Thread-Besitz und
-    Frame-Identität erst festgelegt werden, und ohne belegten Bedarf kommt sie nicht.
+    asynchrone Inferenz war damals bewusst nicht gebaut. **Durch #56 ersetzt:**
+    Netzbesitz, Quellen-/Bildidentität und Ergebnisalter sind jetzt im Worker
+    festgelegt; siehe die aktuelle ADR zur asynchronen Inferenz oben.
   - **PERF-04 Verarbeitungsskala.** `TRACK_SCALE = 0.5` und `GREEN_SCALE = 0.5`. Der Tracker
     skaliert Morphologie- und Weichzeichner-Kernel und die Flächenschwelle mit
     (ein fester 5×5-Kernel löschte Stifte unter 8 px komplett); Punkt und `last_mask`
