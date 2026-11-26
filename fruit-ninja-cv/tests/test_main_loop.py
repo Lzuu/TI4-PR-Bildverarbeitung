@@ -401,7 +401,7 @@ class ScriptedCamera:
 
 
 def _play_through_menu(monkeypatch, tmp_path, mode, mirror=False, swipe=None, fruit=None,
-                       frames=400):
+                       frames=400, stop=None):
     """Menu -> mode circle -> difficulty circle -> play; then ``swipe`` (screen points)."""
     w, h = _config.WIDTH, _config.HEIGHT
     mode_t = m.challenge_target(w, h) if mode == m.MODE_CHALLENGE else m.menu_start_target(w, h)
@@ -429,6 +429,8 @@ def _play_through_menu(monkeypatch, tmp_path, mode, mirror=False, swipe=None, fr
     camera = ScriptedCamera(pen, mirror)
 
     def on_frame(n, mouse):
+        if stop is not None:
+            return stop(games)
         if games and state["swipe_at"] is None:
             if fruit is not None:
                 games[0].fruits = [fruit]
@@ -490,3 +492,20 @@ def test_mirrored_camera_image_and_arrow_use_the_same_screen_direction(monkeypat
                                fruit=left_fruit,
                                swipe=_swipe_screen(w * 0.8, w * 0.2, h * 0.7))
     assert left_fruit.sliced and games[0].directions_done == 1
+
+
+def test_a_finished_challenge_is_saved_on_its_own_leaderboard(monkeypatch, tmp_path):
+    import json
+    real = m.ChallengeGame
+    monkeypatch.setattr(m, "ChallengeGame", lambda *a, **k: real(*a, seconds=0.3, **k))
+    after = {"frames": 0}
+
+    def stop(games):                       # run on for a few frames: the game-over screen is drawn
+        if games and games[0].game_over:
+            after["frames"] += 1
+        return after["frames"] > 3
+    games = _play_through_menu(monkeypatch, tmp_path, m.MODE_CHALLENGE, frames=900, stop=stop)
+    assert games[0].game_over and games[0].time_up
+    scores = json.loads((tmp_path / "hs.json").read_text(encoding="utf-8"))
+    assert list(scores) == ["Challenge Schwer"]             # not mixed with the classic boards
+    assert scores["Challenge Schwer"][0]["score"] == games[0].score
